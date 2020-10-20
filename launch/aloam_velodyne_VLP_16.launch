@@ -17,7 +17,7 @@
 
     <node pkg="mloam" type="preprocessing" name="preprocessing" output="screen" />
 
-<!--    <node pkg="aloam_velodyne" type="alaserOdometry" name="alaserOdometry" output="screen" />-->
+    <node pkg="mloam" type="odometry" name="odometry" output="screen" />
 
 <!--    <node pkg="aloam_velodyne" type="alaserMapping" name="alaserMapping" output="screen" />-->
 

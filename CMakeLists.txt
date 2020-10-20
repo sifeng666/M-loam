@@ -1,8 +1,11 @@
 cmake_minimum_required(VERSION 3.10)
 project(mloam)
 
-add_definitions(-std=c++11)
+#add_definitions(-std=c++11)
 set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_BUILD_TYPE "Release")
+set(CMAKE_CXX_FLAGS "-std=c++11")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -Wall -g")
 
 find_package(catkin REQUIRED COMPONENTS
     geometry_msgs
@@ -57,4 +60,4 @@ add_executable(preprocessing src/preprocessing.cpp)
 target_link_libraries(preprocessing ${catkin_LIBRARIES} ${PCL_LIBRARIES})
 
 add_executable(odometry src/odometry.cpp)
-target_link_libraries(odometry ${catkin_LIBRARIES} ${PCL_LIBRARIES} ndt_omp)
+target_link_libraries(odometry ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES} ndt_omp)

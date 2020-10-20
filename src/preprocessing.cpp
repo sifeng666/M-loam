@@ -3,11 +3,8 @@
 //
 
 #include "helper.h"
+#include "pcl_utils.h"
 
-#include <pcl/filters/voxel_grid.h>
-#include <pcl/filters/approximate_voxel_grid.h>
-#include <pcl/filters/radius_outlier_removal.h>
-#include <pcl/filters/statistical_outlier_removal.h>
 
 class PreProcessing {
 
@@ -16,47 +13,10 @@ public:
     void pclFiltersInit() {
         std::string downsample_method = nh.param<std::string>("downsample_method", "VOXELGRID");
         double downsample_resolution = nh.param<double>("downsample_resolution", 0.1);
-
-        if(downsample_method == "VOXELGRID") {
-            std::cout << "downsample: VOXELGRID " << downsample_resolution << std::endl;
-            boost::shared_ptr<pcl::VoxelGrid<PointT>> voxelgrid(new pcl::VoxelGrid<PointT>());
-            voxelgrid->setLeafSize(downsample_resolution, downsample_resolution, downsample_resolution);
-            downsample_filter = voxelgrid;
-        } else if(downsample_method == "APPROX_VOXELGRID") {
-            std::cout << "downsample: APPROX_VOXELGRID " << downsample_resolution << std::endl;
-            boost::shared_ptr<pcl::ApproximateVoxelGrid<PointT>> approx_voxelgrid(new pcl::ApproximateVoxelGrid<PointT>());
-            approx_voxelgrid->setLeafSize(downsample_resolution, downsample_resolution, downsample_resolution);
-            downsample_filter = approx_voxelgrid;
-        } else {
-            if(downsample_method != "NONE") {
-                std::cerr << "warning: unknown downsampling type (" << downsample_method << ")" << std::endl;
-                std::cerr << "       : use passthrough filter" << std::endl;
-            }
-            std::cout << "downsample: NONE" << std::endl;
-        }
+        downsample_filter = filter.getDownsampleFilter(downsample_method, downsample_resolution);
 
         std::string outlier_removal_method = nh.param<std::string>("outlier_removal_method", "RADIUS");
-        if(outlier_removal_method == "STATISTICAL") {
-            int mean_k = nh.param<int>("statistical_mean_k", 20);
-            double stddev_mul_thresh = nh.param<double>("statistical_stddev", 1.0);
-            std::cout << "outlier_removal: STATISTICAL " << mean_k << " - " << stddev_mul_thresh << std::endl;
-
-            pcl::StatisticalOutlierRemoval<PointT>::Ptr sor(new pcl::StatisticalOutlierRemoval<PointT>());
-            sor->setMeanK(mean_k);
-            sor->setStddevMulThresh(stddev_mul_thresh);
-            outlier_removal_filter = sor;
-        } else if(outlier_removal_method == "RADIUS") {
-            double radius = nh.param<double>("radius_radius", 0.8);
-            int min_neighbors = nh.param<int>("radius_min_neighbors", 2);
-            std::cout << "outlier_removal: RADIUS " << radius << " - " << min_neighbors << std::endl;
-
-            pcl::RadiusOutlierRemoval<PointT>::Ptr rad(new pcl::RadiusOutlierRemoval<PointT>());
-            rad->setRadiusSearch(radius);
-            rad->setMinNeighborsInRadius(min_neighbors);
-            outlier_removal_filter = rad;
-        } else {
-            std::cout << "outlier_removal: NONE" << std::endl;
-        }
+        outlier_removal_filter = filter.getOutlierRemovalFilter(outlier_removal_method);
     }
 
 
@@ -106,67 +66,66 @@ public:
     }
 
 
-
-    void pointCloudHandler2(const sensor_msgs::PointCloud2ConstPtr& point_cloud_msg) {
-
-        Timer t_whole("handler2");
-
-        pcl::PointCloud<PointT>::Ptr cloud_in(new pcl::PointCloud<PointT>());
-        pcl::fromROSMsg(*point_cloud_msg, *cloud_in);
-
-        // remove nan points and points that too close and too far
-        std::vector<int> dummies;
-
-        printf("size of cloud origin: %d \n", cloud_in->size());
-
-        pcl::PointCloud<PointT>::Ptr cloud_out(new pcl::PointCloud<PointT>());
-        pcl::removeNaNFromPointCloud(*cloud_in, *cloud_out, dummies);
-        restrictPointDistance(cloud_out, cloud_out, distance_near_thresh, distance_far_thresh);
-        downsample(cloud_out, cloud_out);
-        outlier_removal(cloud_out, cloud_out);
-
-        sensor_msgs::PointCloud2 laserCloudFilteredMsg;
-        pcl::toROSMsg(*cloud_out, laserCloudFilteredMsg);
-        laserCloudFilteredMsg.header.stamp = point_cloud_msg->header.stamp;
-        laserCloudFilteredMsg.header.frame_id = "/camera_init";
-        laserCloudFilteredMsg.header.frame_id = point_cloud_msg->header.frame_id;
-        pubLaserCloudFiltered.publish(laserCloudFilteredMsg);
-
-//        t_whole.count_from_last("remove unused points");
-//        printf("size of cloud remove unused points: %d \n", cloud_out->size());
+//    void pointCloudHandler2(const sensor_msgs::PointCloud2ConstPtr& point_cloud_msg) {
 //
-//        pcl::PointCloud<PointT>::Ptr cloud_out_ds(new pcl::PointCloud<PointT>());
-//        downsample(cloud_out, cloud_out_ds);
-//        t_whole.count_from_last("downsample");
-//        printf("size of cloud downsample: %d \n", cloud_out_ds->size());
+//        Timer t_whole("handler2");
 //
-//        pcl::PointCloud<PointT>::Ptr cloud_out_ro(new pcl::PointCloud<PointT>());
-//        outlier_removal(cloud_out_ds, cloud_out_ro);
-//        t_whole.count_from_last("outlier_removal");
-//        printf("size of cloud outlier_removal: %d \n", cloud_out_ro->size());
+//        pcl::PointCloud<PointT>::Ptr cloud_in(new pcl::PointCloud<PointT>());
+//        pcl::fromROSMsg(*point_cloud_msg, *cloud_in);
 //
-//        sensor_msgs::PointCloud2 laserCloudOutRUMsg;
-//        pcl::toROSMsg(*cloud_out, laserCloudOutRUMsg);
-//        laserCloudOutRUMsg.header.stamp = point_cloud_msg->header.stamp;
-//        laserCloudOutRUMsg.header.frame_id = "/camera_init";
-//        laserCloudOutRUMsg.header.frame_id = point_cloud_msg->header.frame_id;
-//        pubLaserCloudRU.publish(laserCloudOutRUMsg); // /remove_unused_points
+//        // remove nan points and points that too close and too far
+//        std::vector<int> dummies;
 //
-//        sensor_msgs::PointCloud2 laserCloudOutDSMsg;
-//        pcl::toROSMsg(*cloud_out_ds, laserCloudOutDSMsg);
-//        laserCloudOutDSMsg.header.stamp = point_cloud_msg->header.stamp;
-//        laserCloudOutDSMsg.header.frame_id = "/camera_init";
-//        laserCloudOutDSMsg.header.frame_id = point_cloud_msg->header.frame_id;
-//        pubLaserCloudDS.publish(laserCloudOutDSMsg); // /downsample_points
+//        printf("size of cloud origin: %d \n", cloud_in->size());
 //
-//        sensor_msgs::PointCloud2 laserCloudOutROMsg;
-//        pcl::toROSMsg(*cloud_out_ro, laserCloudOutROMsg);
-//        laserCloudOutROMsg.header.stamp = point_cloud_msg->header.stamp;
-//        laserCloudOutROMsg.header.frame_id = "/camera_init";
-//        laserCloudOutROMsg.header.frame_id = point_cloud_msg->header.frame_id;
-//        pubLaserCloudRO.publish(laserCloudOutROMsg); // /remove_outlier_points
-
-    }
+//        pcl::PointCloud<PointT>::Ptr cloud_out(new pcl::PointCloud<PointT>());
+//        pcl::removeNaNFromPointCloud(*cloud_in, *cloud_out, dummies);
+//        restrictPointDistance(cloud_out, cloud_out, distance_near_thresh, distance_far_thresh);
+//        downsample(cloud_out, cloud_out);
+//        outlier_removal(cloud_out, cloud_out);
+//
+//        sensor_msgs::PointCloud2 laserCloudFilteredMsg;
+//        pcl::toROSMsg(*cloud_out, laserCloudFilteredMsg);
+//        laserCloudFilteredMsg.header.stamp = point_cloud_msg->header.stamp;
+//        laserCloudFilteredMsg.header.frame_id = "/camera_init";
+//        laserCloudFilteredMsg.header.frame_id = point_cloud_msg->header.frame_id;
+//        pubLaserCloudFiltered.publish(laserCloudFilteredMsg);
+//
+////        t_whole.count_from_last("remove unused points");
+////        printf("size of cloud remove unused points: %d \n", cloud_out->size());
+////
+////        pcl::PointCloud<PointT>::Ptr cloud_out_ds(new pcl::PointCloud<PointT>());
+////        downsample(cloud_out, cloud_out_ds);
+////        t_whole.count_from_last("downsample");
+////        printf("size of cloud downsample: %d \n", cloud_out_ds->size());
+////
+////        pcl::PointCloud<PointT>::Ptr cloud_out_ro(new pcl::PointCloud<PointT>());
+////        outlier_removal(cloud_out_ds, cloud_out_ro);
+////        t_whole.count_from_last("outlier_removal");
+////        printf("size of cloud outlier_removal: %d \n", cloud_out_ro->size());
+////
+////        sensor_msgs::PointCloud2 laserCloudOutRUMsg;
+////        pcl::toROSMsg(*cloud_out, laserCloudOutRUMsg);
+////        laserCloudOutRUMsg.header.stamp = point_cloud_msg->header.stamp;
+////        laserCloudOutRUMsg.header.frame_id = "/camera_init";
+////        laserCloudOutRUMsg.header.frame_id = point_cloud_msg->header.frame_id;
+////        pubLaserCloudRU.publish(laserCloudOutRUMsg); // /remove_unused_points
+////
+////        sensor_msgs::PointCloud2 laserCloudOutDSMsg;
+////        pcl::toROSMsg(*cloud_out_ds, laserCloudOutDSMsg);
+////        laserCloudOutDSMsg.header.stamp = point_cloud_msg->header.stamp;
+////        laserCloudOutDSMsg.header.frame_id = "/camera_init";
+////        laserCloudOutDSMsg.header.frame_id = point_cloud_msg->header.frame_id;
+////        pubLaserCloudDS.publish(laserCloudOutDSMsg); // /downsample_points
+////
+////        sensor_msgs::PointCloud2 laserCloudOutROMsg;
+////        pcl::toROSMsg(*cloud_out_ro, laserCloudOutROMsg);
+////        laserCloudOutROMsg.header.stamp = point_cloud_msg->header.stamp;
+////        laserCloudOutROMsg.header.frame_id = "/camera_init";
+////        laserCloudOutROMsg.header.frame_id = point_cloud_msg->header.frame_id;
+////        pubLaserCloudRO.publish(laserCloudOutROMsg); // /remove_outlier_points
+//
+//    }
 
     double getTwoPointsAngle(const PointT& p1, const PointT& p2) {
         Eigen::Vector3d v1(p1.x, p1.y, p1.z);
@@ -180,7 +139,7 @@ public:
 
     void pointCloudHandler(const sensor_msgs::PointCloud2ConstPtr& point_cloud_msg) {
 
-        pointCloudHandler2(point_cloud_msg);
+//        pointCloudHandler2(point_cloud_msg);
 
         Timer t_whole("handler1");
 
@@ -194,7 +153,7 @@ public:
         // remove nan points and points that too close and too far
         pcl::removeNaNFromPointCloud(*cloud_in, *cloud_in, dummies);
         restrictPointDistance(cloud_in, cloud_in, distance_near_thresh, distance_far_thresh);
-        t_whole.count_from_last("remove unused points");
+//        t_whole.count_from_last("remove unused points");
 
         // split into 16 scans (from loam)
         int cloudSize = cloud_in->points.size();
@@ -251,10 +210,10 @@ public:
             point.intensity = scanID + 1.0 / SCAN_FREQUENCY * relTime;
             pointCloudScans[scanID].push_back(point);
         }
-        t_whole.count_from_last("split into 16 scans");
+//        t_whole.count_from_last("split into 16 scans");
 
         cloudSize = count;
-        printf("points size %d \n", cloudSize);
+//        printf("points size %d \n", cloudSize);
 
         pcl::PointCloud<PointT>::Ptr laserCloud(new pcl::PointCloud<PointT>());
         for (int i = 0; i < N_SCANS; i++) {
@@ -262,7 +221,7 @@ public:
             *laserCloud += pointCloudScans[i];
             scanEndInd[i] = laserCloud->size() - 6;// 记录每个scan的结束index，忽略后5个点，开始和结束处的点云scan容易产生不闭合的“接缝”，对提取edge feature不利
         }
-        t_whole.count_from_last("points prepare");
+//        t_whole.count_from_last("points prepare");
 
         for (int i = 5; i < cloudSize - 5; i++) {
             float diffX = laserCloud->points[i - 5].x + laserCloud->points[i - 4].x + laserCloud->points[i - 3].x + laserCloud->points[i - 2].x + laserCloud->points[i - 1].x - 10 * laserCloud->points[i].x + laserCloud->points[i + 1].x + laserCloud->points[i + 2].x + laserCloud->points[i + 3].x + laserCloud->points[i + 4].x + laserCloud->points[i + 5].x;
@@ -278,7 +237,7 @@ public:
             // Label -1: surf_flat
             // Label 0: surf_less_flat， 包含Label -1，因为点太多，最后会降采样
         }
-        t_whole.count_from_last("cal all points' curvature");
+//        t_whole.count_from_last("cal all points' curvature");
 
 
         //挑选点，排除容易被斜面挡住的点以及离群点，有些点容易被斜面挡住，而离群点可能出现带有偶然性，这些情况都可能导致前后两次扫描不能被同时看到
@@ -408,25 +367,26 @@ public:
             }
         }
 
-        t_whole.count_from_last("my outlier removal");
+//        t_whole.count_from_last("my outlier removal");
 
         pcl::PointCloud<PointT> cornerPointsSharp;
         pcl::PointCloud<PointT> cornerPointsLessSharp;
         pcl::PointCloud<PointT> surfPointsFlat;
         pcl::PointCloud<PointT> surfPointsLessFlat;
 
-        size_t t_q_sort = 0;
+//        size_t t_q_sort = 0;
         for (int i = 0; i < N_SCANS; i++) {
             if( scanEndInd[i] - scanStartInd[i] < 6) // 如果该scan的点数少于7个点，就跳过
                 continue;
             pcl::PointCloud<PointT>::Ptr surfPointsLessFlatScan(new pcl::PointCloud<PointT>);
             for (int j = 0; j < 6; j++) {// 将该scan分成6小段执行特征检测
+
                 int sp = scanStartInd[i] + (scanEndInd[i] - scanStartInd[i]) * j / 6;// subscan的起始index
                 int ep = scanStartInd[i] + (scanEndInd[i] - scanStartInd[i]) * (j + 1) / 6 - 1;// subscan的结束index
 
-                TimeCounter t_sorter;
+//                TimeCounter t_sorter;
                 std::sort (cloudSortInd + sp, cloudSortInd + ep + 1, [&](int i, int j) { return (cloudCurvature[i]<cloudCurvature[j]); }); // 根据曲率有小到大对subscan的点进行sort
-                t_q_sort += t_sorter.count();
+//                t_q_sort += t_sorter.count();
 
                 int largestPickedNum = 0;
                 for (int k = ep; k >= sp; k--) {
@@ -511,7 +471,6 @@ public:
                     }
                 }
 
-
                 // 其他的非corner特征点与surf_flat特征点一起组成surf_less_flat特征点
                 for (int k = sp; k <= ep; k++) {
                     if (cloudLabel[k] <= 0) {
@@ -530,8 +489,8 @@ public:
             surfPointsLessFlat += surfPointsLessFlatScanDS;
         }
 
-        printf("sort q time %lld \n", t_q_sort);
-        t_whole.count_from_last("points seperated");
+//        printf("sort q time %lld \n", t_q_sort);
+//        t_whole.count_from_last("points seperated");
 
         sensor_msgs::PointCloud2 laserCloudOutMsg;
         pcl::toROSMsg(*laserCloud, laserCloudOutMsg);
@@ -590,13 +549,13 @@ public:
 
         pubSurfPointsLessFlat = nh.advertise<sensor_msgs::PointCloud2>("/laser_cloud_less_flat", 100);
 
-        pubLaserCloudRU = nh.advertise<sensor_msgs::PointCloud2>("/remove_unused_points", 100);
-
-        pubLaserCloudDS = nh.advertise<sensor_msgs::PointCloud2>("/downsample_points", 100);
-
-        pubLaserCloudRO = nh.advertise<sensor_msgs::PointCloud2>("/remove_outlier_points", 100);
-
-        pubLaserCloudFiltered = nh.advertise<sensor_msgs::PointCloud2>("/filtered_points", 100);
+//        pubLaserCloudRU = nh.advertise<sensor_msgs::PointCloud2>("/remove_unused_points", 100);
+//
+//        pubLaserCloudDS = nh.advertise<sensor_msgs::PointCloud2>("/downsample_points", 100);
+//
+//        pubLaserCloudRO = nh.advertise<sensor_msgs::PointCloud2>("/remove_outlier_points", 100);
+//
+//        pubLaserCloudFiltered = nh.advertise<sensor_msgs::PointCloud2>("/filtered_points", 100);
 
 //        pubRemovePoints = nh.advertise<sensor_msgs::PointCloud2>("/laser_remove_points", 100);
 
@@ -630,6 +589,7 @@ private:
     const int N_SCANS = 16;
     const int SCAN_FREQUENCY = 10;
 
+    Filter filter;
     pcl::Filter<PointT>::Ptr downsample_filter;
     pcl::Filter<PointT>::Ptr outlier_removal_filter;
 

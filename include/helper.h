@@ -15,6 +15,8 @@
 
 #include <ros/ros.h>
 #include <sensor_msgs/PointCloud2.h>
+#include <nav_msgs/Odometry.h>
+#include <nav_msgs/Path.h>
 #include <std_msgs/String.h>
 
 #include <pcl/point_cloud.h>
