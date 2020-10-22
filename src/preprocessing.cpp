@@ -45,25 +45,25 @@ public:
 
     }
 
-    void downsample(const pcl::PointCloud<PointT>::Ptr &cloud_in, pcl::PointCloud<PointT>::Ptr& cloud_out) const {
-        if(!downsample_filter) {
-            return;
-        }
-
-        downsample_filter->setInputCloud(cloud_in);
-        downsample_filter->filter(*cloud_out);
-        cloud_out->header = cloud_in->header;
-    }
-
-    void outlier_removal(const pcl::PointCloud<PointT>::Ptr &cloud_in, pcl::PointCloud<PointT>::Ptr& cloud_out) const {
-        if(!outlier_removal_filter) {
-            return;
-        }
-
-        outlier_removal_filter->setInputCloud(cloud_in);
-        outlier_removal_filter->filter(*cloud_out);
-        cloud_out->header = cloud_in->header;
-    }
+//    void downsample(const pcl::PointCloud<PointT>::Ptr &cloud_in, pcl::PointCloud<PointT>::Ptr& cloud_out) const {
+//        if(!downsample_filter) {
+//            return;
+//        }
+//
+//        downsample_filter->setInputCloud(cloud_in);
+//        downsample_filter->filter(*cloud_out);
+//        cloud_out->header = cloud_in->header;
+//    }
+//
+//    void outlier_removal(const pcl::PointCloud<PointT>::Ptr &cloud_in, pcl::PointCloud<PointT>::Ptr& cloud_out) const {
+//        if(!outlier_removal_filter) {
+//            return;
+//        }
+//
+//        outlier_removal_filter->setInputCloud(cloud_in);
+//        outlier_removal_filter->filter(*cloud_out);
+//        cloud_out->header = cloud_in->header;
+//    }
 
 
 //    void pointCloudHandler2(const sensor_msgs::PointCloud2ConstPtr& point_cloud_msg) {
