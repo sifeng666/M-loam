@@ -4,93 +4,8 @@
 
 #include "helper.h"
 #include "pcl_utils.h"
+#include "frame.h"
 #include "lidarFactor.hpp"
-
-struct Pose3 {
-    Eigen::Quaterniond  q;
-    Eigen::Vector3d     t;
-
-    Pose3() {
-        reset();
-    }
-
-    void reset() {
-        q = Eigen::Quaterniond(1, 0, 0, 0);
-        t = Eigen::Vector3d(0, 0, 0);
-    }
-
-    void set(const Eigen::Quaterniond& _q, const Eigen::Vector3d& _t) {
-        q = _q;
-        t = _t;
-    }
-
-    void set(const Eigen::Matrix4d& _T) {
-        q = Eigen::Quaterniond(_T.block<3, 3>(0, 0));
-        t = Eigen::Vector3d(_T.block<3, 1>(0, 3));
-    }
-
-    void multiply(const Pose3& other) {
-        t = t + q * other.t;
-        q = q * other.q;
-    }
-
-    void multiply(const Eigen::Quaterniond& _q, const Eigen::Vector3d& _t) {
-        t = t + q * _t;
-        q = q * _q;
-    }
-};
-
-class Frame {
-
-private:
-    Pose3 toLastFrame, toLastKeyframe;
-    bool keyframe = false;
-
-public:
-
-    using Ptr = boost::shared_ptr<Frame>;
-    using PointCloudPtr = pcl::PointCloud<PointT>::Ptr;
-
-    // raw pcd
-    pcl::PointCloud<PointT>::ConstPtr rawPointCloud;
-
-    // feature pcd
-    pcl::PointCloud<PointT>::ConstPtr edgeFeatures;
-    pcl::PointCloud<PointT>::ConstPtr planeFeatures;
-    pcl::PointCloud<PointT>::ConstPtr edgeLessFeatures;
-    pcl::PointCloud<PointT>::ConstPtr planeLessFeatures;
-
-public:
-
-    explicit Frame(PointCloudPtr EF, PointCloudPtr PF, PointCloudPtr ELF, PointCloudPtr PLF, PointCloudPtr RAW = nullptr) :
-        edgeFeatures(EF), planeFeatures(PF), edgeLessFeatures(ELF), planeLessFeatures(PLF), rawPointCloud(RAW) {
-        // init
-    }
-
-    bool is_keyframe() const {
-        return keyframe;
-    }
-
-    void set_keyframe() {
-        keyframe = true;
-    }
-
-    void setTrans2LastFrame(const Eigen::Quaterniond& _q_2LastFrame, const Eigen::Vector3d& _t_2LastFrame) {
-        toLastFrame.set(_q_2LastFrame, _t_2LastFrame);
-    }
-
-    void setTrans2LastFrame(const Eigen::Matrix4d& _T_2LastFrame) {
-        toLastFrame.set(_T_2LastFrame);
-    }
-
-    void setTrans2LastKeyframe(const Eigen::Quaterniond& _q_2LastKeyframe, const Eigen::Vector3d& _t_2LastKeyframe) {
-        toLastKeyframe.set(_q_2LastKeyframe, _t_2LastKeyframe);
-    }
-
-    void setTrans2LastKeyframe(const Eigen::Matrix4d& _T_2LastKeyframe) {
-        toLastKeyframe.set(_T_2LastKeyframe);
-    }
-};
 
 class Odometry {
 public:
@@ -198,8 +113,6 @@ public:
 
         auto edgeFeaturesLast = toFrame->edgeLessFeatures;
         auto planeFeaturesLast = toFrame->planeLessFeatures;
-
-        Timer t_gen_data("gen ceres data");
 
         for (int i = 0; i < edgePointSize; ++i) {
 
@@ -376,14 +289,12 @@ public:
                 }
             }
         }
-
-        t_gen_data.count("gen data finished");
-
+//        printf("corr: %d %d!!!!\n",  edge_correspondence, plane_correspondence);
         if ((edge_correspondence + plane_correspondence) < 20) {
             printf("less correspondence! *************************************************\n");
         }
 
-        Timer t_ceres;
+//        Timer t_ceres;
         ceres::Solver::Options options;
         options.linear_solver_type = ceres::DENSE_QR;
         options.max_num_iterations = 4;
@@ -391,22 +302,32 @@ public:
         ceres::Solver::Summary summary;
         // 基于构建的所有残差项，求解最优的当前帧位姿与上一帧位姿的位姿增量：para_q和para_t
         ceres::Solve(options, &problem, &summary);
-        t_ceres.count("ceres solver");
-
+//        t_ceres.count("ceres solver");
+//        if (!toKeyframe)
+//            printf("%f %f %f\n", para_t_2last[0], para_t_2last[1], para_t_2last[2]);
+//        cout << q_curr2last.matrix() << endl << t_curr2last.matrix() << endl;
     }
 
     bool frameToBeKeyframe() {
-
-        Eigen::Vector3d eulerAngle = pose_delta2key.q.matrix().eulerAngles(2, 1, 0);
-
-        if (abs(eulerAngle.x()) < keyframeAngleThreshold &&
-            abs(eulerAngle.y()) < keyframeAngleThreshold &&
-            abs(eulerAngle.z()) < keyframeAngleThreshold &&
-            pose_delta2key.t.norm() < keyframeDistThreshold) {
-            return false;
-        }
-
-        return true;
+        return pose_delta2key.t.norm() > keyframeDistThreshold;
+//        Eigen::Vector3d eulerAngle = pose_delta2key.q.matrix().eulerAngles(2, 1, 0);
+//        float roll, pitch, yaw;
+//
+//
+//        bool isKeyframe = abs(eulerAngle.x()) > keyframeAngleThreshold ||
+//                          abs(eulerAngle.y()) > keyframeAngleThreshold ||
+//                          abs(eulerAngle.z()) > keyframeAngleThreshold ||
+//                          pose_delta2key.t.norm() > keyframeDistThreshold;
+//        cout << "to be keyframe: " << isKeyframe << "\n" << abs(eulerAngle.x()) << " " << abs(eulerAngle.y()) << " " << abs(eulerAngle.z()) << " " << pose_delta2key.t.norm() << endl;
+//        return isKeyframe;
+//        if (abs(eulerAngle.x()) < keyframeAngleThreshold &&
+//            abs(eulerAngle.y()) < keyframeAngleThreshold &&
+//            abs(eulerAngle.z()) < keyframeAngleThreshold &&
+//            pose_delta2key.t.norm() < keyframeDistThreshold) {
+//            return false;
+//        }
+//
+//        return true;
     }
 
     void run() {
@@ -435,85 +356,95 @@ public:
 
                 {
                     std::lock_guard lockGuard(mBuf);
-                    cornerPointsSharp->clear();
+
+                    resetPCLPtr();
+//                    cornerPointsSharp->clear();
                     pcl::fromROSMsg(*cornerSharpBuf.front(), *cornerPointsSharp);
                     cornerSharpBuf.pop();
 
-                    cornerPointsLessSharp->clear();
+//                    cornerPointsLessSharp->clear();
                     pcl::fromROSMsg(*cornerLessSharpBuf.front(), *cornerPointsLessSharp);
                     cornerLessSharpBuf.pop();
 
-                    surfPointsFlat->clear();
+//                    surfPointsFlat->clear();
                     pcl::fromROSMsg(*surfFlatBuf.front(), *surfPointsFlat);
                     surfFlatBuf.pop();
 
-                    surfPointsLessFlat->clear();
+//                    surfPointsLessFlat->clear();
                     pcl::fromROSMsg(*surfLessFlatBuf.front(), *surfPointsLessFlat);
                     surfLessFlatBuf.pop();
 
-                    laserCloudFullRes->clear();
+//                    laserCloudFullRes->clear();
                     pcl::fromROSMsg(*fullPointsBuf.front(), *laserCloudFullRes);
                     fullPointsBuf.pop();
                 }
 
                 Timer t_whole("running");
 
+                auto newFrame = boost::make_shared<Frame>(cornerPointsSharp, surfPointsFlat, cornerPointsLessSharp, surfPointsLessFlat);
+                currFrame = newFrame;
+
                 if (!is_init) {
                     is_init = true;
                     std::cout << "Initialization finished \n";
-                    lastFrame.reset(new Frame(cornerPointsSharp, surfPointsFlat, cornerPointsLessSharp, surfPointsLessFlat));
-                    lastFrame->set_keyframe();
-                    lastKeyframe = lastFrame;
+
+                    lastFrame = currFrame;
+                    lastKeyframe = currFrame;
+                    currFrame->set_keyframe();
+                    keyframeVec.push_back(frameCount);
 
                 } else {
-                    currFrame.reset(new Frame(cornerPointsSharp, surfPointsFlat, cornerPointsLessSharp, surfPointsLessFlat));
 
-                    for (int opti_counter = 0; opti_counter < 2; opti_counter++) {
+                    OPTIMIZATION_TIMES = 2;
+
+                    for (int opti_counter = 0; opti_counter < OPTIMIZATION_TIMES; opti_counter++) {
                         getPose3BetweenFrames(lastFrame, currFrame, false);
                     }
                     currFrame->setTrans2LastFrame(q_curr2last, t_curr2last);
                     lastFrame = currFrame;
 
-                    t_whole.count_from_last("2 times curr2last");
+                    // accumulate △t_curr2last (between two close frame) to t_delta2key
+                    pose_delta2key.multiply(q_curr2last, t_curr2last);
 
-                    if (frameToBeKeyframe()) {
+                    if (frameToBeKeyframe()) { // currFrame is key
                         currFrame->set_keyframe();
                         keyframeVec.push_back(frameCount);
+                        OPTIMIZATION_TIMES = 4;
+
+                        cout << "pose_delta2key: \n" << pose_delta2key.q.matrix() << "\n" << pose_delta2key.t << endl;
                         pose_delta2key.reset();
-                        for (int opti_counter = 0; opti_counter < 4; opti_counter++) {
-                            getPose3BetweenFrames(lastKeyframe, currFrame, true);
-                        }
-                        currFrame->setTrans2LastKeyframe(q_curr2key, t_curr2key);
-                        lastKeyframe = currFrame;
-                        pose_key2world.multiply(q_curr2key, t_curr2key);
-                        t_whole.count_from_last("is keyframes, 4 times curr2key");
-
-                    } else {
-                        // accumulate △t_curr2last (between two close frame) to t_delta2key
-                        pose_delta2key.multiply(q_curr2last, t_curr2last);
-                        for (int opti_counter = 0; opti_counter < 2; opti_counter++) {
-                            getPose3BetweenFrames(lastKeyframe, currFrame, true);
-                        }
-                        currFrame->setTrans2LastKeyframe(q_curr2key, t_curr2key);
-                        t_whole.count_from_last("not keyframes, 2 times curr2key");
-
                     }
+
+                    for (int opti_counter = 0; opti_counter < OPTIMIZATION_TIMES; opti_counter++) {
+                        getPose3BetweenFrames(lastKeyframe, currFrame, true);
+                    }
+                    currFrame->setTrans2LastKeyframe(q_curr2key, t_curr2key);
+
 
                     if (currFrame->is_keyframe()) {
-                        pose_curr2key2world = pose_key2world;
-                    } else {
-                        pose_curr2key2world.multiply(q_curr2key, t_curr2key);
+                        cout << "pose_curr2key: \n" << q_curr2key.matrix() << "\n" << t_curr2key << endl;
+                        pose_key2world.multiply(q_curr2key, t_curr2key);
+                        lastKeyframe = currFrame;
+                        pWKeyframeToLastKeyframe.write(pose_key2world, true);
                     }
 
+                    pose_curr2key2world.multiply(q_curr2key, t_curr2key);
                     pose_curr2world.multiply(q_curr2last, t_curr2last);
+
+
+
                 }
 
-                frameMap[frameCount] = lastFrame;
+                pWFrameToLastFrame.write(pose_curr2world, currFrame->is_keyframe());
+                pWFrameToLastKeyframe.write(pose_curr2key2world, currFrame->is_keyframe());
+
+                frameMap[frameCount] = currFrame;
 
                 // publish odometry
                 odomWithoutKF.header.frame_id = "/camera_init";
                 odomWithoutKF.child_frame_id = "/laser_odom";
                 odomWithoutKF.header.stamp = ros::Time().fromSec(timeSurfPointsLessFlat);
+                auto ppost = odomWithoutKF.pose.pose;
                 odomWithoutKF.pose.pose.orientation.x = pose_curr2world.q.x();
                 odomWithoutKF.pose.pose.orientation.y = pose_curr2world.q.y();
                 odomWithoutKF.pose.pose.orientation.z = pose_curr2world.q.z();
@@ -558,13 +489,16 @@ public:
 
     }
 
-    void allocateMemory() {
+    void resetPCLPtr() {
         cornerPointsSharp.reset(new pcl::PointCloud<PointT>());
         cornerPointsLessSharp.reset(new pcl::PointCloud<PointT>());
         surfPointsFlat.reset(new pcl::PointCloud<PointT>());
         surfPointsLessFlat.reset(new pcl::PointCloud<PointT>());
         laserCloudFullRes.reset(new pcl::PointCloud<PointT>());
-        filteredPoints.reset(new pcl::PointCloud<PointT>());
+    }
+
+    void allocateMemory() {
+//        resetPCLPtr();
 
         kdtreeEdgeFeature.reset(new pcl::KdTreeFLANN<PointT>());
         kdtreePlaneFeature.reset(new pcl::KdTreeFLANN<PointT>());
@@ -604,7 +538,11 @@ public:
         q_curr2last(para_q_2last),
         t_curr2last(para_t_2last),
         q_curr2key(para_q_2key),
-        t_curr2key(para_t_2key) {
+        t_curr2key(para_t_2key),
+        pWFrameToLastFrame("frame_to_last_frame.txt"),
+        pWFrameToLastKeyframe("frame_to_last_keyframe.txt"),
+        pWKeyframeToLastKeyframe("keyframe_to_last_keyframe.txt")
+        {
 
         // init all T to identity
 //        q_curr2key2world = q_key2world = q_delta2key = q_curr2world = Eigen::Quaterniond(1, 0, 0, 0);
@@ -623,6 +561,10 @@ public:
 private:
 
     ros::NodeHandle nh;
+
+    PoseWriter pWFrameToLastFrame;
+    PoseWriter pWFrameToLastKeyframe;
+    PoseWriter pWKeyframeToLastKeyframe;
 
     // current frame to world frame, accumulation of current frame to last frame
 //    Eigen::Quaterniond q_curr2world;
@@ -672,6 +614,7 @@ private:
     bool is_init = false;
     int frameCount = 0;
     bool need_undisortion = false;
+    int OPTIMIZATION_TIMES;
 
     // subscriber topic from preprocessing
     ros::Subscriber subCornerPointsSharp;
@@ -713,7 +656,6 @@ private:
     pcl::PointCloud<PointT>::Ptr surfPointsFlat;
     pcl::PointCloud<PointT>::Ptr surfPointsLessFlat;
     pcl::PointCloud<PointT>::Ptr laserCloudFullRes;
-    pcl::PointCloud<PointT>::Ptr filteredPoints;
 
     pcl::KdTreeFLANN<pcl::PointXYZI>::Ptr kdtreeEdgeFeature;
     pcl::KdTreeFLANN<pcl::PointXYZI>::Ptr kdtreePlaneFeature;

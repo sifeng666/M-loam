@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <queue>
 #include <mutex>
+#include <cstdio>
 
 #include <ros/ros.h>
 #include <sensor_msgs/PointCloud2.h>
