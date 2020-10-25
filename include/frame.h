@@ -25,6 +25,18 @@ struct Pose3 {
         t = _t;
     }
 
+    Pose3 dot(const Pose3& other) const {
+        Pose3 ret = *this;
+        ret.multiply(other);
+        return ret;
+    }
+
+    Pose3 dot(const Eigen::Quaterniond& _q, const Eigen::Vector3d& _t) const {
+        Pose3 ret = *this;
+        ret.multiply(_q, _t);
+        return ret;
+    }
+
     void set(const Eigen::Matrix4d& _T) {
         q = Eigen::Quaterniond(_T.block<3, 3>(0, 0));
         t = Eigen::Vector3d(_T.block<3, 1>(0, 3));
@@ -40,6 +52,12 @@ struct Pose3 {
         q = q * _q;
     }
 };
+
+
+Pose3 dot(const Pose3& p1, const Pose3& p2) {
+
+}
+
 
 class Frame {
 
@@ -98,7 +116,7 @@ class PoseWriter {
 private:
     std::ofstream f;
 public:
-    explicit PoseWriter(const std::string& _name) : f(_name) {
+    explicit PoseWriter(const std::string& _name) : f("/home/ziv/catkin_ziv/src/M-Loam/odom/" + _name) {
 
     }
 

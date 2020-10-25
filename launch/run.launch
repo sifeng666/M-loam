@@ -1,7 +1,7 @@
 <launch>
     
     <param name="/use_sim_time" value="ture"/>
-    <node pkg="rosbag" type="play" name="playbag" args="--clock /home/ziv/dataForCalibrate/1127c.bag /ns1/velodyne_points:=/velodyne_points"/>
+    <node pkg="rosbag" type="play" name="playbag" args="--clock /home/ziv/dataForCalibrate/loop1.bag /rslidar_points:=/velodyne_points"/>
 
 <!--    <param name="scan_line" type="int" value="16" />-->
 

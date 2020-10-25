@@ -13,6 +13,7 @@ public:
     void undistortPoint(PointT const *const pi, PointT *const po) {
         //interpolation ratio
         double s = (pi->intensity - int(pi->intensity)) * SCAN_FREQUENCY;
+        s = 1;
 
         Eigen::Quaterniond q_point_last = Eigen::Quaterniond::Identity().slerp(s, q_curr2last);
         Eigen::Vector3d t_point_last = s * t_curr2last;
@@ -276,7 +277,6 @@ public:
                                                  planeFeaturesLast->points[minPointInd3].z);
 
                     double s = (thisFrame->planeFeatures->points[i].intensity - int(thisFrame->planeFeatures->points[i].intensity)) * SCAN_FREQUENCY;
-
                     // 用点O，A，B，C构造点到面的距离的残差项，注意这三个点都是在上一帧的Lidar坐标系下，即，残差 = 点O到平面ABC的距离
                     // 同样的，具体到介绍lidarFactor.cpp时再说明该残差的具体计算方法
                     ceres::CostFunction *cost_function = LidarPlaneFactor::Create(curr_point, last_point_a, last_point_b, last_point_c, s);
@@ -308,26 +308,236 @@ public:
 //        cout << q_curr2last.matrix() << endl << t_curr2last.matrix() << endl;
     }
 
+    void getPose3ToKeyFrames(const Frame::Ptr& toFrame, Frame::Ptr& thisFrame) {
+
+        int edgePointSize = thisFrame->edgeFeatures->size();
+        int planePointSize = thisFrame->planeFeatures->size();
+
+        int edge_correspondence = 0, plane_correspondence = 0;
+
+        ceres::LossFunction *loss_function = new ceres::HuberLoss(0.1);
+        ceres::LocalParameterization *q_parameterization = new ceres::EigenQuaternionParameterization();
+        ceres::Problem::Options problem_options;
+
+        ceres::Problem problem(problem_options);
+
+        problem.AddParameterBlock(para_q_2key, 4, q_parameterization);
+        problem.AddParameterBlock(para_t_2key, 3);
+
+        PointT pointSel;
+        std::vector<int> pointSearchInd;
+        std::vector<float> pointSearchSqDis;
+
+        kdtreeEdgeFeature->setInputCloud(toFrame->edgeLessFeatures);
+        kdtreePlaneFeature->setInputCloud(toFrame->planeLessFeatures);
+
+        auto edgeFeaturesLast = toFrame->edgeLessFeatures;
+        auto planeFeaturesLast = toFrame->planeLessFeatures;
+
+        for (int i = 0; i < edgePointSize; ++i) {
+
+            undistortPoint(&(thisFrame->edgeFeatures->points[i]), &pointSel);
+            kdtreeEdgeFeature->nearestKSearch(pointSel, 1, pointSearchInd, pointSearchSqDis);
+
+            int closestPointInd = -1, minPointInd2 = -1;
+            if (pointSearchSqDis[0] < DISTANCE_SQ_THRESHOLD) {
+                closestPointInd = pointSearchInd[0];
+                int closestPointScanID = int(edgeFeaturesLast->points[closestPointInd].intensity);
+
+                double minPointSqDis2 = DISTANCE_SQ_THRESHOLD;
+                // 寻找点O的另外一个最近邻的点（记为点B） in the direction of increasing scan line
+                for (int j = closestPointInd + 1; j < (int)edgeFeaturesLast->points.size(); ++j) { // laserCloudCornerLast 来自上一帧的corner_less_sharp特征点,由于提取特征时是
+                    // 按照scan的顺序提取的，所以laserCloudCornerLast中的点也是按照scanID递增的顺序存放的
+                    // if in the same scan line, continue
+                    if (int(edgeFeaturesLast->points[j].intensity) <= closestPointScanID)// intensity整数部分存放的是scanID
+                        continue;
+
+                    // if not in nearby scans, end the loop
+                    if (int(edgeFeaturesLast->points[j].intensity) > (closestPointScanID + NEARBY_SCAN))
+                        break;
+
+                    double pointSqDis = (edgeFeaturesLast->points[j].x - pointSel.x) *
+                                        (edgeFeaturesLast->points[j].x - pointSel.x) +
+                                        (edgeFeaturesLast->points[j].y - pointSel.y) *
+                                        (edgeFeaturesLast->points[j].y - pointSel.y) +
+                                        (edgeFeaturesLast->points[j].z - pointSel.z) *
+                                        (edgeFeaturesLast->points[j].z - pointSel.z);
+
+                    if (pointSqDis < minPointSqDis2) { // 第二个最近邻点有效,，更新点B
+                        // find nearer point
+                        minPointSqDis2 = pointSqDis;
+                        minPointInd2 = j;
+                    }
+                }
+
+                // 寻找点O的另外一个最近邻的点B in the direction of decreasing scan line
+                for (int j = closestPointInd - 1; j >= 0; --j) {
+                    // if in the same scan line, continue
+                    if (int(edgeFeaturesLast->points[j].intensity) >= closestPointScanID)
+                        continue;
+
+                    // if not in nearby scans, end the loop
+                    if (int(edgeFeaturesLast->points[j].intensity) < (closestPointScanID - NEARBY_SCAN))
+                        break;
+
+                    double pointSqDis = (edgeFeaturesLast->points[j].x - pointSel.x) *
+                                        (edgeFeaturesLast->points[j].x - pointSel.x) +
+                                        (edgeFeaturesLast->points[j].y - pointSel.y) *
+                                        (edgeFeaturesLast->points[j].y - pointSel.y) +
+                                        (edgeFeaturesLast->points[j].z - pointSel.z) *
+                                        (edgeFeaturesLast->points[j].z - pointSel.z);
+
+                    if (pointSqDis < minPointSqDis2) { // 第二个最近邻点有效，更新点B
+                        // find nearer point
+                        minPointSqDis2 = pointSqDis;
+                        minPointInd2 = j;
+                    }
+                }
+            }
+            if (minPointInd2 >= 0) { // both closestPointInd and minPointInd2 is valid
+                // 即特征点O的两个最近邻点A和B都有效
+                Eigen::Vector3d curr_point(thisFrame->edgeFeatures->points[i].x,
+                                           thisFrame->edgeFeatures->points[i].y,
+                                           thisFrame->edgeFeatures->points[i].z);
+                Eigen::Vector3d last_point_a(edgeFeaturesLast->points[closestPointInd].x,
+                                             edgeFeaturesLast->points[closestPointInd].y,
+                                             edgeFeaturesLast->points[closestPointInd].z);
+                Eigen::Vector3d last_point_b(edgeFeaturesLast->points[minPointInd2].x,
+                                             edgeFeaturesLast->points[minPointInd2].y,
+                                             edgeFeaturesLast->points[minPointInd2].z);
+
+                double s = (thisFrame->edgeFeatures->points[i].intensity - int(thisFrame->edgeFeatures->points[i].intensity)) * SCAN_FREQUENCY;
+                // 用点O，A，B构造点到线的距离的残差项，注意这三个点都是在上一帧的Lidar坐标系下，即，残差 = 点O到直线AB的距离
+                // 具体到介绍lidarFactor.cpp时再说明该残差的具体计算方法
+                ceres::CostFunction *cost_function = LidarEdgeFactor::Create(curr_point, last_point_a, last_point_b, s);
+                problem.AddResidualBlock(cost_function, loss_function, para_q_2key, para_t_2key);
+                edge_correspondence++;
+            }
+        }
+        for (int i = 0; i < planePointSize; ++i) {
+            undistortPoint(&(thisFrame->planeFeatures->points[i]), &pointSel);
+            kdtreePlaneFeature->nearestKSearch(pointSel, 1, pointSearchInd, pointSearchSqDis);
+
+            int closestPointInd = -1, minPointInd2 = -1, minPointInd3 = -1;
+            if (pointSearchSqDis[0] < DISTANCE_SQ_THRESHOLD) { // 找到的最近邻点A有效
+                closestPointInd = pointSearchInd[0];
+
+                // get closest point's scan ID
+                int closestPointScanID = int(planeFeaturesLast->points[closestPointInd].intensity);
+                double minPointSqDis2 = DISTANCE_SQ_THRESHOLD, minPointSqDis3 = DISTANCE_SQ_THRESHOLD;
+
+                // search in the direction of increasing scan line
+                for (int j = closestPointInd + 1; j < (int)planeFeaturesLast->points.size(); ++j) {
+                    // if not in nearby scans, end the loop
+                    if (int(planeFeaturesLast->points[j].intensity) > (closestPointScanID + NEARBY_SCAN))
+                        break;
+
+                    double pointSqDis = (planeFeaturesLast->points[j].x - pointSel.x) *
+                                        (planeFeaturesLast->points[j].x - pointSel.x) +
+                                        (planeFeaturesLast->points[j].y - pointSel.y) *
+                                        (planeFeaturesLast->points[j].y - pointSel.y) +
+                                        (planeFeaturesLast->points[j].z - pointSel.z) *
+                                        (planeFeaturesLast->points[j].z - pointSel.z);
+
+                    // if in the same or lower scan line
+                    if (int(planeFeaturesLast->points[j].intensity) <= closestPointScanID && pointSqDis < minPointSqDis2) {
+                        minPointSqDis2 = pointSqDis;// 找到的第2个最近邻点有效，更新点B，注意如果scanID准确的话，一般点A和点B的scanID相同
+                        minPointInd2 = j;
+                    }
+                        // if in the higher scan line
+                    else if (int(planeFeaturesLast->points[j].intensity) > closestPointScanID && pointSqDis < minPointSqDis3) {
+                        minPointSqDis3 = pointSqDis;// 找到的第3个最近邻点有效，更新点C，注意如果scanID准确的话，一般点A和点B的scanID相同,且与点C的scanID不同，与LOAM的paper叙述一致
+                        minPointInd3 = j;
+                    }
+                }
+
+                // search in the direction of decreasing scan line
+                for (int j = closestPointInd - 1; j >= 0; --j) {
+                    // if not in nearby scans, end the loop
+                    if (int(planeFeaturesLast->points[j].intensity) < (closestPointScanID - NEARBY_SCAN))
+                        break;
+
+                    double pointSqDis = (planeFeaturesLast->points[j].x - pointSel.x) *
+                                        (planeFeaturesLast->points[j].x - pointSel.x) +
+                                        (planeFeaturesLast->points[j].y - pointSel.y) *
+                                        (planeFeaturesLast->points[j].y - pointSel.y) +
+                                        (planeFeaturesLast->points[j].z - pointSel.z) *
+                                        (planeFeaturesLast->points[j].z - pointSel.z);
+
+                    // if in the same or higher scan line
+                    if (int(planeFeaturesLast->points[j].intensity) >= closestPointScanID && pointSqDis < minPointSqDis2) {
+                        minPointSqDis2 = pointSqDis;
+                        minPointInd2 = j;
+                    }
+                    else if (int(planeFeaturesLast->points[j].intensity) < closestPointScanID && pointSqDis < minPointSqDis3) {
+                        // find nearer point
+                        minPointSqDis3 = pointSqDis;
+                        minPointInd3 = j;
+                    }
+                }
+
+                if (minPointInd2 >= 0 && minPointInd3 >= 0) { // 如果三个最近邻点都有效
+
+                    Eigen::Vector3d curr_point(thisFrame->planeFeatures->points[i].x,
+                                               thisFrame->planeFeatures->points[i].y,
+                                               thisFrame->planeFeatures->points[i].z);
+                    Eigen::Vector3d last_point_a(planeFeaturesLast->points[closestPointInd].x,
+                                                 planeFeaturesLast->points[closestPointInd].y,
+                                                 planeFeaturesLast->points[closestPointInd].z);
+                    Eigen::Vector3d last_point_b(planeFeaturesLast->points[minPointInd2].x,
+                                                 planeFeaturesLast->points[minPointInd2].y,
+                                                 planeFeaturesLast->points[minPointInd2].z);
+                    Eigen::Vector3d last_point_c(planeFeaturesLast->points[minPointInd3].x,
+                                                 planeFeaturesLast->points[minPointInd3].y,
+                                                 planeFeaturesLast->points[minPointInd3].z);
+
+                    double s = (thisFrame->planeFeatures->points[i].intensity - int(thisFrame->planeFeatures->points[i].intensity)) * SCAN_FREQUENCY;
+                    // 用点O，A，B，C构造点到面的距离的残差项，注意这三个点都是在上一帧的Lidar坐标系下，即，残差 = 点O到平面ABC的距离
+                    // 同样的，具体到介绍lidarFactor.cpp时再说明该残差的具体计算方法
+                    ceres::CostFunction *cost_function = LidarPlaneFactor::Create(curr_point, last_point_a, last_point_b, last_point_c, s);
+                    problem.AddResidualBlock(cost_function, loss_function, para_q_2key, para_t_2key);
+                    plane_correspondence++;
+                }
+            }
+        }
+        ceres::Solver::Options options;
+        options.linear_solver_type = ceres::DENSE_QR;
+        options.max_num_iterations = 4;
+        options.minimizer_progress_to_stdout = false;
+        ceres::Solver::Summary summary;
+        ceres::Solve(options, &problem, &summary);
+    }
+
     bool frameToBeKeyframe() {
-        return pose_delta2key.t.norm() > keyframeDistThreshold;
-//        Eigen::Vector3d eulerAngle = pose_delta2key.q.matrix().eulerAngles(2, 1, 0);
-//        float roll, pitch, yaw;
-//
-//
-//        bool isKeyframe = abs(eulerAngle.x()) > keyframeAngleThreshold ||
-//                          abs(eulerAngle.y()) > keyframeAngleThreshold ||
-//                          abs(eulerAngle.z()) > keyframeAngleThreshold ||
-//                          pose_delta2key.t.norm() > keyframeDistThreshold;
-//        cout << "to be keyframe: " << isKeyframe << "\n" << abs(eulerAngle.x()) << " " << abs(eulerAngle.y()) << " " << abs(eulerAngle.z()) << " " << pose_delta2key.t.norm() << endl;
-//        return isKeyframe;
-//        if (abs(eulerAngle.x()) < keyframeAngleThreshold &&
-//            abs(eulerAngle.y()) < keyframeAngleThreshold &&
-//            abs(eulerAngle.z()) < keyframeAngleThreshold &&
-//            pose_delta2key.t.norm() < keyframeDistThreshold) {
-//            return false;
-//        }
-//
-//        return true;
+        return toBeKeyframeInterval % 5;
+
+        if (toBeKeyframeInterval < MIN_KEYFRAME_INTERVAL) return false;
+        if (toBeKeyframeInterval > MAX_KEYFRAME_INTERVAL) {
+            toBeKeyframeInterval = 0;
+            return true;
+        }
+
+        Eigen::Vector3d eulerAngle = pose_delta2key.q.matrix().eulerAngles(2, 1, 0);
+
+        bool isKeyframe = min(abs(eulerAngle.x()), abs(abs(eulerAngle.x()) - M_PI)) > keyframeAngleThreshold ||
+                          min(abs(eulerAngle.y()), abs(abs(eulerAngle.y()) - M_PI)) > keyframeAngleThreshold ||
+                          min(abs(eulerAngle.z()), abs(abs(eulerAngle.z()) - M_PI)) > keyframeAngleThreshold ||
+                          pose_delta2key.t.norm() > keyframeDistThreshold;
+
+//        printf("isKeyframe: %d [%f %f %f %f %d]",
+//               isKeyframe,
+//               min(abs(eulerAngle.x()), abs(abs(eulerAngle.x()) - M_PI)),
+//               min(abs(eulerAngle.y()), abs(abs(eulerAngle.y()) - M_PI)),
+//               min(abs(eulerAngle.z()), abs(abs(eulerAngle.z()) - M_PI)),
+//               pose_delta2key.t.norm(),
+//               toBeKeyframeInterval
+//            );
+
+        if (isKeyframe) {
+            toBeKeyframeInterval = 0;
+            return true;
+        }
+        return false;
     }
 
     void run() {
@@ -388,8 +598,7 @@ public:
                     is_init = true;
                     std::cout << "Initialization finished \n";
 
-                    lastFrame = currFrame;
-                    lastKeyframe = currFrame;
+                    lastFrame = lastKeyframe = currFrame;
                     currFrame->set_keyframe();
                     keyframeVec.push_back(frameCount);
 
@@ -420,21 +629,24 @@ public:
                     }
                     currFrame->setTrans2LastKeyframe(q_curr2key, t_curr2key);
 
-
                     if (currFrame->is_keyframe()) {
                         cout << "pose_curr2key: \n" << q_curr2key.matrix() << "\n" << t_curr2key << endl;
                         pose_key2world.multiply(q_curr2key, t_curr2key);
                         lastKeyframe = currFrame;
-                        pWKeyframeToLastKeyframe.write(pose_key2world, true);
+
+                        pose_curr2key2world = pose_key2world;
+                    } else {
+                        pose_curr2key2world = pose_key2world.dot(q_curr2key, t_curr2key);
                     }
 
-                    pose_curr2key2world.multiply(q_curr2key, t_curr2key);
                     pose_curr2world.multiply(q_curr2last, t_curr2last);
-
-
 
                 }
 
+                toBeKeyframeInterval++;
+
+                if (currFrame->is_keyframe())
+                    pWKeyframeToLastKeyframe.write(pose_key2world, true);
                 pWFrameToLastFrame.write(pose_curr2world, currFrame->is_keyframe());
                 pWFrameToLastKeyframe.write(pose_curr2key2world, currFrame->is_keyframe());
 
@@ -444,7 +656,6 @@ public:
                 odomWithoutKF.header.frame_id = "/camera_init";
                 odomWithoutKF.child_frame_id = "/laser_odom";
                 odomWithoutKF.header.stamp = ros::Time().fromSec(timeSurfPointsLessFlat);
-                auto ppost = odomWithoutKF.pose.pose;
                 odomWithoutKF.pose.pose.orientation.x = pose_curr2world.q.x();
                 odomWithoutKF.pose.pose.orientation.y = pose_curr2world.q.y();
                 odomWithoutKF.pose.pose.orientation.z = pose_curr2world.q.z();
@@ -607,6 +818,8 @@ private:
     const int SCAN_FREQUENCY = 10;
     const int DISTANCE_SQ_THRESHOLD = 10;
     const double NEARBY_SCAN = 2.5;
+    const int MAX_KEYFRAME_INTERVAL = 2;
+    const int MIN_KEYFRAME_INTERVAL = 1;
 
     double keyframeDistThreshold = 1.0;
     double keyframeAngleThreshold = 0.2;
@@ -614,7 +827,8 @@ private:
     bool is_init = false;
     int frameCount = 0;
     bool need_undisortion = false;
-    int OPTIMIZATION_TIMES;
+    int OPTIMIZATION_TIMES = 2;
+    int toBeKeyframeInterval = 0;
 
     // subscriber topic from preprocessing
     ros::Subscriber subCornerPointsSharp;

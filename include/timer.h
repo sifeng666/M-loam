@@ -48,15 +48,16 @@ private:
     long long int lastTime;
     std::string name;
     int num;
+    bool needDct;
 public:
-    explicit Timer() {
+    explicit Timer(bool _needDct = false) : needDct(_needDct) {
         clock_type tp1 = std::chrono::time_point_cast<std::chrono::milliseconds>(std::chrono::system_clock::now());
         startTime = tp1.time_since_epoch().count();
         lastTime = startTime;
         num = timerCount;
         ++timerCount;
     }
-    explicit Timer(std::string _name) : name(std::move(_name)) {
+    explicit Timer(std::string _name, bool _needDct = false) : name(std::move(_name)), needDct(_needDct) {
         clock_type tp1 = std::chrono::time_point_cast<std::chrono::milliseconds>(std::chrono::system_clock::now());
         startTime = tp1.time_since_epoch().count();
         lastTime = startTime;
@@ -84,8 +85,10 @@ public:
         lastTime = tp2.time_since_epoch().count();
     }
     ~Timer() {
-        clock_type tp3 = std::chrono::time_point_cast<std::chrono::milliseconds>(std::chrono::system_clock::now());
-        std::cout << "Timer_" << std::to_string(num) << " " << name << " total consume: " << tp3.time_since_epoch().count() - startTime << "msec" << std::endl;
+        if (needDct) {
+            clock_type tp3 = std::chrono::time_point_cast<std::chrono::milliseconds>(std::chrono::system_clock::now());
+            std::cout << "Timer_" << std::to_string(num) << " " << name << " total consume: " << tp3.time_since_epoch().count() - startTime << "msec" << std::endl;
+        }
     }
 };
 
