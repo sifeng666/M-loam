@@ -26,6 +26,17 @@ public:
         po->intensity = pi->intensity;
     }
 
+    void pointAssociateToMap(PointT const * const pi, PointT * const po) {
+        po->x = transPointAssociateToMap(0,0) * pi->x + transPointAssociateToMap(0,1) * pi->y + transPointAssociateToMap(0,2) * pi->z + transPointAssociateToMap(0,3);
+        po->y = transPointAssociateToMap(1,0) * pi->x + transPointAssociateToMap(1,1) * pi->y + transPointAssociateToMap(1,2) * pi->z + transPointAssociateToMap(1,3);
+        po->z = transPointAssociateToMap(2,0) * pi->x + transPointAssociateToMap(2,1) * pi->y + transPointAssociateToMap(2,2) * pi->z + transPointAssociateToMap(2,3);
+        po->intensity = pi->intensity;
+    }
+
+    void updatePointAssociateToMap() {
+        transPointAssociateToMap = fromPose3(pose_curr2world);
+    }
+
     //receive /laser_cloud_sharp
     void laserCloudSharpHandler(const sensor_msgs::PointCloud2ConstPtr &cornerPointsSharp2) {
         std::lock_guard lockGuard(mBuf);
@@ -308,6 +319,9 @@ public:
 //        cout << q_curr2last.matrix() << endl << t_curr2last.matrix() << endl;
     }
 
+
+
+
     void getPose3ToKeyFrames(const Frame::Ptr& toFrame, Frame::Ptr& thisFrame) {
 
         int edgePointSize = thisFrame->edgeFeatures->size();
@@ -538,6 +552,10 @@ public:
             return true;
         }
         return false;
+    }
+
+    void addOdomFactor() {
+
     }
 
     void run() {
@@ -776,6 +794,8 @@ private:
     PoseWriter pWFrameToLastFrame;
     PoseWriter pWFrameToLastKeyframe;
     PoseWriter pWKeyframeToLastKeyframe;
+
+    Eigen::Affine3f transPointAssociateToMap;
 
     // current frame to world frame, accumulation of current frame to last frame
 //    Eigen::Quaterniond q_curr2world;

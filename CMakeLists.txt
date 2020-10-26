@@ -56,6 +56,9 @@ add_library(
     include/pclomp/src/gicp_omp.cpp
 )
 
+add_executable(laserProcessing src/laserProcessing.cpp)
+target_link_libraries(laserProcessing ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+
 add_executable(preprocessing src/preprocessing.cpp)
 target_link_libraries(preprocessing ${catkin_LIBRARIES} ${PCL_LIBRARIES})
 

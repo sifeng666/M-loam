@@ -7,7 +7,23 @@
 
 #include "helper.h"
 
+#include <gtsam/geometry/Rot3.h>
+#include <gtsam/geometry/Pose3.h>
+#include <gtsam/slam/PriorFactor.h>
+#include <gtsam/slam/BetweenFactor.h>
+#include <gtsam/navigation/GPSFactor.h>
+#include <gtsam/navigation/ImuFactor.h>
+#include <gtsam/navigation/CombinedImuFactor.h>
+#include <gtsam/nonlinear/NonlinearFactorGraph.h>
+#include <gtsam/nonlinear/LevenbergMarquardtOptimizer.h>
+#include <gtsam/nonlinear/Marginals.h>
+#include <gtsam/nonlinear/Values.h>
+#include <gtsam/inference/Symbol.h>
+
+#include <gtsam/nonlinear/ISAM2.h>
+
 struct Pose3 {
+
     Eigen::Quaterniond  q;
     Eigen::Vector3d     t;
 
@@ -53,10 +69,6 @@ struct Pose3 {
     }
 };
 
-
-Pose3 dot(const Pose3& p1, const Pose3& p2) {
-
-}
 
 
 class Frame {
@@ -110,6 +122,19 @@ public:
         toLastKeyframe.set(_T_2LastKeyframe);
     }
 };
+
+Eigen::Affine3f fromPose3(const Pose3& poseIn) {
+    Eigen::Affine3f b;
+    Eigen::Matrix3f R = Eigen::Matrix3d(poseIn.q).cast<float>();
+    Eigen::Vector3f t = Eigen::Vector3d(poseIn.t).cast<float>();
+    b.matrix().block<3, 3>(0, 0) = R;
+    b.matrix().block<3, 1>(0, 3) = t;
+    return b;
+}
+
+gtsam::Pose3 trans2gtsamPose(const Pose3& poseIn) {
+    return gtsam::Pose3(gtsam::Quaternion(poseIn.q), gtsam::Point3(poseIn.t));
+}
 
 
 class PoseWriter {
