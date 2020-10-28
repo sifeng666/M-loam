@@ -7,20 +7,20 @@
 
 #include "helper.h"
 
-#include <gtsam/geometry/Rot3.h>
-#include <gtsam/geometry/Pose3.h>
-#include <gtsam/slam/PriorFactor.h>
-#include <gtsam/slam/BetweenFactor.h>
-#include <gtsam/navigation/GPSFactor.h>
-#include <gtsam/navigation/ImuFactor.h>
-#include <gtsam/navigation/CombinedImuFactor.h>
-#include <gtsam/nonlinear/NonlinearFactorGraph.h>
-#include <gtsam/nonlinear/LevenbergMarquardtOptimizer.h>
-#include <gtsam/nonlinear/Marginals.h>
-#include <gtsam/nonlinear/Values.h>
-#include <gtsam/inference/Symbol.h>
-
-#include <gtsam/nonlinear/ISAM2.h>
+//#include <gtsam/geometry/Rot3.h>
+//#include <gtsam/geometry/Pose3.h>
+//#include <gtsam/slam/PriorFactor.h>
+//#include <gtsam/slam/BetweenFactor.h>
+//#include <gtsam/navigation/GPSFactor.h>
+//#include <gtsam/navigation/ImuFactor.h>
+//#include <gtsam/navigation/CombinedImuFactor.h>
+//#include <gtsam/nonlinear/NonlinearFactorGraph.h>
+//#include <gtsam/nonlinear/LevenbergMarquardtOptimizer.h>
+//#include <gtsam/nonlinear/Marginals.h>
+//#include <gtsam/nonlinear/Values.h>
+//#include <gtsam/inference/Symbol.h>
+//
+//#include <gtsam/nonlinear/ISAM2.h>
 
 struct Pose3 {
 
@@ -73,28 +73,25 @@ struct Pose3 {
 
 class Frame {
 
-private:
-    Pose3 toLastFrame, toLastKeyframe;
-    bool keyframe = false;
-
 public:
+    Eigen::Isometry3d pose;
+    Eigen::Isometry3d toLastKeyframe;
+    bool keyframe = false;
 
     using Ptr = boost::shared_ptr<Frame>;
     using PointCloudPtr = pcl::PointCloud<PointT>::Ptr;
 
-    // raw pcd
-    pcl::PointCloud<PointT>::ConstPtr rawPointCloud;
+    // full pcd
+    pcl::PointCloud<PointT>::Ptr pointCloudFull;
 
     // feature pcd
-    pcl::PointCloud<PointT>::ConstPtr edgeFeatures;
-    pcl::PointCloud<PointT>::ConstPtr planeFeatures;
-    pcl::PointCloud<PointT>::ConstPtr edgeLessFeatures;
-    pcl::PointCloud<PointT>::ConstPtr planeLessFeatures;
+    pcl::PointCloud<PointT>::Ptr edgeFeatures;
+    pcl::PointCloud<PointT>::Ptr surfFeatures;
 
 public:
 
-    explicit Frame(PointCloudPtr EF, PointCloudPtr PF, PointCloudPtr ELF, PointCloudPtr PLF, PointCloudPtr RAW = nullptr) :
-            edgeFeatures(EF), planeFeatures(PF), edgeLessFeatures(ELF), planeLessFeatures(PLF), rawPointCloud(RAW) {
+    explicit Frame(PointCloudPtr EF, PointCloudPtr PF, PointCloudPtr FULL = nullptr) :
+            edgeFeatures(EF), surfFeatures(PF), pointCloudFull(FULL) {
         // init
     }
 
@@ -106,44 +103,29 @@ public:
         keyframe = true;
     }
 
-    void setTrans2LastFrame(const Eigen::Quaterniond& _q_2LastFrame, const Eigen::Vector3d& _t_2LastFrame) {
-        toLastFrame.set(_q_2LastFrame, _t_2LastFrame);
-    }
-
-    void setTrans2LastFrame(const Eigen::Matrix4d& _T_2LastFrame) {
-        toLastFrame.set(_T_2LastFrame);
-    }
-
-    void setTrans2LastKeyframe(const Eigen::Quaterniond& _q_2LastKeyframe, const Eigen::Vector3d& _t_2LastKeyframe) {
-        toLastKeyframe.set(_q_2LastKeyframe, _t_2LastKeyframe);
-    }
-
-    void setTrans2LastKeyframe(const Eigen::Matrix4d& _T_2LastKeyframe) {
-        toLastKeyframe.set(_T_2LastKeyframe);
-    }
 };
 
-Eigen::Affine3f fromPose3(const Pose3& poseIn) {
-    Eigen::Affine3f b;
-    Eigen::Matrix3f R = Eigen::Matrix3d(poseIn.q).cast<float>();
-    Eigen::Vector3f t = Eigen::Vector3d(poseIn.t).cast<float>();
-    b.matrix().block<3, 3>(0, 0) = R;
-    b.matrix().block<3, 1>(0, 3) = t;
-    return b;
-}
-
-gtsam::Pose3 trans2gtsamPose(const Pose3& poseIn) {
-    return gtsam::Pose3(gtsam::Quaternion(poseIn.q), gtsam::Point3(poseIn.t));
-}
+//Eigen::Affine3f fromPose3(const Pose3& poseIn) {
+//    Eigen::Affine3f b;
+//    Eigen::Matrix3f R = Eigen::Matrix3d(poseIn.q).cast<float>();
+//    Eigen::Vector3f t = Eigen::Vector3d(poseIn.t).cast<float>();
+//    b.matrix().block<3, 3>(0, 0) = R;
+//    b.matrix().block<3, 1>(0, 3) = t;
+//    return b;
+//}
+//
+//gtsam::Pose3 trans2gtsamPose(const Pose3& poseIn) {
+//    return gtsam::Pose3(gtsam::Quaternion(poseIn.q), gtsam::Point3(poseIn.t));
+//}
 
 
 class PoseWriter {
 private:
     std::ofstream f;
 public:
-    explicit PoseWriter(const std::string& _name) : f("/home/ziv/catkin_ziv/src/M-Loam/odom/" + _name) {
-
-    }
+    explicit PoseWriter(const std::string& _name)
+        : f("/home/ziv/catkin_ziv/src/M-Loam/odom/" + _name)
+    { }
 
     void write(const Pose3& pose, bool isKeyframe) {
         char ret[100];
@@ -156,6 +138,17 @@ public:
 
     void write(const Eigen::Quaterniond& q, const Eigen::Vector3d& t, bool isKeyframe) {
         char ret[100];
+        if (!isKeyframe)
+            sprintf(ret, "%f %f %f %f %f %f %f\n", q.x(), q.y(), q.z(), q.w(), t.x(), t.y(), t.z());
+        else
+            sprintf(ret, "%f %f %f %f %f %f %f [keyframe]\n", q.x(), q.y(), q.z(), q.w(), t.x(), t.y(), t.z());
+        f << ret;
+    }
+
+    void write(const Eigen::Isometry3d& mat, bool isKeyframe) {
+        char ret[100];
+        Eigen::Quaterniond q(mat.rotation().matrix());
+        Eigen::Vector3d t(mat.translation());
         if (!isKeyframe)
             sprintf(ret, "%f %f %f %f %f %f %f\n", q.x(), q.y(), q.z(), q.w(), t.x(), t.y(), t.z());
         else

@@ -97,7 +97,7 @@ public:
     void getPose3BetweenFrames(const Frame::Ptr& toFrame, Frame::Ptr& thisFrame, bool toKeyframe) {
 
         int edgePointSize = thisFrame->edgeFeatures->size();
-        int planePointSize = thisFrame->planeFeatures->size();
+        int planePointSize = thisFrame->surfFeatures->size();
 
         int edge_correspondence = 0, plane_correspondence = 0;
 
@@ -211,7 +211,7 @@ public:
             }
         }
         for (int i = 0; i < planePointSize; ++i) {
-            undistortPoint(&(thisFrame->planeFeatures->points[i]), &pointSel);
+            undistortPoint(&(thisFrame->surfFeatures->points[i]), &pointSel);
             kdtreePlaneFeature->nearestKSearch(pointSel, 1, pointSearchInd, pointSearchSqDis);
 
             int closestPointInd = -1, minPointInd2 = -1, minPointInd3 = -1;
@@ -274,9 +274,9 @@ public:
 
                 if (minPointInd2 >= 0 && minPointInd3 >= 0) { // 如果三个最近邻点都有效
 
-                    Eigen::Vector3d curr_point(thisFrame->planeFeatures->points[i].x,
-                                               thisFrame->planeFeatures->points[i].y,
-                                               thisFrame->planeFeatures->points[i].z);
+                    Eigen::Vector3d curr_point(thisFrame->surfFeatures->points[i].x,
+                                               thisFrame->surfFeatures->points[i].y,
+                                               thisFrame->surfFeatures->points[i].z);
                     Eigen::Vector3d last_point_a(planeFeaturesLast->points[closestPointInd].x,
                                                  planeFeaturesLast->points[closestPointInd].y,
                                                  planeFeaturesLast->points[closestPointInd].z);
@@ -287,7 +287,7 @@ public:
                                                  planeFeaturesLast->points[minPointInd3].y,
                                                  planeFeaturesLast->points[minPointInd3].z);
 
-                    double s = (thisFrame->planeFeatures->points[i].intensity - int(thisFrame->planeFeatures->points[i].intensity)) * SCAN_FREQUENCY;
+                    double s = (thisFrame->surfFeatures->points[i].intensity - int(thisFrame->surfFeatures->points[i].intensity)) * SCAN_FREQUENCY;
                     // 用点O，A，B，C构造点到面的距离的残差项，注意这三个点都是在上一帧的Lidar坐标系下，即，残差 = 点O到平面ABC的距离
                     // 同样的，具体到介绍lidarFactor.cpp时再说明该残差的具体计算方法
                     ceres::CostFunction *cost_function = LidarPlaneFactor::Create(curr_point, last_point_a, last_point_b, last_point_c, s);
@@ -325,7 +325,7 @@ public:
     void getPose3ToKeyFrames(const Frame::Ptr& toFrame, Frame::Ptr& thisFrame) {
 
         int edgePointSize = thisFrame->edgeFeatures->size();
-        int planePointSize = thisFrame->planeFeatures->size();
+        int planePointSize = thisFrame->surfFeatures->size();
 
         int edge_correspondence = 0, plane_correspondence = 0;
 
@@ -429,7 +429,7 @@ public:
             }
         }
         for (int i = 0; i < planePointSize; ++i) {
-            undistortPoint(&(thisFrame->planeFeatures->points[i]), &pointSel);
+            undistortPoint(&(thisFrame->surfFeatures->points[i]), &pointSel);
             kdtreePlaneFeature->nearestKSearch(pointSel, 1, pointSearchInd, pointSearchSqDis);
 
             int closestPointInd = -1, minPointInd2 = -1, minPointInd3 = -1;
@@ -492,9 +492,9 @@ public:
 
                 if (minPointInd2 >= 0 && minPointInd3 >= 0) { // 如果三个最近邻点都有效
 
-                    Eigen::Vector3d curr_point(thisFrame->planeFeatures->points[i].x,
-                                               thisFrame->planeFeatures->points[i].y,
-                                               thisFrame->planeFeatures->points[i].z);
+                    Eigen::Vector3d curr_point(thisFrame->surfFeatures->points[i].x,
+                                               thisFrame->surfFeatures->points[i].y,
+                                               thisFrame->surfFeatures->points[i].z);
                     Eigen::Vector3d last_point_a(planeFeaturesLast->points[closestPointInd].x,
                                                  planeFeaturesLast->points[closestPointInd].y,
                                                  planeFeaturesLast->points[closestPointInd].z);
@@ -505,7 +505,7 @@ public:
                                                  planeFeaturesLast->points[minPointInd3].y,
                                                  planeFeaturesLast->points[minPointInd3].z);
 
-                    double s = (thisFrame->planeFeatures->points[i].intensity - int(thisFrame->planeFeatures->points[i].intensity)) * SCAN_FREQUENCY;
+                    double s = (thisFrame->surfFeatures->points[i].intensity - int(thisFrame->surfFeatures->points[i].intensity)) * SCAN_FREQUENCY;
                     // 用点O，A，B，C构造点到面的距离的残差项，注意这三个点都是在上一帧的Lidar坐标系下，即，残差 = 点O到平面ABC的距离
                     // 同样的，具体到介绍lidarFactor.cpp时再说明该残差的具体计算方法
                     ceres::CostFunction *cost_function = LidarPlaneFactor::Create(curr_point, last_point_a, last_point_b, last_point_c, s);
@@ -881,8 +881,8 @@ private:
     Frame::Ptr lastKeyframe;
     Frame::Ptr lastFrame;
 
-    std::unordered_map<int, Frame::Ptr> frameMap;
-    std::vector<int> keyframeVec;
+        std::unordered_map<int, Frame::Ptr> frameMap;
+        std::vector<int> keyframeVec;
 
     // point_cloud current
     pcl::PointCloud<PointT>::Ptr cornerPointsSharp;

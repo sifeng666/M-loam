@@ -30,7 +30,7 @@ public:
 
         subLaserCloud = nh.subscribe<sensor_msgs::PointCloud2>("/velodyne_points", 100, &LaserProcessing::pointCloudHandler, this);
 
-        pubLaserCloudFiltered = nh.advertise<sensor_msgs::PointCloud2>("/velodyne_points_filtered", 100);
+        pubLaserCloudFiltered = nh.advertise<sensor_msgs::PointCloud2>("/velodyne_points_2", 100);
 
         pubEdgePoints = nh.advertise<sensor_msgs::PointCloud2>("/laser_cloud_edge", 100);
 
@@ -230,10 +230,9 @@ public:
 
     void laser_processing() {
 
-        while (true) {
+        while (ros::ok()) {
 
             if (!pointCloudBuf.empty()) {
-
                 pcl::PointCloud<PointT>::Ptr cloud_in(new pcl::PointCloud<PointT>());
                 pcl::PointCloud<PointT>::Ptr cloud_edge(new pcl::PointCloud<PointT>());
                 pcl::PointCloud<PointT>::Ptr cloud_surf(new pcl::PointCloud<PointT>());
@@ -282,7 +281,6 @@ public:
 
         initROSHandler();
 
-        laser_processing();
     }
 
 private:
@@ -307,6 +305,8 @@ int main(int argc, char **argv) {
     ros::init(argc, argv, "laserProcessing");
 
     LaserProcessing laserProcessing;
+
+    std::thread laser_processing_thread{&LaserProcessing::laser_processing, &laserProcessing};
 
     ros::spin();
 

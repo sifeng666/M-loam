@@ -44,23 +44,25 @@ endif()
 
 catkin_package(
     CATKIN_DEPENDS geometry_msgs nav_msgs roscpp rospy std_msgs
-    DEPENDS EIGEN3 PCL
+    DEPENDS EIGEN3 PCL Ceres
     INCLUDE_DIRS include
-    LIBRARIES ndt_omp
 )
 
-add_library(
-    ndt_omp
-    include/pclomp/src/voxel_grid_covariance_omp.cpp
-    include/pclomp/src/ndt_omp.cpp
-    include/pclomp/src/gicp_omp.cpp
-)
+#add_library(
+#    ndt_omp
+#    include/pclomp/src/voxel_grid_covariance_omp.cpp
+#    include/pclomp/src/ndt_omp.cpp
+#    include/pclomp/src/gicp_omp.cpp
+#)
 
 add_executable(laserProcessing src/laserProcessing.cpp)
 target_link_libraries(laserProcessing ${catkin_LIBRARIES} ${PCL_LIBRARIES})
 
-add_executable(preprocessing src/preprocessing.cpp)
-target_link_libraries(preprocessing ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+add_executable(laserOdometry src/laserOdometry.cpp)
+target_link_libraries(laserOdometry ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES})
 
-add_executable(odometry src/odometry.cpp)
-target_link_libraries(odometry ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES} ndt_omp)
+#add_executable(preprocessing src/preprocessing.cpp)
+#target_link_libraries(preprocessing ${catkin_LIBRARIES} ${PCL_LIBRARIES})
+#
+#add_executable(odometry src/odometry.cpp)
+#target_link_libraries(odometry ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES} ndt_omp)
