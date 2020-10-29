@@ -75,8 +75,6 @@ class Frame {
 
 public:
     Eigen::Isometry3d pose;
-    Eigen::Isometry3d toLastKeyframe;
-    bool keyframe = false;
 
     using Ptr = boost::shared_ptr<Frame>;
     using PointCloudPtr = pcl::PointCloud<PointT>::Ptr;
@@ -95,13 +93,64 @@ public:
         // init
     }
 
-    bool is_keyframe() const {
-        return keyframe;
+    virtual bool is_keyframe() const {
+        return false;
     }
 
-    void set_keyframe() {
-        keyframe = true;
+    virtual void addEdgeFeaturesToSubMap(const PointT& p) {
+        return;
     }
+
+    virtual void addSurfFeaturesToSubMap(const PointT& p) {
+        return;
+    }
+
+    virtual pcl::PointCloud<PointT>::Ptr getEdgeSubMap() {
+        return nullptr;
+    }
+
+    virtual pcl::PointCloud<PointT>::Ptr getSurfSubMap() {
+        return nullptr;
+    }
+
+    virtual ~Frame() {}
+
+};
+
+class Keyframe : public Frame {
+public:
+    Eigen::Isometry3d toLastKeyframe;
+    pcl::PointCloud<PointT>::Ptr edgeSubMap;
+    pcl::PointCloud<PointT>::Ptr surfSubMap;
+
+    explicit Keyframe(PointCloudPtr EF, PointCloudPtr PF, PointCloudPtr FULL = nullptr) :
+            Frame(EF, PF, FULL) {
+        // init
+        edgeSubMap = EF->makeShared();
+        surfSubMap = surfSubMap->makeShared();
+    }
+
+    virtual bool is_keyframe() const {
+        return true;
+    }
+
+    virtual void addEdgeFeaturesToSubMap(const PointT& p) {
+        edgeSubMap->push_back(p);
+    }
+
+    virtual void addSurfFeaturesToSubMap(const PointT& p) {
+        surfSubMap->push_back(p);
+    }
+
+    virtual pcl::PointCloud<PointT>::Ptr getEdgeSubMap() {
+        return edgeSubMap;
+    }
+
+    virtual pcl::PointCloud<PointT>::Ptr getSurfSubMap() {
+        return surfSubMap;
+    }
+
+    virtual ~Keyframe() {}
 
 };
 
