@@ -30,9 +30,15 @@ public:
         pointCloudEdgeBuf.push(laserCloudMsg);
     }
 
-    void initMapWithFirstFrame() {
+    void initWithFirstFrame() {
         *pointCloudEdgeMap += *currFrame->edgeFeatures;
         *pointCloudSurfMap += *currFrame->surfFeatures;
+
+        currFrame->alloc();
+        lastKeyframe = currFrame;
+        addToLastKeyframe(currFrame->edgeFeatures, currFrame->surfFeatures);
+
+        keyframeVec.push_back(frameCount);
     }
 
     void flushMap() {
@@ -51,16 +57,14 @@ public:
 
     void pointAssociateToKeyframe(PointT const *const pi, PointT *const po) {
         Eigen::Vector3d point_curr(pi->x, pi->y, pi->z);
-        Eigen::Vector3d point_w = T_curr2keyframe.rotation() * point_curr + T_curr2keyframe.translation();
+        Eigen::Vector3d point_w = T_curr2worldByKeyframe.rotation() * point_curr + T_curr2worldByKeyframe.translation();
         po->x = point_w.x();
         po->y = point_w.y();
         po->z = point_w.z();
         po->intensity = pi->intensity;
     }
 
-
-
-    void addToKeyframe(const pcl::PointCloud<PointT>::Ptr& currEdgeDS, const pcl::PointCloud<PointT>::Ptr& currSurfDS) {
+    void addToLastKeyframe(const pcl::PointCloud<PointT>::Ptr& currEdgeDS, const pcl::PointCloud<PointT>::Ptr& currSurfDS) {
 
         PointT point_temp;
         for (int i = 0; i < currEdgeDS->size(); i++) {
@@ -73,15 +77,10 @@ public:
             lastKeyframe->addSurfFeaturesToSubMap(point_temp);
         }
 
-//        if (toBeKeyframeInterval < FIRST_FRAME_PRO_COUNT) {
-//            return;
-//        }
-//
-//        downSizeFilterEdge.setInputCloud(lastKeyframe->edgeFeatures);
-//        downSizeFilterEdge.filter(*lastKeyframe->edgeFeatures);
-//        downSizeFilterSurf.setInputCloud(lastKeyframe->surfFeatures);
-//        downSizeFilterSurf.filter(*lastKeyframe->surfFeatures);
-
+        downSizeFilterEdge.setInputCloud(lastKeyframe->edgeFeatures);
+        downSizeFilterEdge.filter(*lastKeyframe->edgeFeatures);
+        downSizeFilterSurf.setInputCloud(lastKeyframe->surfFeatures);
+        downSizeFilterSurf.filter(*lastKeyframe->surfFeatures);
     }
 
     void addToSubMap(const pcl::PointCloud<PointT>::Ptr& currEdgeDS, const pcl::PointCloud<PointT>::Ptr& currSurfDS) {
@@ -114,7 +113,7 @@ public:
             return true;
         }
 
-        Eigen::Isometry3d T_delta = lastKeyframe->pose.inverse() * T_curr2keyframe;
+        Eigen::Isometry3d T_delta = T_lastKeyframe.inverse() * T_curr2worldByKeyframe;
 
         Eigen::Vector3d eulerAngle = T_delta.rotation().eulerAngles(2, 1, 0);
 
@@ -122,7 +121,8 @@ public:
                           min(abs(eulerAngle.y()), abs(abs(eulerAngle.y()) - M_PI)) > keyframeAngleThreshold ||
                           min(abs(eulerAngle.z()), abs(abs(eulerAngle.z()) - M_PI)) > keyframeAngleThreshold ||
                           T_delta.translation().norm() > keyframeDistThreshold;
-
+        cout << min(abs(eulerAngle.x()), abs(abs(eulerAngle.x()) - M_PI)) << " " << min(abs(eulerAngle.y()), abs(abs(eulerAngle.y()) - M_PI)) << " "
+                << min(abs(eulerAngle.z()), abs(abs(eulerAngle.z()) - M_PI)) << " " << T_delta.translation().norm() << endl;
         if (isKeyframe) {
             toBeKeyframeInterval = 0;
             return true;
@@ -142,22 +142,26 @@ public:
         downSizeFilterEdge.setInputCloud(currFrame->surfFeatures);
         downSizeFilterEdge.filter(*surfFeaturesDS);
 
-//        cout << "pointCloudEdgeMap size: " << pointCloudEdgeMap->size() << endl
-//             << " pointCloudSurfMap size: " << pointCloudSurfMap->size() << endl
-//             << " laseKeyframeEdge size: " << lastKeyframe->edgeFeatures->size()
-//             << " laseKeyframeSurf size: " << lastKeyframe->surfFeatures->size()
-//             << " edgeFeaturesDS size: " << edgeFeaturesDS->size() << endl
-//             << " surfFeaturesDS size: " << surfFeaturesDS->size() << endl;
+        cout << "pointCloudEdgeMap size: " << pointCloudEdgeMap->size() << " pointCloudSurfMap size: " << pointCloudSurfMap->size() << endl
+             << "lastKeyframeEdgeMap size: " << lastKeyframe->getEdgeSubMap()->size() << " lastKeyframeSurfMap size: " << lastKeyframe->getSurfSubMap()->size() << endl
+             << "edgeFeaturesDS size: " << edgeFeaturesDS->size() << " surfFeaturesDS size: " << surfFeaturesDS->size() << endl;
 
         is_keyframe_next = toBeKeyframe();
 
         getTransToSubMap(edgeFeaturesDS, surfFeaturesDS);
-        getTransToKeyframe(edgeFeaturesDS, surfFeaturesDS);
-
-        // set current keyframe pose to world
-        if (currFrame->is_keyframe()) {
-            currFrame->pose = T_curr2worldByKeyframe;
+        if (!currFrame->is_keyframe()) {
+            getTransToKeyframe(edgeFeaturesDS, surfFeaturesDS);
+        } else {
+            // not downsample, opti_counter is more
+            getTransToKeyframeStrong(currFrame->edgeFeatures, currFrame->surfFeatures);
+//            getTransToKeyframeStrong(edgeFeaturesDS, surfFeaturesDS);
+            // not add to lastKeyframe's submap
             lastKeyframe = currFrame;
+            currFrame->alloc();
+            addToLastKeyframe(currFrame->edgeFeatures, currFrame->surfFeatures);
+//            addToLastKeyframe(edgeFeaturesDS, surfFeaturesDS);
+
+            T_lastKeyframe = T_curr2worldByKeyframe;
             keyframeVec.push_back(frameCount);
         }
 
@@ -441,10 +445,7 @@ public:
         T_curr2world.linear() = q_curr2world.toRotationMatrix();
         T_curr2world.translation() = t_curr2world;
 
-        cout << "before addToSubMap: size of surf: " << pointCloudSurfMap->size() << ", size of edge: " << pointCloudEdgeMap->size() << endl;
         addToSubMap(currEdge, currSurf);
-        cout << "after addToSubMap: size of surf: " << pointCloudSurfMap->size() << ", size of edge: " << pointCloudEdgeMap->size() << endl;
-
     }
 
     void getTransToKeyframe(const pcl::PointCloud<PointT>::Ptr& currEdge, const pcl::PointCloud<PointT>::Ptr& currSurf) {
@@ -452,8 +453,9 @@ public:
         auto edgeSubMap = lastKeyframe->getEdgeSubMap();
         auto surfSubMap = lastKeyframe->getSurfSubMap();
 
-        if (!edgeSubMap || !surfSubMap) {
+        if (edgeSubMap == nullptr || surfSubMap == nullptr) {
             printf("lastKeyframe not keyframe, error");
+            return;
         }
 
         if (edgeSubMap->size() > 10 && surfSubMap->size() > 50) {
@@ -482,16 +484,53 @@ public:
         } else {
             printf("not enough points in keyframe to associate, error");
         }
+        T_curr2worldByKeyframe.linear() = q_curr2keyframe.toRotationMatrix();
+        T_curr2worldByKeyframe.translation() = t_curr2keyframe;
 
-        T_curr2keyframe.linear() = q_curr2keyframe.toRotationMatrix();
-        T_curr2keyframe.translation() = t_curr2keyframe;
+        addToLastKeyframe(currEdge, currSurf);
 
-        T_curr2worldByKeyframe = lastKeyframe->pose * T_curr2keyframe;
-        currFrame->pose = T_curr2worldByKeyframe;
+    }
 
-        cout << "before addToKeyframe: size of surf: " << edgeSubMap->size() << ", size of edge: " << surfSubMap->size() << endl;
-        addToKeyframe(currEdge, currSurf);
-        cout << "after addToKeyframe: size of surf: " << edgeSubMap->size() << ", size of edge: " << surfSubMap->size() << endl;
+    void getTransToKeyframeStrong(const pcl::PointCloud<PointT>::Ptr& currEdge, const pcl::PointCloud<PointT>::Ptr& currSurf) {
+
+        auto edgeSubMap = lastKeyframe->getEdgeSubMap();
+        auto surfSubMap = lastKeyframe->getSurfSubMap();
+
+        if (edgeSubMap == nullptr || surfSubMap == nullptr) {
+            printf("lastKeyframe not keyframe, error");
+            return;
+        }
+
+        if (edgeSubMap->size() > 10 && surfSubMap->size() > 50) {
+
+            kdtreeEdgeKeyframe->setInputCloud(edgeSubMap);
+            kdtreeSurfKeyframe->setInputCloud(surfSubMap);
+
+            for (int opti_counter = 0; opti_counter < 6; opti_counter++) {
+                ceres::LossFunction *loss_function = new ceres::HuberLoss(0.1);
+                ceres::Problem::Options problem_options;
+                ceres::Problem problem(problem_options);
+                problem.AddParameterBlock(parameter2, 7, new PoseSE3Parameterization());
+                addEdgeCostFactorToKeyframe(currEdge, edgeSubMap, problem, loss_function);
+                addSurfCostFactorToKeyframe(currSurf, surfSubMap, problem, loss_function);
+
+                ceres::Solver::Options options;
+                options.linear_solver_type = ceres::DENSE_QR;
+                options.max_num_iterations = 4;
+                options.minimizer_progress_to_stdout = false;
+                options.check_gradients = false;
+                options.gradient_check_relative_precision = 1e-4;
+                ceres::Solver::Summary summary;
+
+                ceres::Solve(options, &problem, &summary);
+            }
+        } else {
+            printf("not enough points in keyframe to associate, error");
+        }
+        T_curr2worldByKeyframe.linear() = q_curr2keyframe.toRotationMatrix();
+        T_curr2worldByKeyframe.translation() = t_curr2keyframe;
+
+        //addToKeyframe(currEdge, currSurf);
 
     }
 
@@ -499,7 +538,6 @@ public:
         if (is_keyframe_next) {
             currFrame = boost::make_shared<Keyframe>(cloud_in_edge, cloud_in_surf);
             is_keyframe_next = false;
-            keyframeVec.push_back(frameCount);
         } else {
             currFrame = boost::make_shared<Frame>(cloud_in_edge, cloud_in_surf);
         }
@@ -544,13 +582,14 @@ public:
 
                 // odom process
                 if (!is_init) {
-                    initMapWithFirstFrame();
+                    initWithFirstFrame();
                     is_init = true;
                     std::cout << "Initialization finished \n";
                 } else {
                     updateOdomWithFrame();
                 }
 
+                currFrame->pose = T_curr2worldByKeyframe;
                 frameMap[frameCount++] = currFrame;
                 t_laser_odometry.count();
             }
@@ -583,6 +622,7 @@ public:
     }
 
     void initParam() {
+        T_curr2world = T_lastKeyframe = T_curr2worldByKeyframe = Eigen::Isometry3d::Identity();
         map_resolution = nh.param<double>("map_resolution", 0.2);
         downSizeFilterEdge.setLeafSize(map_resolution, map_resolution, map_resolution);
         downSizeFilterSurf.setLeafSize(map_resolution * 2, map_resolution * 2, map_resolution * 2);
@@ -610,9 +650,9 @@ private:
     ros::NodeHandle nh;
     ros::Time cloud_in_time;
 
-    Eigen::Isometry3d T_curr2world;     // odom to world
-    Eigen::Isometry3d T_curr2keyframe;  // odom to last keyframe
-    Eigen::Isometry3d T_curr2worldByKeyframe;
+    Eigen::Isometry3d T_curr2world;                 // odom of current frame to world by submap
+    Eigen::Isometry3d T_lastKeyframe;               // odom of last keyframe to world
+    Eigen::Isometry3d T_curr2worldByKeyframe;       // odom of current frame to world of by keyframe
 
     double parameter[7] = {0, 0, 0, 1, 0, 0, 0};
     Eigen::Map<Eigen::Quaterniond>  q_curr2world;
@@ -661,12 +701,12 @@ private:
     bool is_init = false;
     bool is_keyframe_next = true;
 
-    const int MAX_KEYFRAME_INTERVAL = 12;
+    const int MAX_KEYFRAME_INTERVAL = 20;
     const int MIN_KEYFRAME_INTERVAL = 3;
     const int FIRST_FRAME_PRO_COUNT = 3;
 
-    double keyframeDistThreshold = 1.2;
-    double keyframeAngleThreshold = 0.2;
+    double keyframeDistThreshold = 0.8;
+    double keyframeAngleThreshold = 0.15;
     int frameCount = 0;
     int toBeKeyframeInterval = 0;
 

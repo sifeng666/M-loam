@@ -91,6 +91,11 @@ public:
     explicit Frame(PointCloudPtr EF, PointCloudPtr PF, PointCloudPtr FULL = nullptr) :
             edgeFeatures(EF), surfFeatures(PF), pointCloudFull(FULL) {
         // init
+        pose = Eigen::Isometry3d::Identity();
+    }
+
+    virtual void alloc() {
+        return;
     }
 
     virtual bool is_keyframe() const {
@@ -126,8 +131,11 @@ public:
     explicit Keyframe(PointCloudPtr EF, PointCloudPtr PF, PointCloudPtr FULL = nullptr) :
             Frame(EF, PF, FULL) {
         // init
-        edgeSubMap = EF->makeShared();
-        surfSubMap = surfSubMap->makeShared();
+    }
+
+    virtual void alloc() {
+        edgeSubMap = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
+        surfSubMap = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
     }
 
     virtual bool is_keyframe() const {
