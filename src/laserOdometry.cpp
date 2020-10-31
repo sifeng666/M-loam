@@ -39,6 +39,8 @@ public:
         addToLastKeyframe(currFrame->edgeFeatures, currFrame->surfFeatures);
 
         keyframeVec.push_back(frameCount);
+
+        initGTSAM();
     }
 
     void flushMap() {
@@ -134,6 +136,13 @@ public:
 
     void updateOdomWithFrame() {
 
+        if (!is_init) {
+            initWithFirstFrame();
+            is_init = true;
+            std::cout << "Initialization finished \n";
+            return;
+        }
+
         pcl::PointCloud<PointT>::Ptr edgeFeaturesDS(new pcl::PointCloud<PointT>());
         pcl::PointCloud<PointT>::Ptr surfFeaturesDS(new pcl::PointCloud<PointT>());
 
@@ -153,17 +162,22 @@ public:
             getTransToKeyframe(edgeFeaturesDS, surfFeaturesDS);
         } else {
             // not downsample, opti_counter is more
-            getTransToKeyframeStrong(currFrame->edgeFeatures, currFrame->surfFeatures);
-//            getTransToKeyframeStrong(edgeFeaturesDS, surfFeaturesDS);
+            getTransToKeyframeStrong(currFrame->edgeFeatures, currFrame->surfFeatures); // getTransToKeyframeStrong(edgeFeaturesDS, surfFeaturesDS);
             // not add to lastKeyframe's submap
             lastKeyframe = currFrame;
             currFrame->alloc();
-            addToLastKeyframe(currFrame->edgeFeatures, currFrame->surfFeatures);
-//            addToLastKeyframe(edgeFeaturesDS, surfFeaturesDS);
+            addToLastKeyframe(currFrame->edgeFeatures, currFrame->surfFeatures); // addToLastKeyframe(edgeFeaturesDS, surfFeaturesDS);
+
+
+
+
+            addOdomFactor();
 
             T_lastKeyframe = T_curr2worldByKeyframe;
             keyframeVec.push_back(frameCount);
         }
+
+
 
         pubOdomAndPath();
 
@@ -412,6 +426,20 @@ public:
 
     }
 
+    void initGTSAM() {
+        auto priorNoise = noiseModel::Diagonal::Variances((Vector(6) << 1e-2, 1e-2, M_PI*M_PI, 1e8, 1e8, 1e8).finished()); // rad*rad, meter*meter
+        gtSAMgraph.add(PriorFactor<Pose3>(0, trans2gtsamPose3(parameter2), priorNoise));
+        initialEstimate.insert(0, trans2gtsamPose3(parameter2));
+    }
+
+    void addOdomFactor() {
+        auto odometryNoise = noiseModel::Diagonal::Variances((Vector(6) << 1e-6, 1e-6, 1e-6, 1e-4, 1e-4, 1e-4).finished());
+        gtsam::Pose3 poseFrom = trans2gtsamPose3(frameMap[keyframeVec.back()]->pose);
+        gtsam::Pose3 poseTo   = trans2gtsamPose3(parameter2);
+        gtSAMgraph.add(BetweenFactor<Pose3>(frameCount - 1, frameCount, poseFrom.between(poseTo), odometryNoise));
+        initialEstimate.insert(frameCount, poseTo);
+    }
+
     void getTransToSubMap(const pcl::PointCloud<PointT>::Ptr& currEdge, const pcl::PointCloud<PointT>::Ptr& currSurf) {
 
         if (pointCloudEdgeMap->size() > 10 && pointCloudSurfMap->size() > 50) {
@@ -580,14 +608,7 @@ public:
 
                 updateCurrentFrame(cloud_in_edge, cloud_in_surf);
 
-                // odom process
-                if (!is_init) {
-                    initWithFirstFrame();
-                    is_init = true;
-                    std::cout << "Initialization finished \n";
-                } else {
-                    updateOdomWithFrame();
-                }
+                updateOdomWithFrame();
 
                 currFrame->pose = T_curr2worldByKeyframe;
                 frameMap[frameCount++] = currFrame;
@@ -710,6 +731,13 @@ private:
     int frameCount = 0;
     int toBeKeyframeInterval = 0;
 
+    // gtsam
+    NonlinearFactorGraph gtSAMgraph;
+    Values initialEstimate;
+    Values optimizedEstimate;
+    ISAM2 *isam;
+    Values isamCurrentEstimate;
+    Eigen::MatrixXd poseCovariance;
 
 };
 
