@@ -1,7 +1,6 @@
 cmake_minimum_required(VERSION 3.10)
 project(mloam)
 
-#add_definitions(-std=c++11)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_BUILD_TYPE "Release")
 set(CMAKE_CXX_FLAGS "-std=c++11")
@@ -24,7 +23,7 @@ find_package(Eigen3 REQUIRED)
 find_package(PCL REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(Ceres REQUIRED)
-find_package(GTSAM REQUIRED QUIET)
+find_package(GTSAM REQUIRED)
 
 include_directories(
     include
@@ -48,21 +47,14 @@ catkin_package(
     INCLUDE_DIRS include
 )
 
-link_directories(
-    include
-    ${PCL_LIBRARY_DIRS}
-    ${OpenCV_LIBRARY_DIRS}
-    ${GTSAM_LIBRARY_DIRS}
-)
-
 add_executable(laserProcessing src/laserProcessing.cpp)
 target_link_libraries(laserProcessing ${catkin_LIBRARIES} ${PCL_LIBRARIES})
 
 add_executable(laserOdometry src/laserOdometry.cpp include/frame.h)
-target_link_libraries(laserOdometry ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES} ${GTSAM_LIBRARIES})
+target_link_libraries(laserOdometry ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES} gtsam gtsam_unstable)
 
 #add_executable(preprocessing src/preprocessing.cpp)
 #target_link_libraries(preprocessing ${catkin_LIBRARIES} ${PCL_LIBRARIES})
-#
+
 #add_executable(odometry src/odometry.cpp)
 #target_link_libraries(odometry ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES} ndt_omp)
