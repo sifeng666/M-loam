@@ -105,18 +105,22 @@ public:
     }
 
     virtual void addEdgeFeaturesToSubMap(const PointT& p) {
+        std::cout << "not keyframe, cannot add to submap." << std::endl;
         return;
     }
 
     virtual void addSurfFeaturesToSubMap(const PointT& p) {
+        std::cout << "not keyframe, cannot add to submap." << std::endl;
         return;
     }
 
     virtual pcl::PointCloud<PointT>::Ptr getEdgeSubMap() {
+        std::cout << "not keyframe, cannot get submap." << std::endl;
         return nullptr;
     }
 
     virtual pcl::PointCloud<PointT>::Ptr getSurfSubMap() {
+        std::cout << "not keyframe, cannot get submap." << std::endl;
         return nullptr;
     }
 

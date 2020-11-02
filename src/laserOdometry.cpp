@@ -176,13 +176,16 @@ public:
         downSizeFilterEdge.setInputCloud(currFrame->surfFeatures);
         downSizeFilterEdge.filter(*surfFeaturesDS);
 
-        cout << "pointCloudEdgeMap size: " << pointCloudEdgeMap->size() << " pointCloudSurfMap size: " << pointCloudSurfMap->size() << endl
-             << "lastKeyframeEdgeMap size: " << lastKeyframe->getEdgeSubMap()->size() << " lastKeyframeSurfMap size: " << lastKeyframe->getSurfSubMap()->size() << endl
-             << "edgeFeaturesDS size: " << edgeFeaturesDS->size() << " surfFeaturesDS size: " << surfFeaturesDS->size() << endl;
+        cout << "pointCloudEdgeMap size: "      << pointCloudEdgeMap->size()                << " pointCloudSurfMap size: "      << pointCloudSurfMap->size()                << endl
+             << "lastKeyframeEdgeMap size: "    << lastKeyframe->getEdgeSubMap()->size()    << " lastKeyframeSurfMap size: "    << lastKeyframe->getSurfSubMap()->size()    << endl
+             << "edgeFeaturesDS size: "         << edgeFeaturesDS->size()                   << " surfFeaturesDS size: "         << surfFeaturesDS->size()                   << endl;
 
         is_keyframe_next = toBeKeyframe();
 
+        // translation to local submap -> borrow from f-loam
         getTransToSubMap(edgeFeaturesDS, surfFeaturesDS);
+
+        // translation to keyframe
         if (!currFrame->is_keyframe()) {
             getTransToKeyframe(edgeFeaturesDS, surfFeaturesDS);
         } else {
@@ -751,7 +754,7 @@ private:
 
     const int MAX_KEYFRAME_INTERVAL = 20;
     const int MIN_KEYFRAME_INTERVAL = 3;
-    const int FIRST_FRAME_PRO_COUNT = 3;
+    const int SLIDE_WINDOW_LEN = 10;
 
     double keyframeDistThreshold = 0.8;
     double keyframeAngleThreshold = 0.15;
