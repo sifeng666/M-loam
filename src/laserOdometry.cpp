@@ -8,6 +8,7 @@
 
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/kdtree/kdtree_flann.h>
+#include <pcl/filters/crop_box.h>
 
 
 
@@ -102,6 +103,30 @@ public:
         downSizeFilterEdge.filter(*pointCloudEdgeMap);
         downSizeFilterSurf.setInputCloud(pointCloudSurfMap);
         downSizeFilterSurf.filter(*pointCloudSurfMap);
+
+        double x_min = +T_curr2world.translation().x()-100;
+        double y_min = +T_curr2world.translation().y()-100;
+        double z_min = +T_curr2world.translation().z()-100;
+        double x_max = +T_curr2world.translation().x()+100;
+        double y_max = +T_curr2world.translation().y()+100;
+        double z_max = +T_curr2world.translation().z()+100;
+
+        //ROS_INFO("size : %f,%f,%f,%f,%f,%f", x_min, y_min, z_min,x_max, y_max, z_max);
+        cropBoxFilter.setMin(Eigen::Vector4f(x_min, y_min, z_min, 1.0));
+        cropBoxFilter.setMax(Eigen::Vector4f(x_max, y_max, z_max, 1.0));
+        cropBoxFilter.setNegative(false);
+
+        pcl::PointCloud<pcl::PointXYZI>::Ptr tmpCorner(new pcl::PointCloud<pcl::PointXYZI>());
+        pcl::PointCloud<pcl::PointXYZI>::Ptr tmpSurf(new pcl::PointCloud<pcl::PointXYZI>());
+        cropBoxFilter.setInputCloud(pointCloudSurfMap);
+        cropBoxFilter.filter(*tmpSurf);
+        cropBoxFilter.setInputCloud(pointCloudEdgeMap);
+        cropBoxFilter.filter(*tmpCorner);
+
+        downSizeFilterEdge.setInputCloud(tmpSurf);
+        downSizeFilterEdge.filter(*pointCloudSurfMap);
+        downSizeFilterSurf.setInputCloud(tmpCorner);
+        downSizeFilterSurf.filter(*pointCloudEdgeMap);
 
     }
 
@@ -704,6 +729,8 @@ private:
 
     pcl::VoxelGrid<PointT> downSizeFilterEdge;
     pcl::VoxelGrid<PointT> downSizeFilterSurf;
+    //local map
+    pcl::CropBox<PointT> cropBoxFilter;
 
     ros::Subscriber subLaserCloud, subEdgeLaserCloud, subSurfLaserCloud;
     ros::Publisher pubLaserOdometry, pubLaserOdometry2;

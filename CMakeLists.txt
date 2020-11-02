@@ -24,7 +24,7 @@ find_package(Eigen3 REQUIRED)
 find_package(PCL REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(Ceres REQUIRED)
-find_package(GTSAM REQUIRED)
+find_package(GTSAM REQUIRED QUIET)
 
 include_directories(
     include
@@ -48,18 +48,18 @@ catkin_package(
     INCLUDE_DIRS include
 )
 
-#add_library(
-#    ndt_omp
-#    include/pclomp/src/voxel_grid_covariance_omp.cpp
-#    include/pclomp/src/ndt_omp.cpp
-#    include/pclomp/src/gicp_omp.cpp
-#)
+link_directories(
+    include
+    ${PCL_LIBRARY_DIRS}
+    ${OpenCV_LIBRARY_DIRS}
+    ${GTSAM_LIBRARY_DIRS}
+)
 
 add_executable(laserProcessing src/laserProcessing.cpp)
 target_link_libraries(laserProcessing ${catkin_LIBRARIES} ${PCL_LIBRARIES})
 
-add_executable(laserOdometry src/laserOdometry.cpp)
-target_link_libraries(laserOdometry ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES})
+add_executable(laserOdometry src/laserOdometry.cpp include/frame.h)
+target_link_libraries(laserOdometry ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES} ${GTSAM_LIBRARIES})
 
 #add_executable(preprocessing src/preprocessing.cpp)
 #target_link_libraries(preprocessing ${catkin_LIBRARIES} ${PCL_LIBRARIES})
