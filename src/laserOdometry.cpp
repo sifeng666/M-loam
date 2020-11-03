@@ -32,9 +32,12 @@ public:
     }
 
     void initWithFirstFrame() {
+
+        // init local submap
         *pointCloudEdgeMap += *currFrame->edgeFeatures;
         *pointCloudSurfMap += *currFrame->surfFeatures;
 
+        // for keyframe, set first frame as keyframe
         currFrame->alloc();
         lastKeyframe = currFrame;
         addToLastKeyframe(currFrame->edgeFeatures, currFrame->surfFeatures);
@@ -80,10 +83,16 @@ public:
             lastKeyframe->addSurfFeaturesToSubMap(point_temp);
         }
 
-        downSizeFilterEdge.setInputCloud(lastKeyframe->edgeFeatures);
-        downSizeFilterEdge.filter(*lastKeyframe->edgeFeatures);
-        downSizeFilterSurf.setInputCloud(lastKeyframe->surfFeatures);
-        downSizeFilterSurf.filter(*lastKeyframe->surfFeatures);
+        pcl::PointCloud<PointT>::Ptr keyframeEdgeSubMapDS(new pcl::PointCloud<PointT>());
+        pcl::PointCloud<PointT>::Ptr keyframeSurfSubMapDS(new pcl::PointCloud<PointT>());
+
+        downSizeFilterEdge.setInputCloud(lastKeyframe->getEdgeSubMap());
+        downSizeFilterEdge.filter(*keyframeEdgeSubMapDS);
+        downSizeFilterSurf.setInputCloud(lastKeyframe->getSurfSubMap());
+        downSizeFilterSurf.filter(*keyframeSurfSubMapDS);
+
+        lastKeyframe->setEdgeSubMap(keyframeEdgeSubMapDS);
+        lastKeyframe->setSurfSubMap(keyframeSurfSubMapDS);
     }
 
     void addToSubMap(const pcl::PointCloud<PointT>::Ptr& currEdgeDS, const pcl::PointCloud<PointT>::Ptr& currSurfDS) {
@@ -99,11 +108,6 @@ public:
             pointCloudSurfMap->push_back(point_temp);
         }
 
-        downSizeFilterEdge.setInputCloud(pointCloudEdgeMap);
-        downSizeFilterEdge.filter(*pointCloudEdgeMap);
-        downSizeFilterSurf.setInputCloud(pointCloudSurfMap);
-        downSizeFilterSurf.filter(*pointCloudSurfMap);
-
         double x_min = +T_curr2world.translation().x()-100;
         double y_min = +T_curr2world.translation().y()-100;
         double z_min = +T_curr2world.translation().z()-100;
@@ -116,16 +120,16 @@ public:
         cropBoxFilter.setMax(Eigen::Vector4f(x_max, y_max, z_max, 1.0));
         cropBoxFilter.setNegative(false);
 
-        pcl::PointCloud<pcl::PointXYZI>::Ptr tmpCorner(new pcl::PointCloud<pcl::PointXYZI>());
-        pcl::PointCloud<pcl::PointXYZI>::Ptr tmpSurf(new pcl::PointCloud<pcl::PointXYZI>());
+        pcl::PointCloud<PointT>::Ptr tmpEdge(new pcl::PointCloud<PointT>());
+        pcl::PointCloud<PointT>::Ptr tmpSurf(new pcl::PointCloud<PointT>());
         cropBoxFilter.setInputCloud(pointCloudSurfMap);
         cropBoxFilter.filter(*tmpSurf);
         cropBoxFilter.setInputCloud(pointCloudEdgeMap);
-        cropBoxFilter.filter(*tmpCorner);
+        cropBoxFilter.filter(*tmpEdge);
 
         downSizeFilterEdge.setInputCloud(tmpSurf);
         downSizeFilterEdge.filter(*pointCloudSurfMap);
-        downSizeFilterSurf.setInputCloud(tmpCorner);
+        downSizeFilterSurf.setInputCloud(tmpEdge);
         downSizeFilterSurf.filter(*pointCloudEdgeMap);
 
     }
@@ -187,8 +191,11 @@ public:
 
         // translation to keyframe
         if (!currFrame->is_keyframe()) {
+
             getTransToKeyframe(edgeFeaturesDS, surfFeaturesDS);
+
         } else {
+
             // not downsample, opti_counter is more
             getTransToKeyframeStrong(currFrame->edgeFeatures, currFrame->surfFeatures); // getTransToKeyframeStrong(edgeFeaturesDS, surfFeaturesDS);
             // not add to lastKeyframe's submap

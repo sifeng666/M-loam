@@ -124,6 +124,20 @@ public:
         return nullptr;
     }
 
+    virtual void setEdgeSubMap(pcl::PointCloud<PointT>::Ptr ptr) {
+        std::cout << "not keyframe, cannot set submap." << std::endl;
+        return;
+    }
+
+    virtual void setSurfSubMap(pcl::PointCloud<PointT>::Ptr ptr) {
+        std::cout << "not keyframe, cannot set submap." << std::endl;
+        return;
+    }
+
+    virtual void downsampleEdgeSubMap() {
+
+    }
+
     virtual ~Frame() {}
 
 };
@@ -162,6 +176,14 @@ public:
 
     virtual pcl::PointCloud<PointT>::Ptr getSurfSubMap() {
         return surfSubMap;
+    }
+
+    virtual void setEdgeSubMap(pcl::PointCloud<PointT>::Ptr ptr) {
+        edgeSubMap = ptr;
+    }
+
+    virtual void setSurfSubMap(pcl::PointCloud<PointT>::Ptr ptr) {
+        surfSubMap = ptr;
     }
 
     virtual ~Keyframe() {}
