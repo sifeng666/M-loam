@@ -254,19 +254,19 @@ public:
                 *cloud_filtered += *cloud_surf;
                 pcl::toROSMsg(*cloud_filtered, laserCloudFilteredMsg);
                 laserCloudFilteredMsg.header.stamp = cloud_in_time;
-                laserCloudFilteredMsg.header.frame_id = "/base_link";
+                laserCloudFilteredMsg.header.frame_id = "base_link";
                 pubLaserCloudFiltered.publish(laserCloudFilteredMsg);
 
                 sensor_msgs::PointCloud2 edgePointsMsg;
                 pcl::toROSMsg(*cloud_edge, edgePointsMsg);
                 edgePointsMsg.header.stamp = cloud_in_time;
-                edgePointsMsg.header.frame_id = "/base_link";
+                edgePointsMsg.header.frame_id = "base_link";
                 pubEdgePoints.publish(edgePointsMsg);
 
                 sensor_msgs::PointCloud2 surfPointsMsg;
                 pcl::toROSMsg(*cloud_surf, surfPointsMsg);
                 surfPointsMsg.header.stamp = cloud_in_time;
-                surfPointsMsg.header.frame_id = "/base_link";
+                surfPointsMsg.header.frame_id = "base_link";
                 pubSurfPoints.publish(surfPointsMsg);
 
             }

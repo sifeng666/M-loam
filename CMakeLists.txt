@@ -51,7 +51,7 @@ add_executable(laserProcessing src/laserProcessing.cpp)
 target_link_libraries(laserProcessing ${catkin_LIBRARIES} ${PCL_LIBRARIES})
 
 add_executable(laserOdometry src/laserOdometry.cpp include/frame.h)
-target_link_libraries(laserOdometry ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES} gtsam)
+target_link_libraries(laserOdometry ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES} gtsam gtsam_unstable)
 
 #add_executable(preprocessing src/preprocessing.cpp)
 #target_link_libraries(preprocessing ${catkin_LIBRARIES} ${PCL_LIBRARIES})
