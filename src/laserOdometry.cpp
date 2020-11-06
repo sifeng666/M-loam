@@ -4,6 +4,7 @@
 
 #include "helper.h"
 #include "frame.h"
+#include "factors.h"
 #include "lidarFactor.hpp"
 
 #include <pcl/filters/voxel_grid.h>
@@ -38,8 +39,8 @@ public:
         *pointCloudSurfMap += *currFrame->surfFeatures;
 
         // for keyframe, set first frame as keyframe
-        currFrame->alloc();
         lastKeyframe = currFrame;
+        lastKeyframe->alloc();
         addToLastKeyframe(currFrame->edgeFeatures, currFrame->surfFeatures);
 
         keyframeVec.push_back(frameCount);
@@ -462,17 +463,21 @@ public:
     }
 
     void initGTSAM() {
-        auto priorNoise = noiseModel::Diagonal::Variances((Vector(6) << 1e-2, 1e-2, M_PI*M_PI, 1e8, 1e8, 1e8).finished()); // rad*rad, meter*meter
+        auto priorNoise = noiseModel::Diagonal::Sigmas((Vector(6) << 1e-8, 1e-8, 1e-8, 1e-8, 1e-8, 1e-8).finished()); // rad*rad, meter*meter
         gtSAMgraph.add(PriorFactor<Pose3>(0, trans2gtsamPose3(parameter2), priorNoise));
         initialEstimate.insert(0, trans2gtsamPose3(parameter2));
+        cout << "initGTSAM" << endl;
     }
 
     void addOdomFactor() {
-        auto odometryNoise = noiseModel::Diagonal::Variances((Vector(6) << 1e-6, 1e-6, 1e-6, 1e-4, 1e-4, 1e-4).finished());
+        auto odometryNoise = noiseModel::Diagonal::Sigmas((Vector(6) << 1e-2, 1e-2, 1e-2, 1e-2, 1e-2, 1e-2).finished());
         gtsam::Pose3 poseFrom = trans2gtsamPose3(frameMap[keyframeVec.back()]->pose);
         gtsam::Pose3 poseTo   = trans2gtsamPose3(parameter2);
-        gtSAMgraph.add(BetweenFactor<Pose3>(frameCount - 1, frameCount, poseFrom.between(poseTo), odometryNoise));
+        gtSAMgraph.add(BetweenFactor<Pose3>(keyframeVec.back(), frameCount, poseFrom.between(poseTo), odometryNoise));
         initialEstimate.insert(frameCount, poseTo);
+        cout << "addOdomFactor" << endl;
+
+        saveOdomGraph();
     }
 
     void getTransToSubMap(const pcl::PointCloud<PointT>::Ptr& currEdge, const pcl::PointCloud<PointT>::Ptr& currSurf) {
@@ -698,6 +703,13 @@ public:
         initParam();
     }
 
+    void saveOdomGraph()
+    {
+        std::cout << "saveOdomFactor" << std::endl;
+        std::ofstream if_graph("/home/ziv/mloam.dot");
+        gtSAMgraph.saveGraph(if_graph, initialEstimate);
+    }
+
 private:
 
     PoseWriter pW1;
@@ -779,6 +791,55 @@ private:
 };
 
 int main(int argc, char **argv) {
+//    using gtsam::symbol_shorthand::E; //  edge factor
+//    using gtsam::symbol_shorthand::P; // plane factor
+//    using gtsam::symbol_shorthand::X; // state
+
+//    gtsam::NonlinearFactorGraph factors;
+//    gtsam::Values init_values;
+//
+//
+//    auto pose_noise_model_plane = gtsam::noiseModel::Diagonal::Sigmas(gtsam::Vector1(0.1));
+//    auto pose_noise_model_edge  = gtsam::noiseModel::Diagonal::Sigmas(gtsam::Vector3(0.05, 0.05, 0.1);
+
+//    gtsam::Pose3 init_pose = gtsam::Pose3::identity();
+//    init_values.insert(X(0), init_pose);
+//
+//    // make data
+//    gtsam::Pose3 pose_w_c(gtsam::Rot3::RzRyRx(0.3, -0.2, 0.3), gtsam::Vector3(-0.5, 0.3, 0.15));
+//    std::cout <<"gt: \n" << pose_w_c << std::endl;
+//
+//    gtsam::Point3 p1(3,0,0);
+//    gtsam::Point3 p2(0,4,0);
+//    gtsam::Point3 p3(0,0,5);
+//
+//    gtsam::Point3 s1(1.2, 0, 3.0);
+//    gtsam::Point3 s2(1.5, 2.0, 0);
+//    gtsam::Point3 s3(0, 0.8, 4.0);
+//
+//    // transform
+//    s1 = pose_w_c.inverse() * s1;
+//    s2 = pose_w_c.inverse() * s2;
+//    s3 = pose_w_c.inverse() * s3;
+//
+//
+//
+//    factors.emplace_shared<gtsam::PointToEdgeFactor>(
+//            X(0), s2, p1, p2, pose_noise_model_edge);
+//
+//    factors.emplace_shared<gtsam::PointToEdgeFactor>(
+//            X(0), s3, p2, p3, pose_noise_model_edge);
+//
+//    factors.emplace_shared<gtsam::PointToEdgeFactor>(
+//            X(0), s1, p3, p1, pose_noise_model_edge);
+//
+//    gtsam::LevenbergMarquardtParams params;
+//
+//    // solve
+//    auto result = gtsam::LevenbergMarquardtOptimizer(factors, init_values, params).optimize();
+
+    // write result
+//    result.print("result:\n");
 
     ros::init(argc, argv, "laserOdometry");
 
