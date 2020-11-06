@@ -24,6 +24,10 @@
 
 using namespace gtsam;
 
+using gtsam::symbol_shorthand::E; //  edge factor
+using gtsam::symbol_shorthand::P; // plane factor
+using gtsam::symbol_shorthand::X; // state
+
 //struct Pose3 {
 //
 //    Eigen::Quaterniond  q;
@@ -218,19 +222,11 @@ private:
     std::ofstream f;
 public:
     explicit PoseWriter(const std::string& _name)
-        : f("/home/ziv/catkin_ziv/src/M-Loam/odom/" + _name)
+        : f("/home/ziv/catkin_ziv/src/M-loam/odometry/" + _name)
     { }
 
-//    void write(const Pose3& pose, bool isKeyframe) {
-//        char ret[100];
-//        if (!isKeyframe)
-//            sprintf(ret, "%f %f %f %f %f %f %f\n", pose.q.x(), pose.q.y(), pose.q.z(), pose.q.w(), pose.t.x(), pose.t.y(), pose.t.z());
-//        else
-//            sprintf(ret, "%f %f %f %f %f %f %f [keyframe]\n", pose.q.x(), pose.q.y(), pose.q.z(), pose.q.w(), pose.t.x(), pose.t.y(), pose.t.z());
-//        f << ret;
-//    }
-
     void write(const Eigen::Quaterniond& q, const Eigen::Vector3d& t, bool isKeyframe) {
+        if (!f.is_open()) return;
         char ret[100];
         if (!isKeyframe)
             sprintf(ret, "%f %f %f %f %f %f %f\n", q.x(), q.y(), q.z(), q.w(), t.x(), t.y(), t.z());
@@ -240,14 +236,18 @@ public:
     }
 
     void write(const Eigen::Isometry3d& mat, bool isKeyframe) {
-        char ret[100];
         Eigen::Quaterniond q(mat.rotation().matrix());
         Eigen::Vector3d t(mat.translation());
-        if (!isKeyframe)
-            sprintf(ret, "%f %f %f %f %f %f %f\n", q.x(), q.y(), q.z(), q.w(), t.x(), t.y(), t.z());
-        else
-            sprintf(ret, "%f %f %f %f %f %f %f [keyframe]\n", q.x(), q.y(), q.z(), q.w(), t.x(), t.y(), t.z());
-        f << ret;
+        write(q, t, isKeyframe);
+    }
+
+    void write(const gtsam::Pose3& p3, bool isKeyframe) {
+        Eigen::Isometry3d mat(p3.matrix());
+        write(mat, isKeyframe);
+    }
+
+    void close() {
+        f.close();
     }
 };
 

@@ -4,7 +4,7 @@ project(mloam)
 set(CMAKE_CXX_STANDARD 17)
 
 set(CMAKE_CXX_FLAGS "-std=c++11")
-#set(CMAKE_CXX_FLAGS_RELEASE "-O0 -Wall -g")
+set(CMAKE_CXX_FLAGS_RELEASE "-O0 -Wall -g")
 
 find_package(catkin REQUIRED COMPONENTS
     geometry_msgs
@@ -51,7 +51,7 @@ add_executable(laserProcessing src/laserProcessing.cpp)
 target_link_libraries(laserProcessing ${catkin_LIBRARIES} ${PCL_LIBRARIES})
 
 add_executable(laserOdometry src/laserOdometry.cpp include/frame.h)
-target_link_libraries(laserOdometry ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES} gtsam gtsam_unstable)
+target_link_libraries(laserOdometry ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES} gtsam)
 
 #add_executable(preprocessing src/preprocessing.cpp)
 #target_link_libraries(preprocessing ${catkin_LIBRARIES} ${PCL_LIBRARIES})

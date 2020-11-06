@@ -32,22 +32,6 @@ public:
         pointCloudEdgeBuf.push(laserCloudMsg);
     }
 
-    void initWithFirstFrame() {
-
-        // init local submap
-        *pointCloudEdgeMap += *currFrame->edgeFeatures;
-        *pointCloudSurfMap += *currFrame->surfFeatures;
-
-        // for keyframe, set first frame as keyframe
-        lastKeyframe = currFrame;
-        lastKeyframe->alloc();
-        addToLastKeyframe(currFrame->edgeFeatures, currFrame->surfFeatures);
-
-        keyframeVec.push_back(frameCount);
-
-        initGTSAM();
-    }
-
     void flushMap() {
         pointCloudEdgeMap->clear();
         pointCloudSurfMap->clear();
@@ -71,16 +55,16 @@ public:
         po->intensity = pi->intensity;
     }
 
-    void addToLastKeyframe(const pcl::PointCloud<PointT>::Ptr& currEdgeDS, const pcl::PointCloud<PointT>::Ptr& currSurfDS) {
+    void addToLastKeyframe(const pcl::PointCloud<PointT>::Ptr& currEdgeCloud, const pcl::PointCloud<PointT>::Ptr& currSurfCloud) {
 
         PointT point_temp;
-        for (int i = 0; i < currEdgeDS->size(); i++) {
-            pointAssociateToKeyframe(&currEdgeDS->points[i], &point_temp);
+        for (int i = 0; i < currEdgeCloud->size(); i++) {
+            pointAssociateToKeyframe(&currEdgeCloud->points[i], &point_temp);
             lastKeyframe->addEdgeFeaturesToSubMap(point_temp);
         }
 
-        for (int i = 0; i < currSurfDS->size(); i++) {
-            pointAssociateToKeyframe(&currSurfDS->points[i], &point_temp);
+        for (int i = 0; i < currSurfCloud->size(); i++) {
+            pointAssociateToKeyframe(&currSurfCloud->points[i], &point_temp);
             lastKeyframe->addSurfFeaturesToSubMap(point_temp);
         }
 
@@ -96,16 +80,16 @@ public:
         lastKeyframe->setSurfSubMap(keyframeSurfSubMapDS);
     }
 
-    void addToSubMap(const pcl::PointCloud<PointT>::Ptr& currEdgeDS, const pcl::PointCloud<PointT>::Ptr& currSurfDS) {
+    void addToSubMap(const pcl::PointCloud<PointT>::Ptr& currEdgeCloud, const pcl::PointCloud<PointT>::Ptr& currSurfCloud) {
 
         PointT point_temp;
-        for (int i = 0; i < currEdgeDS->size(); i++) {
-            pointAssociateToMap(&currEdgeDS->points[i], &point_temp);
+        for (int i = 0; i < currEdgeCloud->size(); i++) {
+            pointAssociateToMap(&currEdgeCloud->points[i], &point_temp);
             pointCloudEdgeMap->push_back(point_temp);
         }
 
-        for (int i = 0; i < currSurfDS->size(); i++) {
-            pointAssociateToMap(&currSurfDS->points[i], &point_temp);
+        for (int i = 0; i < currSurfCloud->size(); i++) {
+            pointAssociateToMap(&currSurfCloud->points[i], &point_temp);
             pointCloudSurfMap->push_back(point_temp);
         }
 
@@ -132,10 +116,9 @@ public:
         downSizeFilterEdge.filter(*pointCloudSurfMap);
         downSizeFilterSurf.setInputCloud(tmpEdge);
         downSizeFilterSurf.filter(*pointCloudEdgeMap);
-
     }
 
-    bool toBeKeyframe() {
+    bool nextFrameToBeKeyframe() {
         if (toBeKeyframeInterval < MIN_KEYFRAME_INTERVAL) {
             toBeKeyframeInterval++;
             return false;
@@ -164,6 +147,26 @@ public:
         }
     }
 
+    void setCurrentFrameToLastKeyframe() {
+        lastKeyframe = currFrame;
+        lastKeyframe->alloc();
+        addToLastKeyframe(currFrame->edgeFeatures, currFrame->surfFeatures);
+        T_lastKeyframe = T_curr2worldByKeyframe;
+        keyframeVec.push_back(frameCount);
+    }
+
+    void initWithFirstFrame() {
+
+        // init local submap
+        *pointCloudEdgeMap += *currFrame->edgeFeatures;
+        *pointCloudSurfMap += *currFrame->surfFeatures;
+
+        // for keyframe, set first frame as keyframe
+        setCurrentFrameToLastKeyframe();
+
+        initGTSAM();
+    }
+
     void updateOdomWithFrame() {
 
         if (!is_init) {
@@ -185,33 +188,44 @@ public:
              << "lastKeyframeEdgeMap size: "    << lastKeyframe->getEdgeSubMap()->size()    << " lastKeyframeSurfMap size: "    << lastKeyframe->getSurfSubMap()->size()    << endl
              << "edgeFeaturesDS size: "         << edgeFeaturesDS->size()                   << " surfFeaturesDS size: "         << surfFeaturesDS->size()                   << endl;
 
-        is_keyframe_next = toBeKeyframe();
+        is_keyframe_next = nextFrameToBeKeyframe();
 
         // translation to local submap -> borrow from f-loam
         getTransToSubMap(edgeFeaturesDS, surfFeaturesDS);
+        addToSubMap(edgeFeaturesDS, surfFeaturesDS);
+
+        getTransToSubMapGTSAM(edgeFeaturesDS, surfFeaturesDS);
+        addToSubMapGTSAM(edgeFeaturesDS, surfFeaturesDS);
+
+
+        if (frameCount < 10) {
+            pW1.write(T_curr2world, false);
+            pW2.write(pose_w_c, false);
+        } else {
+            pW1.close();
+            pW2.close();
+        }
 
         // translation to keyframe
-        if (!currFrame->is_keyframe()) {
-
-            getTransToKeyframe(edgeFeaturesDS, surfFeaturesDS);
-
-        } else {
-
-            // not downsample, opti_counter is more
-            getTransToKeyframeStrong(currFrame->edgeFeatures, currFrame->surfFeatures); // getTransToKeyframeStrong(edgeFeaturesDS, surfFeaturesDS);
-            // not add to lastKeyframe's submap
-            lastKeyframe = currFrame;
-            currFrame->alloc();
-            addToLastKeyframe(currFrame->edgeFeatures, currFrame->surfFeatures); // addToLastKeyframe(edgeFeaturesDS, surfFeaturesDS);
-
-
-
-
-            addOdomFactor();
-
-            T_lastKeyframe = T_curr2worldByKeyframe;
-            keyframeVec.push_back(frameCount);
-        }
+//        if (!currFrame->is_keyframe()) {
+//
+//            getTransToKeyframe(edgeFeaturesDS, surfFeaturesDS);
+//            addToLastKeyframe(edgeFeaturesDS, surfFeaturesDS);
+//
+//        } else {
+//
+//            // not downsample, opti_counter twice
+//            getTransToKeyframeStrong(currFrame->edgeFeatures, currFrame->surfFeatures); // getTransToKeyframeStrong(edgeFeaturesDS, surfFeaturesDS);
+//            // not add to lastKeyframe's submap
+//            setCurrentFrameToLastKeyframe();
+//
+////            addOdomFactor();
+//            int frameFrom = keyframeVec[keyframeVec.size() - 2];
+//            int frameTo   = keyframeVec[keyframeVec.size() - 1];
+//            addOdomFactorBetweenFrames(frameFrom, frameTo);
+//
+//
+//        }
 
 
 
@@ -219,46 +233,45 @@ public:
 
     }
 
+
     void pubOdomAndPath() {
-        pW1.write(T_curr2world, false);
-        pW2.write(T_curr2worldByKeyframe, false);
 
         // publish odometry
-        odom.header.frame_id = "/base_link";
-        odom.child_frame_id = "/laser_odom";
-        odom.header.stamp = cloud_in_time;
+        odometry.header.frame_id = "/base_link";
+        odometry.child_frame_id = "/laser_odom";
+        odometry.header.stamp = cloud_in_time;
         Eigen::Quaterniond q(T_curr2world.rotation().matrix());
-        odom.pose.pose.orientation.x    = q.x();
-        odom.pose.pose.orientation.y    = q.y();
-        odom.pose.pose.orientation.z    = q.z();
-        odom.pose.pose.orientation.w    = q.w();
-        odom.pose.pose.position.x       = T_curr2world.translation().x();
-        odom.pose.pose.position.y       = T_curr2world.translation().y();
-        odom.pose.pose.position.z       = T_curr2world.translation().z();
+        odometry.pose.pose.orientation.x    = q.x();
+        odometry.pose.pose.orientation.y    = q.y();
+        odometry.pose.pose.orientation.z    = q.z();
+        odometry.pose.pose.orientation.w    = q.w();
+        odometry.pose.pose.position.x       = T_curr2world.translation().x();
+        odometry.pose.pose.position.y       = T_curr2world.translation().y();
+        odometry.pose.pose.position.z       = T_curr2world.translation().z();
 
-        odom2.header.frame_id = "/base_link";
-        odom2.child_frame_id = "/laser_odom";
-        odom2.header.stamp = cloud_in_time;
-        Eigen::Quaterniond q2(T_curr2worldByKeyframe.rotation().matrix());
-        odom2.pose.pose.orientation.x   = q2.x();
-        odom2.pose.pose.orientation.y   = q2.y();
-        odom2.pose.pose.orientation.z   = q2.z();
-        odom2.pose.pose.orientation.w   = q2.w();
-        odom2.pose.pose.position.x      = T_curr2worldByKeyframe.translation().x();
-        odom2.pose.pose.position.y      = T_curr2worldByKeyframe.translation().y();
-        odom2.pose.pose.position.z      = T_curr2worldByKeyframe.translation().z();
+        odometry2.header.frame_id = "/base_link";
+        odometry2.child_frame_id = "/laser_odom";
+        odometry2.header.stamp = cloud_in_time;
+        Eigen::Quaterniond q2(pose_w_c.rotation().matrix());
+        odometry2.pose.pose.orientation.x   = q2.x();
+        odometry2.pose.pose.orientation.y   = q2.y();
+        odometry2.pose.pose.orientation.z   = q2.z();
+        odometry2.pose.pose.orientation.w   = q2.w();
+        odometry2.pose.pose.position.x      = pose_w_c.translation().x();
+        odometry2.pose.pose.position.y      = pose_w_c.translation().y();
+        odometry2.pose.pose.position.z      = pose_w_c.translation().z();
 
         geometry_msgs::PoseStamped laserPose;
-        laserPose.header = odom.header;
-        laserPose.pose = odom.pose.pose;
-        path.header.stamp = odom.header.stamp;
+        laserPose.header = odometry.header;
+        laserPose.pose = odometry.pose.pose;
+        path.header.stamp = odometry.header.stamp;
         path.poses.push_back(laserPose);
         path.header.frame_id = "/base_link";
         pubPath2SubMap.publish(path);
 
-        laserPose.header = odom2.header;
-        laserPose.pose = odom2.pose.pose;
-        path2.header.stamp = odom2.header.stamp;
+        laserPose.header = odometry2.header;
+        laserPose.pose = odometry2.pose.pose;
+        path2.header.stamp = odometry2.header.stamp;
         path2.poses.push_back(laserPose);
         path2.header.frame_id = "/base_link";
         pubPath2Keyframe.publish(path2);
@@ -295,7 +308,8 @@ public:
                 Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> saes(covMat);
 
                 Eigen::Vector3d unit_direction = saes.eigenvectors().col(2);
-                Eigen::Vector3d curr_point(pc_in->points[i].x, pc_in->points[i].y, pc_in->points[i].z); {
+                Eigen::Vector3d curr_point(pc_in->points[i].x, pc_in->points[i].y, pc_in->points[i].z);
+                if (saes.eigenvalues()[2] > 3 * saes.eigenvalues()[1]) {
                     Eigen::Vector3d point_on_line = center;
                     Eigen::Vector3d point_a, point_b;
                     point_a = 0.1 * unit_direction + point_on_line;
@@ -308,7 +322,7 @@ public:
             }
         }
         if(corner_num<20){
-            printf("not enough correct points");
+            printf("not enough correct points\n");
         }
 
     }
@@ -359,7 +373,7 @@ public:
 
         }
         if(surf_num<20){
-            printf("not enough correct points");
+            printf("not enough correct points\n");
         }
 
     }
@@ -394,7 +408,8 @@ public:
                 Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> saes(covMat);
 
                 Eigen::Vector3d unit_direction = saes.eigenvectors().col(2);
-                Eigen::Vector3d curr_point(pc_in->points[i].x, pc_in->points[i].y, pc_in->points[i].z); {
+                Eigen::Vector3d curr_point(pc_in->points[i].x, pc_in->points[i].y, pc_in->points[i].z);
+                if (saes.eigenvalues()[2] > 3 * saes.eigenvalues()[1]) {
                     Eigen::Vector3d point_on_line = center;
                     Eigen::Vector3d point_a, point_b;
                     point_a = 0.1 * unit_direction + point_on_line;
@@ -407,7 +422,7 @@ public:
             }
         }
         if(corner_num<20){
-            printf("not enough correct points");
+            printf("not enough correct points\n");
         }
 
     }
@@ -457,7 +472,7 @@ public:
 
         }
         if(surf_num<20){
-            printf("not enough correct points");
+            printf("not enough correct points\n");
         }
 
     }
@@ -469,13 +484,12 @@ public:
         cout << "initGTSAM" << endl;
     }
 
-    void addOdomFactor() {
+    void addOdomFactorBetweenFrames(int frameFrom, int frameTo) {
         auto odometryNoise = noiseModel::Diagonal::Sigmas((Vector(6) << 1e-2, 1e-2, 1e-2, 1e-2, 1e-2, 1e-2).finished());
-        gtsam::Pose3 poseFrom = trans2gtsamPose3(frameMap[keyframeVec.back()]->pose);
-        gtsam::Pose3 poseTo   = trans2gtsamPose3(parameter2);
-        gtSAMgraph.add(BetweenFactor<Pose3>(keyframeVec.back(), frameCount, poseFrom.between(poseTo), odometryNoise));
-        initialEstimate.insert(frameCount, poseTo);
-        cout << "addOdomFactor" << endl;
+        gtsam::Pose3 poseFrom = trans2gtsamPose3(frameMap[frameFrom]->pose);
+        gtsam::Pose3 poseTo   = trans2gtsamPose3(frameMap[frameTo]  ->pose);
+        gtSAMgraph.add(BetweenFactor<Pose3>(frameFrom, frameTo, poseFrom.between(poseTo), odometryNoise));
+        initialEstimate.insert(frameTo, poseTo);
 
         saveOdomGraph();
     }
@@ -507,13 +521,11 @@ public:
             }
 
         } else {
-            printf("not enough points in submap to associate, error");
+            printf("not enough points in submap to associate, error\n");
         }
 
         T_curr2world.linear() = q_curr2world.toRotationMatrix();
         T_curr2world.translation() = t_curr2world;
-
-        addToSubMap(currEdge, currSurf);
     }
 
     void getTransToKeyframe(const pcl::PointCloud<PointT>::Ptr& currEdge, const pcl::PointCloud<PointT>::Ptr& currSurf) {
@@ -550,13 +562,10 @@ public:
                 ceres::Solve(options, &problem, &summary);
             }
         } else {
-            printf("not enough points in keyframe to associate, error");
+            printf("not enough points in keyframe to associate, error\n");
         }
         T_curr2worldByKeyframe.linear() = q_curr2keyframe.toRotationMatrix();
         T_curr2worldByKeyframe.translation() = t_curr2keyframe;
-
-        addToLastKeyframe(currEdge, currSurf);
-
     }
 
     void getTransToKeyframeStrong(const pcl::PointCloud<PointT>::Ptr& currEdge, const pcl::PointCloud<PointT>::Ptr& currSurf) {
@@ -565,7 +574,7 @@ public:
         auto surfSubMap = lastKeyframe->getSurfSubMap();
 
         if (edgeSubMap == nullptr || surfSubMap == nullptr) {
-            printf("lastKeyframe not keyframe, error");
+            printf("lastKeyframe not keyframe, error\n");
             return;
         }
 
@@ -593,7 +602,7 @@ public:
                 ceres::Solve(options, &problem, &summary);
             }
         } else {
-            printf("not enough points in keyframe to associate, error");
+            printf("not enough points in keyframe to associate, error\n");
         }
         T_curr2worldByKeyframe.linear() = q_curr2keyframe.toRotationMatrix();
         T_curr2worldByKeyframe.translation() = t_curr2keyframe;
@@ -601,6 +610,220 @@ public:
         //addToKeyframe(currEdge, currSurf);
 
     }
+
+    void pointAssociateToMapGTSAM(pcl::PointXYZI const *const pi, pcl::PointXYZI *const po) {
+        Eigen::Vector3d point_curr (pi->x, pi->y, pi->z);
+        Eigen::Vector3d point_w = T_curr2world * point_curr;
+        po->x = point_w.x();
+        po->y = point_w.y();
+        po->z = point_w.z();
+        po->intensity = pi->intensity;
+        //po->intensity = 1.0;
+    }
+
+    void addToSubMapGTSAM(const pcl::PointCloud<PointT>::Ptr& currEdgeCloud, const pcl::PointCloud<PointT>::Ptr& currSurfCloud) {
+
+        PointT point_temp;
+        for (int i = 0; i < currEdgeCloud->size(); i++) {
+            pointAssociateToMapGTSAM(&currEdgeCloud->points[i], &point_temp);
+            pointCloudEdgeMapGTSAM->push_back(point_temp);
+        }
+
+        for (int i = 0; i < currSurfCloud->size(); i++) {
+            pointAssociateToMapGTSAM(&currSurfCloud->points[i], &point_temp);
+            pointCloudSurfMapGTSAM->push_back(point_temp);
+        }
+
+        double x_min = +T_curr2world.translation().x()-100;
+        double y_min = +T_curr2world.translation().y()-100;
+        double z_min = +T_curr2world.translation().z()-100;
+        double x_max = +T_curr2world.translation().x()+100;
+        double y_max = +T_curr2world.translation().y()+100;
+        double z_max = +T_curr2world.translation().z()+100;
+
+        //ROS_INFO("size : %f,%f,%f,%f,%f,%f", x_min, y_min, z_min,x_max, y_max, z_max);
+        cropBoxFilter.setMin(Eigen::Vector4f(x_min, y_min, z_min, 1.0));
+        cropBoxFilter.setMax(Eigen::Vector4f(x_max, y_max, z_max, 1.0));
+        cropBoxFilter.setNegative(false);
+
+        pcl::PointCloud<PointT>::Ptr tmpEdge(new pcl::PointCloud<PointT>());
+        pcl::PointCloud<PointT>::Ptr tmpSurf(new pcl::PointCloud<PointT>());
+        cropBoxFilter.setInputCloud(pointCloudSurfMapGTSAM);
+        cropBoxFilter.filter(*tmpSurf);
+        cropBoxFilter.setInputCloud(pointCloudEdgeMapGTSAM);
+        cropBoxFilter.filter(*tmpEdge);
+
+        downSizeFilterEdge.setInputCloud(tmpSurf);
+        downSizeFilterEdge.filter(*pointCloudSurfMapGTSAM);
+        downSizeFilterSurf.setInputCloud(tmpEdge);
+        downSizeFilterSurf.filter(*pointCloudEdgeMapGTSAM);
+    }
+
+    void addEdgeCostFactorToSubMapGTSAM(
+            const pcl::PointCloud<pcl::PointXYZI>::Ptr& pc_in,
+            const pcl::PointCloud<pcl::PointXYZI>::Ptr& map_in,
+            gtsam::NonlinearFactorGraph& factors,
+            gtsam::Values& values)
+    {
+        int corner_num=0;
+        for (int i = 0; i < (int)pc_in->points.size(); i++)
+        {
+            pcl::PointXYZI point_temp;
+            pointAssociateToMapGTSAM(&(pc_in->points[i]), &point_temp);
+
+            std::vector<int> pointSearchInd;
+            std::vector<float> pointSearchSqDis;
+            kdtreeEdgeMap->nearestKSearch(point_temp, 5, pointSearchInd, pointSearchSqDis);
+            if (pointSearchSqDis[4] < 1.0)
+            {
+                std::vector<Eigen::Vector3d> nearCorners;
+                Eigen::Vector3d center(0, 0, 0);
+                for (int j = 0; j < 5; j++)
+                {
+                    Eigen::Vector3d tmp(map_in->points[pointSearchInd[j]].x,
+                                        map_in->points[pointSearchInd[j]].y,
+                                        map_in->points[pointSearchInd[j]].z);
+                    center = center + tmp;
+                    nearCorners.push_back(tmp);
+                }
+                center = center / 5.0;
+
+                Eigen::Matrix3d covMat = Eigen::Matrix3d::Zero();
+                for (int j = 0; j < 5; j++)
+                {
+                    Eigen::Matrix<double, 3, 1> tmpZeroMean = nearCorners[j] - center;
+                    covMat = covMat + tmpZeroMean * tmpZeroMean.transpose();
+                }
+
+                Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> saes(covMat);
+
+                Eigen::Vector3d unit_direction = saes.eigenvectors().col(2);
+                Eigen::Vector3d curr_point(pc_in->points[i].x, pc_in->points[i].y, pc_in->points[i].z);
+                if (saes.eigenvalues()[2] > 3 * saes.eigenvalues()[1]) {
+                    Eigen::Vector3d point_on_line = center;
+                    Eigen::Vector3d point_a, point_b;
+                    point_a = 0.1 * unit_direction + point_on_line;
+                    point_b = -0.1 * unit_direction + point_on_line;
+
+                    factors.emplace_shared<gtsam::PointToEdgeFactor>(
+                            X(0), curr_point, point_a, point_b, pose_noise_model_edge);
+
+                    corner_num++;
+                }
+            }
+        }
+        if(corner_num<20){
+            printf("not enough correct points gtsam\n");
+        }
+
+    }
+
+    void addSurfCostFactorToSubMapGTSAM(
+            const pcl::PointCloud<pcl::PointXYZI>::Ptr& pc_in,
+            const pcl::PointCloud<pcl::PointXYZI>::Ptr& map_in,
+            gtsam::NonlinearFactorGraph& factors,
+            gtsam::Values& values)
+    {
+        int surf_num=0;
+        for (int i = 0; i < (int)pc_in->points.size(); i++)
+        {
+            pcl::PointXYZI point_temp;
+            pointAssociateToMapGTSAM(&(pc_in->points[i]), &point_temp);
+            std::vector<int> pointSearchInd;
+            std::vector<float> pointSearchSqDis;
+            kdtreeSurfMap->nearestKSearch(point_temp, 5, pointSearchInd, pointSearchSqDis);
+
+            Eigen::Matrix<double, 5, 3> matA0;
+            Eigen::Matrix<double, 5, 1> matB0 = -1 * Eigen::Matrix<double, 5, 1>::Ones();
+            if (pointSearchSqDis[4] < 1.0)
+            {
+
+                for (int j = 0; j < 5; j++)
+                {
+                    matA0(j, 0) = map_in->points[pointSearchInd[j]].x;
+                    matA0(j, 1) = map_in->points[pointSearchInd[j]].y;
+                    matA0(j, 2) = map_in->points[pointSearchInd[j]].z;
+                }
+                // find the norm of plane
+                Eigen::Vector3d norm = matA0.colPivHouseholderQr().solve(matB0);
+                double negative_OA_dot_norm = 1 / norm.norm();
+                norm.normalize();
+
+                bool planeValid = true;
+                for (int j = 0; j < 5; j++)
+                {
+                    // if OX * n > 0.2, then plane is not fit well
+                    if (fabs(norm(0) * map_in->points[pointSearchInd[j]].x +
+                             norm(1) * map_in->points[pointSearchInd[j]].y +
+                             norm(2) * map_in->points[pointSearchInd[j]].z + negative_OA_dot_norm) > 0.2)
+                    {
+                        planeValid = false;
+                        break;
+                    }
+                }
+                Eigen::Vector3d curr_point(pc_in->points[i].x, pc_in->points[i].y, pc_in->points[i].z);
+                if (planeValid)
+                {
+                    factors.emplace_shared<gtsam::PointToPlaneFactor>(
+                            X(0), curr_point, norm, negative_OA_dot_norm, pose_noise_model_plane);
+                    surf_num++;
+                }
+            }
+
+        }
+        if(surf_num<20){
+            printf("not enough correct points gtsam\n");
+        }
+
+    }
+
+    void getTransToSubMapGTSAM(const pcl::PointCloud<PointT>::Ptr& currEdge, const pcl::PointCloud<PointT>::Ptr& currSurf) {
+
+        gtsam::Pose3 odom_prediction = odom * (last_odom.inverse() * odom);
+        last_odom = odom;
+        odom = odom_prediction;
+
+        // 'pose_w_c' to be optimize
+        pose_w_c = odom;
+
+        const auto state_key = X(0);
+
+        if (pointCloudEdgeMap->size() > 10 && pointCloudSurfMap->size() > 50) {
+
+//            kdtreeEdgeMap->setInputCloud(pointCloudEdgeMap);
+//            kdtreeSurfMap->setInputCloud(pointCloudSurfMap);
+
+            for (int opti_counter = 0; opti_counter < 3; opti_counter++) {
+
+                gtsam::NonlinearFactorGraph factors;
+                gtsam::Values init_values;
+
+                // 'pose_w_c' to be optimize
+                init_values.insert(state_key, pose_w_c);
+
+                addEdgeCostFactorToSubMapGTSAM(currEdge, pointCloudEdgeMap, factors, init_values);
+                addSurfCostFactorToSubMapGTSAM(currSurf, pointCloudSurfMap, factors, init_values);
+
+                // std::ofstream out_graph("/home/iceytan/floam_graph.dot");
+                // factors.saveGraph(out_graph, init_values);
+
+                gtsam::LevenbergMarquardtParams params;
+                params.verbosity = gtsam::LevenbergMarquardtParams::Verbosity::SILENT;
+                params.maxIterations = 10;
+
+                // solve
+                auto result = gtsam::LevenbergMarquardtOptimizer(factors, init_values, params).optimize();
+
+                // write result
+                pose_w_c = result.at<gtsam::Pose3>(state_key);
+            }
+
+        } else {
+            printf("not enough points in submap to associate, error\n");
+        }
+        odom = pose_w_c;
+    }
+
 
     void updateCurrentFrame(const pcl::PointCloud<PointT>::Ptr& cloud_in_edge, const pcl::PointCloud<PointT>::Ptr& cloud_in_surf) {
         if (is_keyframe_next) {
@@ -661,12 +884,15 @@ public:
     }
 
     void allocateMem() {
-        pointCloudEdgeMap   = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
-        pointCloudSurfMap   = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
-        kdtreeEdgeMap       = pcl::KdTreeFLANN<PointT>::Ptr(new pcl::KdTreeFLANN<PointT>());
-        kdtreeSurfMap       = pcl::KdTreeFLANN<PointT>::Ptr(new pcl::KdTreeFLANN<PointT>());
-        kdtreeEdgeKeyframe  = pcl::KdTreeFLANN<PointT>::Ptr(new pcl::KdTreeFLANN<PointT>());
-        kdtreeSurfKeyframe  = pcl::KdTreeFLANN<PointT>::Ptr(new pcl::KdTreeFLANN<PointT>());
+        pointCloudEdgeMap       = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
+        pointCloudSurfMap       = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
+        pointCloudEdgeMapGTSAM  = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
+        pointCloudSurfMapGTSAM  = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
+
+        kdtreeEdgeMap           = pcl::KdTreeFLANN<PointT>::Ptr(new pcl::KdTreeFLANN<PointT>());
+        kdtreeSurfMap           = pcl::KdTreeFLANN<PointT>::Ptr(new pcl::KdTreeFLANN<PointT>());
+        kdtreeEdgeKeyframe      = pcl::KdTreeFLANN<PointT>::Ptr(new pcl::KdTreeFLANN<PointT>());
+        kdtreeSurfKeyframe      = pcl::KdTreeFLANN<PointT>::Ptr(new pcl::KdTreeFLANN<PointT>());
     }
 
     void initROSHandler() {
@@ -683,17 +909,26 @@ public:
     }
 
     void initParam() {
+
         T_curr2world = T_lastKeyframe = T_curr2worldByKeyframe = Eigen::Isometry3d::Identity();
+
         map_resolution = nh.param<double>("map_resolution", 0.2);
+
         downSizeFilterEdge.setLeafSize(map_resolution, map_resolution, map_resolution);
         downSizeFilterSurf.setLeafSize(map_resolution * 2, map_resolution * 2, map_resolution * 2);
+
+        odom = gtsam::Pose3::identity();
+        last_odom = gtsam::Pose3::identity();
+
+        pose_noise_model_plane = gtsam::noiseModel::Diagonal::Sigmas((gtsam::Vector(1) << 0.5).finished());
+        pose_noise_model_edge  = gtsam::noiseModel::Diagonal::Sigmas((gtsam::Vector(3) << 0.5, 0.5, 0.5).finished());
     }
 
 
     LaserOdometry() :   q_curr2world(parameter), t_curr2world(parameter + 4),
                         q_curr2keyframe(parameter2), t_curr2keyframe(parameter2 + 4),
-                        pW1("floam.txt"),
-                        pW2("aloam.txt")
+                        pW1("ceres.txt"),
+                        pW2("gtsam.txt")
     {
 
         allocateMem();
@@ -703,8 +938,7 @@ public:
         initParam();
     }
 
-    void saveOdomGraph()
-    {
+    void saveOdomGraph() {
         std::cout << "saveOdomFactor" << std::endl;
         std::ofstream if_graph("/home/ziv/mloam.dot");
         gtSAMgraph.saveGraph(if_graph, initialEstimate);
@@ -718,9 +952,9 @@ private:
     ros::NodeHandle nh;
     ros::Time cloud_in_time;
 
-    Eigen::Isometry3d T_curr2world;                 // odom of current frame to world by submap
-    Eigen::Isometry3d T_lastKeyframe;               // odom of last keyframe to world
-    Eigen::Isometry3d T_curr2worldByKeyframe;       // odom of current frame to world of by keyframe
+    Eigen::Isometry3d T_curr2world;                 // odometry of current frame to world by submap
+    Eigen::Isometry3d T_lastKeyframe;               // odometry of last keyframe to world
+    Eigen::Isometry3d T_curr2worldByKeyframe;       // odometry of current frame to world of by keyframe
 
     double parameter[7] = {0, 0, 0, 1, 0, 0, 0};
     Eigen::Map<Eigen::Quaterniond>  q_curr2world;
@@ -733,9 +967,11 @@ private:
     Frame::Ptr currFrame;
     Frame::Ptr lastKeyframe;
 
+    // map of each frame or keyframe
     std::unordered_map<int, Frame::Ptr> frameMap;
     std::vector<int> keyframeVec;
 
+    // queue of ros pointcloud msg
     std::mutex mBuf;
     std::queue<sensor_msgs::PointCloud2ConstPtr> pointCloudEdgeBuf;
     std::queue<sensor_msgs::PointCloud2ConstPtr> pointCloudSurfBuf;
@@ -744,14 +980,18 @@ private:
     pcl::PointCloud<PointT>::Ptr pointCloudEdgeMap;
     pcl::PointCloud<PointT>::Ptr pointCloudSurfMap;
 
+    pcl::PointCloud<PointT>::Ptr pointCloudEdgeMapGTSAM;
+    pcl::PointCloud<PointT>::Ptr pointCloudSurfMapGTSAM;
+
     pcl::KdTreeFLANN<PointT>::Ptr kdtreeEdgeMap;
     pcl::KdTreeFLANN<PointT>::Ptr kdtreeSurfMap;
     pcl::KdTreeFLANN<PointT>::Ptr kdtreeEdgeKeyframe;
     pcl::KdTreeFLANN<PointT>::Ptr kdtreeSurfKeyframe;
 
+    // downsample filter
     pcl::VoxelGrid<PointT> downSizeFilterEdge;
     pcl::VoxelGrid<PointT> downSizeFilterSurf;
-    //local map
+    //l ocal map
     pcl::CropBox<PointT> cropBoxFilter;
 
     ros::Subscriber subLaserCloud, subEdgeLaserCloud, subSurfLaserCloud;
@@ -762,8 +1002,8 @@ private:
 
     nav_msgs::Path path;
     nav_msgs::Path path2;
-    nav_msgs::Odometry odom;
-    nav_msgs::Odometry odom2;
+    nav_msgs::Odometry odometry;
+    nav_msgs::Odometry odometry2;
 
     double map_resolution;
 
@@ -788,58 +1028,17 @@ private:
     Values isamCurrentEstimate;
     Eigen::MatrixXd poseCovariance;
 
+    gtsam::Pose3 pose_w_c;  // world to current
+    gtsam::Pose3 last_odom;
+    gtsam::Pose3 odom;
+
+    gtsam::SharedNoiseModel pose_noise_model_edge;
+    gtsam::SharedNoiseModel pose_noise_model_plane;
+
+
 };
 
 int main(int argc, char **argv) {
-//    using gtsam::symbol_shorthand::E; //  edge factor
-//    using gtsam::symbol_shorthand::P; // plane factor
-//    using gtsam::symbol_shorthand::X; // state
-
-//    gtsam::NonlinearFactorGraph factors;
-//    gtsam::Values init_values;
-//
-//
-//    auto pose_noise_model_plane = gtsam::noiseModel::Diagonal::Sigmas(gtsam::Vector1(0.1));
-//    auto pose_noise_model_edge  = gtsam::noiseModel::Diagonal::Sigmas(gtsam::Vector3(0.05, 0.05, 0.1);
-
-//    gtsam::Pose3 init_pose = gtsam::Pose3::identity();
-//    init_values.insert(X(0), init_pose);
-//
-//    // make data
-//    gtsam::Pose3 pose_w_c(gtsam::Rot3::RzRyRx(0.3, -0.2, 0.3), gtsam::Vector3(-0.5, 0.3, 0.15));
-//    std::cout <<"gt: \n" << pose_w_c << std::endl;
-//
-//    gtsam::Point3 p1(3,0,0);
-//    gtsam::Point3 p2(0,4,0);
-//    gtsam::Point3 p3(0,0,5);
-//
-//    gtsam::Point3 s1(1.2, 0, 3.0);
-//    gtsam::Point3 s2(1.5, 2.0, 0);
-//    gtsam::Point3 s3(0, 0.8, 4.0);
-//
-//    // transform
-//    s1 = pose_w_c.inverse() * s1;
-//    s2 = pose_w_c.inverse() * s2;
-//    s3 = pose_w_c.inverse() * s3;
-//
-//
-//
-//    factors.emplace_shared<gtsam::PointToEdgeFactor>(
-//            X(0), s2, p1, p2, pose_noise_model_edge);
-//
-//    factors.emplace_shared<gtsam::PointToEdgeFactor>(
-//            X(0), s3, p2, p3, pose_noise_model_edge);
-//
-//    factors.emplace_shared<gtsam::PointToEdgeFactor>(
-//            X(0), s1, p3, p1, pose_noise_model_edge);
-//
-//    gtsam::LevenbergMarquardtParams params;
-//
-//    // solve
-//    auto result = gtsam::LevenbergMarquardtOptimizer(factors, init_values, params).optimize();
-
-    // write result
-//    result.print("result:\n");
 
     ros::init(argc, argv, "laserOdometry");
 

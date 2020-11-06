@@ -17,7 +17,7 @@
 
     <node pkg="mloam" type="laserProcessing" name="laserProcessing" output="screen" />
 
-    <node pkg="mloam" type="laserOdometry" name="laserOdometry" output="screen" />
+<!--    <node pkg="mloam" type="laserOdometry" name="laserOdometry" output="screen" />-->
 
 <!--    <node pkg="aloam_velodyne" type="alaserMapping" name="alaserMapping" output="screen" />-->
 
