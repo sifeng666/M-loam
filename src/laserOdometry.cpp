@@ -192,15 +192,16 @@ public:
 
         // translation to local submap -> borrow from f-loam
         getTransToSubMap(edgeFeaturesDS, surfFeaturesDS);
+
+//        getTransToSubMapGTSAM(edgeFeaturesDS, surfFeaturesDS);
         addToSubMap(edgeFeaturesDS, surfFeaturesDS);
+//        addToSubMapGTSAM(edgeFeaturesDS, surfFeaturesDS);
+        cout << "ceres:\n" << T_curr2world.matrix() << endl;
+        cout << "gtsam:\n" << odom.matrix() << endl;
 
-        getTransToSubMapGTSAM(edgeFeaturesDS, surfFeaturesDS);
-        addToSubMapGTSAM(edgeFeaturesDS, surfFeaturesDS);
-
-
-        if (frameCount < 10) {
+        if (Eigen::Isometry3d(odom.matrix()).translation().norm() < 20) {
             pW1.write(T_curr2world, false);
-            pW2.write(pose_w_c, false);
+            pW2.write(odom, false);
         } else {
             pW1.close();
             pW2.close();
@@ -252,14 +253,14 @@ public:
         odometry2.header.frame_id = "/base_link";
         odometry2.child_frame_id = "/laser_odom";
         odometry2.header.stamp = cloud_in_time;
-        Eigen::Quaterniond q2(pose_w_c.rotation().matrix());
+        Eigen::Quaterniond q2(odom.rotation().matrix());
         odometry2.pose.pose.orientation.x   = q2.x();
         odometry2.pose.pose.orientation.y   = q2.y();
         odometry2.pose.pose.orientation.z   = q2.z();
         odometry2.pose.pose.orientation.w   = q2.w();
-        odometry2.pose.pose.position.x      = pose_w_c.translation().x();
-        odometry2.pose.pose.position.y      = pose_w_c.translation().y();
-        odometry2.pose.pose.position.z      = pose_w_c.translation().z();
+        odometry2.pose.pose.position.x      = odom.translation().x();
+        odometry2.pose.pose.position.y      = odom.translation().y();
+        odometry2.pose.pose.position.z      = odom.translation().z();
 
         geometry_msgs::PoseStamped laserPose;
         laserPose.header = odometry.header;
@@ -277,7 +278,13 @@ public:
         pubPath2Keyframe.publish(path2);
     }
 
-    void addEdgeCostFactorToSubMap(const pcl::PointCloud<PointT>::Ptr& pc_in, const pcl::PointCloud<PointT>::Ptr& map_in, ceres::Problem& problem, ceres::LossFunction *loss_function) {
+    void addEdgeCostFactorToSubMap(
+            const pcl::PointCloud<PointT>::Ptr& pc_in,
+            const pcl::PointCloud<PointT>::Ptr& map_in,
+            ceres::Problem& problem,
+            ceres::LossFunction *loss_function,
+            gtsam::NonlinearFactorGraph& factors) {
+
         int corner_num=0;
         PointT point_temp;
         std::vector<int> pointSearchInd;
@@ -317,6 +324,12 @@ public:
 
                     ceres::CostFunction *cost_function = new EdgeAnalyticCostFunction(curr_point, point_a, point_b);
                     problem.AddResidualBlock(cost_function, loss_function, parameter);
+
+//                    factors.emplace_shared<gtsam::LidarPose3EdgeFactor>(
+//                            X(0), curr_point, point_a, point_b, edge_noise_model);
+
+                    factors.emplace_shared<gtsam::PointToEdgeFactor>(
+                            X(0), curr_point, point_a, point_b, edge_noise_model);
                     corner_num++;
                 }
             }
@@ -327,7 +340,13 @@ public:
 
     }
 
-    void addSurfCostFactorToSubMap(const pcl::PointCloud<PointT>::Ptr& pc_in, const pcl::PointCloud<PointT>::Ptr& map_in, ceres::Problem& problem, ceres::LossFunction *loss_function) {
+    void addSurfCostFactorToSubMap(
+            const pcl::PointCloud<PointT>::Ptr& pc_in,
+            const pcl::PointCloud<PointT>::Ptr& map_in,
+            ceres::Problem& problem,
+            ceres::LossFunction *loss_function,
+            gtsam::NonlinearFactorGraph& factors) {
+
         int surf_num=0;
         PointT point_temp;
         std::vector<int> pointSearchInd;
@@ -366,7 +385,10 @@ public:
                 if (planeValid) {
                     ceres::CostFunction *cost_function = new SurfNormAnalyticCostFunction(curr_point, norm, negative_OA_dot_norm);
                     problem.AddResidualBlock(cost_function, loss_function, parameter);
-
+                    factors.emplace_shared<gtsam::PointToPlaneFactor>(
+                            X(0), curr_point, norm, negative_OA_dot_norm, surf_noise_model);
+//                    factors.emplace_shared<gtsam::LidarPose3PlaneNormFactor>(
+//                            X(0), curr_point, norm, negative_OA_dot_norm, surf_noise_model);
                     surf_num++;
                 }
             }
@@ -496,18 +518,34 @@ public:
 
     void getTransToSubMap(const pcl::PointCloud<PointT>::Ptr& currEdge, const pcl::PointCloud<PointT>::Ptr& currSurf) {
 
+        gtsam::Pose3 odom_prediction = odom * (last_odom.inverse() * odom);
+        last_odom = odom;
+        odom = odom_prediction;
+
+        // 'pose_w_c' to be optimize
+        pose_w_c = odom;
+
+        const auto state_key = X(0);
+
         if (pointCloudEdgeMap->size() > 10 && pointCloudSurfMap->size() > 50) {
 
             kdtreeEdgeMap->setInputCloud(pointCloudEdgeMap);
             kdtreeSurfMap->setInputCloud(pointCloudSurfMap);
 
             for (int opti_counter = 0; opti_counter < 3; opti_counter++) {
+
+                gtsam::NonlinearFactorGraph factors;
+                gtsam::Values init_values;
+//
+//                // 'pose_w_c' to be optimize
+                init_values.insert(state_key, pose_w_c);
+
                 ceres::LossFunction *loss_function = new ceres::HuberLoss(0.1);
                 ceres::Problem::Options problem_options;
                 ceres::Problem problem(problem_options);
                 problem.AddParameterBlock(parameter, 7, new PoseSE3Parameterization());
-                addEdgeCostFactorToSubMap(currEdge, pointCloudEdgeMap, problem, loss_function);
-                addSurfCostFactorToSubMap(currSurf, pointCloudSurfMap, problem, loss_function);
+                addEdgeCostFactorToSubMap(currEdge, pointCloudEdgeMap, problem, loss_function, factors);
+                addSurfCostFactorToSubMap(currSurf, pointCloudSurfMap, problem, loss_function, factors);
 
                 ceres::Solver::Options options;
                 options.linear_solver_type = ceres::DENSE_QR;
@@ -518,12 +556,25 @@ public:
                 ceres::Solver::Summary summary;
 
                 ceres::Solve(options, &problem, &summary);
+
+                // gtsam
+                gtsam::LevenbergMarquardtParams params;
+                params.setLinearSolverType("MULTIFRONTAL_CHOLESKY");
+                params.setRelativeErrorTol(1e-4);
+                params.maxIterations = 10;
+
+                // solve
+                auto result = gtsam::LevenbergMarquardtOptimizer(factors, init_values, params).optimize();
+
+                // write result
+                pose_w_c = result.at<gtsam::Pose3>(state_key);
+                // gtsam
             }
 
         } else {
             printf("not enough points in submap to associate, error\n");
         }
-
+        odom = pose_w_c;
         T_curr2world.linear() = q_curr2world.toRotationMatrix();
         T_curr2world.translation() = t_curr2world;
     }
@@ -706,7 +757,7 @@ public:
                     point_b = -0.1 * unit_direction + point_on_line;
 
                     factors.emplace_shared<gtsam::PointToEdgeFactor>(
-                            X(0), curr_point, point_a, point_b, pose_noise_model_edge);
+                            X(0), curr_point, point_a, point_b, edge_noise_model);
 
                     corner_num++;
                 }
@@ -765,7 +816,7 @@ public:
                 if (planeValid)
                 {
                     factors.emplace_shared<gtsam::PointToPlaneFactor>(
-                            X(0), curr_point, norm, negative_OA_dot_norm, pose_noise_model_plane);
+                            X(0), curr_point, norm, negative_OA_dot_norm, surf_noise_model);
                     surf_num++;
                 }
             }
@@ -917,11 +968,16 @@ public:
         downSizeFilterEdge.setLeafSize(map_resolution, map_resolution, map_resolution);
         downSizeFilterSurf.setLeafSize(map_resolution * 2, map_resolution * 2, map_resolution * 2);
 
+        pose_w_c = gtsam::Pose3::identity();
         odom = gtsam::Pose3::identity();
         last_odom = gtsam::Pose3::identity();
 
-        pose_noise_model_plane = gtsam::noiseModel::Diagonal::Sigmas((gtsam::Vector(1) << 0.5).finished());
-        pose_noise_model_edge  = gtsam::noiseModel::Diagonal::Sigmas((gtsam::Vector(3) << 0.5, 0.5, 0.5).finished());
+        edge_gaussian_model = gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(3) << 1.0, 1.0, 1.0).finished());
+        surf_gaussian_model = gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(1) << 1.0).finished());
+
+        edge_noise_model = gtsam::noiseModel::Robust::Create(gtsam::noiseModel::mEstimator::Huber::Create(0.1), edge_gaussian_model);
+        surf_noise_model = gtsam::noiseModel::Robust::Create(gtsam::noiseModel::mEstimator::Huber::Create(0.1), surf_gaussian_model);
+
     }
 
 
@@ -1032,8 +1088,11 @@ private:
     gtsam::Pose3 last_odom;
     gtsam::Pose3 odom;
 
-    gtsam::SharedNoiseModel pose_noise_model_edge;
-    gtsam::SharedNoiseModel pose_noise_model_plane;
+    gtsam::SharedNoiseModel edge_gaussian_model;
+    gtsam::SharedNoiseModel surf_gaussian_model;
+
+    gtsam::SharedNoiseModel edge_noise_model;
+    gtsam::SharedNoiseModel surf_noise_model;
 
 
 };
