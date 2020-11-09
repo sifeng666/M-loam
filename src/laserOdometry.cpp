@@ -195,6 +195,21 @@ public:
 
 //        getTransToSubMapGTSAM(edgeFeaturesDS, surfFeaturesDS);
         addToSubMap(edgeFeaturesDS, surfFeaturesDS);
+
+
+        if (frameCount <= 50 && frameCount >= 1) {
+            string local_path = "/home/ziv/debuging/" + std::to_string(frameCount) + "/";
+            pcl::io::savePCDFileASCII(local_path + "edge_submap.pcd", *pointCloudEdgeMap);
+            pcl::io::savePCDFileASCII(local_path + "plane_submap.pcd", *pointCloudSurfMap);
+            pcl::io::savePCDFileASCII(local_path + "edge_feature.pcd", *edgeFeaturesDS);
+            pcl::io::savePCDFileASCII(local_path + "plane_feature.pcd", *surfFeaturesDS);
+
+            std::ofstream f(local_path + "result.txt");
+            f << "ceres:\n" << T_curr2world.matrix() << endl;
+            f << "gtsam:\n" << odom.matrix() << endl;
+            f.close();
+        }
+
 //        addToSubMapGTSAM(edgeFeaturesDS, surfFeaturesDS);
         cout << "ceres:\n" << T_curr2world.matrix() << endl;
         cout << "gtsam:\n" << odom.matrix() << endl;
@@ -278,18 +293,46 @@ public:
         pubPath2Keyframe.publish(path2);
     }
 
+    struct EdgeFeatures {
+        EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+        Eigen::Vector3d curr_point;
+        Eigen::Vector3d point_a;
+        Eigen::Vector3d point_b;
+
+        EdgeFeatures(Eigen::Vector3d p1, Eigen::Vector3d p2, Eigen::Vector3d p3)
+            : curr_point(std::move(p1)), point_a(std::move(p2)), point_b(std::move(p3)) {
+
+        }
+    };
+
+    struct PlaneFeatures {
+        EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+        Eigen::Vector3d curr_point;
+        Eigen::Vector3d norm;
+        double negative_OA_dot_norm;
+
+        PlaneFeatures(Eigen::Vector3d p1, Eigen::Vector3d norm_, double nor)
+        : curr_point(std::move(p1)), norm(std::move(norm_)), negative_OA_dot_norm(nor) {
+
+        }
+    };
+
     void addEdgeCostFactorToSubMap(
             const pcl::PointCloud<PointT>::Ptr& pc_in,
             const pcl::PointCloud<PointT>::Ptr& map_in,
             ceres::Problem& problem,
             ceres::LossFunction *loss_function,
-            gtsam::NonlinearFactorGraph& factors) {
+            gtsam::NonlinearFactorGraph& factors,
+            const std::string& file_path) {
 
-        int corner_num=0;
+        int corner_num = 0;
         PointT point_temp;
         std::vector<int> pointSearchInd;
         std::vector<float> pointSearchSqDis;
-        for (int i = 0; i < (int)pc_in->points.size(); i++) {
+    std::ofstream f(file_path + "edge_correspondings.txt");
+    vector<EdgeFeatures> features;
+
+        for (int i = 0; i < (int) pc_in->points.size(); i++) {
 
             pointAssociateToMap(&(pc_in->points[i]), &point_temp);
             kdtreeEdgeMap->nearestKSearch(point_temp, 5, pointSearchInd, pointSearchSqDis);
@@ -322,6 +365,7 @@ public:
                     point_a = 0.1 * unit_direction + point_on_line;
                     point_b = -0.1 * unit_direction + point_on_line;
 
+            features.emplace_back(curr_point, point_a, point_b);
                     ceres::CostFunction *cost_function = new EdgeAnalyticCostFunction(curr_point, point_a, point_b);
                     problem.AddResidualBlock(cost_function, loss_function, parameter);
 
@@ -334,7 +378,13 @@ public:
                 }
             }
         }
-        if(corner_num<20){
+        for (auto& feature : features) {
+            f << feature.curr_point.x() << " " << feature.curr_point.y()  << " " << feature.curr_point.z() << " "
+                << feature.point_a.x() << " " << feature.point_a.y()  << " " << feature.point_a.z() << " "
+                << feature.point_b.x() << " " << feature.point_b.y()  << " " << feature.point_b.z() << endl;
+        }
+        f.close();
+        if (corner_num < 20) {
             printf("not enough correct points\n");
         }
 
@@ -345,12 +395,15 @@ public:
             const pcl::PointCloud<PointT>::Ptr& map_in,
             ceres::Problem& problem,
             ceres::LossFunction *loss_function,
-            gtsam::NonlinearFactorGraph& factors) {
+            gtsam::NonlinearFactorGraph& factors,
+            const string& file_path) {
 
         int surf_num=0;
         PointT point_temp;
         std::vector<int> pointSearchInd;
         std::vector<float> pointSearchSqDis;
+    std::ofstream f(file_path + "plane_correspondings.txt");
+    vector<PlaneFeatures> features;
 
         for (int i = 0; i < (int)pc_in->points.size(); i++) {
 
@@ -387,6 +440,7 @@ public:
                     problem.AddResidualBlock(cost_function, loss_function, parameter);
                     factors.emplace_shared<gtsam::PointToPlaneFactor>(
                             X(0), curr_point, norm, negative_OA_dot_norm, surf_noise_model);
+                features.emplace_back(curr_point, norm, negative_OA_dot_norm);
 //                    factors.emplace_shared<gtsam::LidarPose3PlaneNormFactor>(
 //                            X(0), curr_point, norm, negative_OA_dot_norm, surf_noise_model);
                     surf_num++;
@@ -394,7 +448,12 @@ public:
             }
 
         }
-        if(surf_num<20){
+        for (auto& feature : features) {
+            f << feature.curr_point.x() << " " << feature.curr_point.y()  << " " << feature.curr_point.z() << " "
+              << feature.norm.x() << " " << feature.norm.y() << " " << feature.norm.z() << " " << feature.negative_OA_dot_norm << endl;
+        }
+        f.close();
+        if (surf_num < 20) {
             printf("not enough correct points\n");
         }
 
@@ -544,8 +603,9 @@ public:
                 ceres::Problem::Options problem_options;
                 ceres::Problem problem(problem_options);
                 problem.AddParameterBlock(parameter, 7, new PoseSE3Parameterization());
-                addEdgeCostFactorToSubMap(currEdge, pointCloudEdgeMap, problem, loss_function, factors);
-                addSurfCostFactorToSubMap(currSurf, pointCloudSurfMap, problem, loss_function, factors);
+            string file_path("/home/ziv/debuging/" + std::to_string(frameCount) + "/" + std::to_string(opti_counter) + "/");
+                addEdgeCostFactorToSubMap(currEdge, pointCloudEdgeMap, problem, loss_function, factors, file_path);
+                addSurfCostFactorToSubMap(currSurf, pointCloudSurfMap, problem, loss_function, factors, file_path);
 
                 ceres::Solver::Options options;
                 options.linear_solver_type = ceres::DENSE_QR;
@@ -569,6 +629,14 @@ public:
                 // write result
                 pose_w_c = result.at<gtsam::Pose3>(state_key);
                 // gtsam
+
+                std::ofstream f(file_path + "tmp_result.txt");
+                Eigen::Isometry3d temp = Eigen::Isometry3d::Identity();
+                temp.linear() = q_curr2world.toRotationMatrix();
+                temp.translation() = t_curr2world;
+                f << "ceres:\n" << temp.matrix() << endl;
+                f << "gtsam:\n" << pose_w_c.matrix() << endl;
+                f.close();
             }
 
         } else {
