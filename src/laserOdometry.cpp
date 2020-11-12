@@ -74,7 +74,16 @@ public:
         po->intensity = pi->intensity;
     }
 
-    void addToLastKeyframe(const pcl::PointCloud<PointT>::Ptr& currEdgeCloud, const pcl::PointCloud<PointT>::Ptr& currSurfCloud) {
+    void pointAssociateToTrans(PointT const *const pi, PointT *const po, const Eigen::Isometry3d& T) {
+        Eigen::Vector3d point_curr(pi->x, pi->y, pi->z);
+        Eigen::Vector3d point_w = T.rotation() * point_curr + T.translation();
+        po->x = point_w.x();
+        po->y = point_w.y();
+        po->z = point_w.z();
+        po->intensity = pi->intensity;
+    }
+
+    void addToLastKeyframe(const pcl::PointCloud<PointT>::Ptr &currEdgeCloud, const pcl::PointCloud<PointT>::Ptr &currSurfCloud) {
 
         PointT point_temp;
         for (int i = 0; i < currEdgeCloud->size(); i++) {
@@ -137,10 +146,6 @@ public:
         downSizeFilterSurf.filter(*pointCloudEdgeMap);
     }
 
-    void addToSlideWindow(const pcl::PointCloud<PointT>::Ptr& currEdgeCloud, const pcl::PointCloud<PointT>::Ptr& currSurfCloud) {
-
-    }
-
     bool nextFrameToBeKeyframe() {
         if (toBeKeyframeInterval < MIN_KEYFRAME_INTERVAL) {
             toBeKeyframeInterval++;
@@ -173,7 +178,9 @@ public:
     void setCurrentFrameToLastKeyframe() {
         lastKeyframe = currFrame;
         lastKeyframe->alloc();
+
         addToLastKeyframe(currFrame->edgeFeatures, currFrame->surfFeatures);
+
         T_lastKeyframe = T_curr2worldByKeyframe;
         keyframeVec.push_back(frameCount);
     }
@@ -184,11 +191,8 @@ public:
         *pointCloudEdgeMap += *currFrame->edgeFeatures;
         *pointCloudSurfMap += *currFrame->surfFeatures;
 
-        *pointCloudEdgeSlideWindow += *currFrame->edgeFeatures;
-        *pointCloudSurfSlideWindow += *currFrame->surfFeatures;
-
-//        *pointCloudEdgeMapGTSAM += *currFrame->edgeFeatures;
-//        *pointCloudSurfMapGTSAM += *currFrame->surfFeatures;
+        *slideWindowEdge += *currFrame->edgeFeatures;
+        *slideWindowSurf += *currFrame->surfFeatures;
 
         // for keyframe, set first frame as keyframe
         setCurrentFrameToLastKeyframe();
@@ -255,25 +259,25 @@ public:
         }
 
         // translation to keyframe
-//        if (!currFrame->is_keyframe()) {
-//
-//            getTransToKeyframe(edgeFeaturesDS, surfFeaturesDS);
-//            addToLastKeyframe(edgeFeaturesDS, surfFeaturesDS);
-//
-//        } else {
-//
-//            // not downsample, opti_counter twice
-//            getTransToKeyframeStrong(currFrame->edgeFeatures, currFrame->surfFeatures); // getTransToKeyframeStrong(edgeFeaturesDS, surfFeaturesDS);
-//            // not add to lastKeyframe's submap
-//            setCurrentFrameToLastKeyframe();
-//
-////            addOdomFactor();
-//            int frameFrom = keyframeVec[keyframeVec.size() - 2];
-//            int frameTo   = keyframeVec[keyframeVec.size() - 1];
-//            addOdomFactorBetweenFrames(frameFrom, frameTo);
-//
-//
-//        }
+       if (!currFrame->is_keyframe()) {
+
+           getTransToKeyframe(edgeFeaturesDS, surfFeaturesDS);
+           addToLastKeyframe(edgeFeaturesDS, surfFeaturesDS);
+
+       } else {
+
+           // not downsample, opti_counter twice
+           getTransToKeyframeStrong(currFrame->edgeFeatures, currFrame->surfFeatures); // getTransToKeyframeStrong(edgeFeaturesDS, surfFeaturesDS);
+           // not add to lastKeyframe's submap
+           setCurrentFrameToLastKeyframe();
+
+//            addOdomFactor();
+           int frameFrom = keyframeVec[keyframeVec.size() - 2];
+           int frameTo   = keyframeVec[keyframeVec.size() - 1];
+           addOdomFactorBetweenFrames(frameFrom, frameTo);
+
+
+       }
 
 
 
@@ -704,12 +708,88 @@ public:
         T_curr2world.translation() = t_curr2world;
     }
 
-    void getTransToKeyframe(const pcl::PointCloud<PointT>::Ptr& currEdge, const pcl::PointCloud<PointT>::Ptr& currSurf) {
+    void updateSlideWindows() {
 
-        auto edgeSubMap = lastKeyframe->getEdgeSubMap();
-        auto surfSubMap = lastKeyframe->getSurfSubMap();
+        PointT point_temp;
 
-        if (edgeSubMap == nullptr || surfSubMap == nullptr) {
+        if (keyframeVec.size() >= SLIDE_KEYFRAME_SUBMAP_LEN) {
+
+            slideWindowEdge->clear();
+            slideWindowSurf->clear();
+
+            for (int count = keyframeVec.size() - 1; count >= keyframeVec.size() - SLIDE_KEYFRAME_SUBMAP_LEN; count--) {
+
+                auto currEdge = frameMap[keyframeVec[count]]->getEdgeSubMap();
+                auto currSurf = frameMap[keyframeVec[count]]->getSurfSubMap();
+                auto currPose = frameMap[keyframeVec[count]]->pose;
+
+                for (int i = 0; i < currEdge->size(); i++) {
+                    pointAssociateToTrans(&currEdge->points[i], &point_temp, currPose);
+                    slideWindowEdge->push_back(point_temp);
+                }
+
+                for (int i = 0; i < currSurf->size(); i++) {
+                    pointAssociateToTrans(&currSurf->points[i], &point_temp, currPose);
+                    slideWindowSurf->push_back(point_temp);
+                }
+
+            }
+
+        } else if (frameCount >= SLIDE_WINDOW_LEN - 1) { // frameCount start from 0
+
+            slideWindowEdge->clear();
+            slideWindowSurf->clear();
+
+            for (int count = frameCount - 1; count >= frameCount - SLIDE_WINDOW_LEN; count--) {
+
+                auto currEdge = frameMap[count]->edgeFeatures;
+                auto currSurf = frameMap[count]->surfFeatures;
+                auto currPose = frameMap[count]->pose;
+
+                for (int i = 0; i < currEdge->size(); i++) {
+                    pointAssociateToTrans(&currEdge->points[i], &point_temp, currPose);
+                    slideWindowEdge->push_back(point_temp);
+                }
+
+                for (int i = 0; i < currSurf->size(); i++) {
+                    pointAssociateToTrans(&currSurf->points[i], &point_temp, currPose);
+                    slideWindowSurf->push_back(point_temp);
+                }
+            }
+
+        } else { // frameCount < SLIDE_WINDOW_LEN
+
+            // no need to flush slidewindows
+
+            for (int count = 0; count < frameCount; count++) {
+
+                auto currEdge = frameMap[count]->edgeFeatures;
+                auto currSurf = frameMap[count]->surfFeatures;
+                auto currPose = frameMap[count]->pose;
+
+                for (int i = 0; i < currEdge->size(); i++) {
+                    pointAssociateToTrans(&currEdge->points[i], &point_temp, currPose);
+                    slideWindowEdge->push_back(point_temp);
+                }
+
+                for (int i = 0; i < currSurf->size(); i++) {
+                    pointAssociateToTrans(&currSurf->points[i], &point_temp, currPose);
+                    slideWindowSurf->push_back(point_temp);
+                }
+
+            }
+
+        }
+
+    }
+
+    void getTransToKeyframe(const pcl::PointCloud<PointT>::Ptr &currEdge, const pcl::PointCloud<PointT>::Ptr &currSurf) {
+
+        // auto edgeSubMap = lastKeyframe->getEdgeSubMap();
+        // auto surfSubMap = lastKeyframe->getSurfSubMap();
+        updateSlideWindows();
+
+        if (slideWindowEdge == nullptr || slideWindowSurf == nullptr) {
             printf("lastKeyframe not keyframe, error");
             return;
         }
@@ -1111,17 +1191,17 @@ public:
     }
 
     void allocateMem() {
-        pointCloudEdgeMap           = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
-        pointCloudSurfMap           = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
-        pointCloudEdgeSlideWindow = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
-        pointCloudSurfSlideWindow = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
-//        pointCloudEdgeMapGTSAM  = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
-//        pointCloudSurfMapGTSAM  = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
+        pointCloudEdgeMap       = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
+        pointCloudSurfMap       = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
+        slideWindowEdge         = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
+        slideWindowSurf         = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
+        pointCloudEdgeMapGTSAM  = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
+        pointCloudSurfMapGTSAM  = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
 
         kdtreeEdgeMap           = pcl::KdTreeFLANN<PointT>::Ptr(new pcl::KdTreeFLANN<PointT>());
         kdtreeSurfMap           = pcl::KdTreeFLANN<PointT>::Ptr(new pcl::KdTreeFLANN<PointT>());
-//        kdtreeEdgeMapGTSAM      = pcl::KdTreeFLANN<PointT>::Ptr(new pcl::KdTreeFLANN<PointT>());
-//        kdtreeSurfMapGTSAM      = pcl::KdTreeFLANN<PointT>::Ptr(new pcl::KdTreeFLANN<PointT>());
+        // kdtreeEdgeMapGTSAM      = pcl::KdTreeFLANN<PointT>::Ptr(new pcl::KdTreeFLANN<PointT>());
+        // kdtreeSurfMapGTSAM      = pcl::KdTreeFLANN<PointT>::Ptr(new pcl::KdTreeFLANN<PointT>());
         kdtreeEdgeKeyframe      = pcl::KdTreeFLANN<PointT>::Ptr(new pcl::KdTreeFLANN<PointT>());
         kdtreeSurfKeyframe      = pcl::KdTreeFLANN<PointT>::Ptr(new pcl::KdTreeFLANN<PointT>());
         kdtreeEdgeKeyframeGTSAM = pcl::KdTreeFLANN<PointT>::Ptr(new pcl::KdTreeFLANN<PointT>());
@@ -1228,11 +1308,11 @@ private:
     pcl::PointCloud<PointT>::Ptr pointCloudEdgeMap;
     pcl::PointCloud<PointT>::Ptr pointCloudSurfMap;
 
-    pcl::PointCloud<PointT>::Ptr pointCloudEdgeSlideWindow;
-    pcl::PointCloud<PointT>::Ptr pointCloudSurfSlideWindow;
+    pcl::PointCloud<PointT>::Ptr slideWindowEdge;
+    pcl::PointCloud<PointT>::Ptr slideWindowSurf;
 
-//    pcl::PointCloud<PointT>::Ptr pointCloudEdgeMapGTSAM;
-//    pcl::PointCloud<PointT>::Ptr pointCloudSurfMapGTSAM;
+    //    pcl::PointCloud<PointT>::Ptr pointCloudEdgeMapGTSAM;
+    //    pcl::PointCloud<PointT>::Ptr pointCloudSurfMapGTSAM;
 
     pcl::KdTreeFLANN<PointT>::Ptr kdtreeEdgeMap;
     pcl::KdTreeFLANN<PointT>::Ptr kdtreeSurfMap;
