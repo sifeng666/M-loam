@@ -75,7 +75,24 @@ using gtsam::symbol_shorthand::X; // state
 //    }
 //};
 
+class SlideWindow {
+public:
+    int cap;
+    int size;
+    std::vector<pcl::PointCloud<PointT>::Ptr> total_edge;
+    std::vector<pcl::PointCloud<PointT>::Ptr> total_surf;
+//    pcl::PointCloud<PointT>::Ptr edgeSubMap;
+//    pcl::PointCloud<PointT>::Ptr surfSubMap;
 
+    SlideWindow(int _cap) : cap(_cap) {
+//        edgeSubMap = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
+//        surfSubMap = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
+    }
+
+    void push(const pcl::PointCloud<PointT>::Ptr& currEdgeCloud, const pcl::PointCloud<PointT>::Ptr& currSurfCloud) {
+
+    }
+};
 
 class Frame {
 
@@ -136,10 +153,6 @@ public:
     virtual void setSurfSubMap(pcl::PointCloud<PointT>::Ptr ptr) {
         std::cout << "not keyframe, cannot set submap." << std::endl;
         return;
-    }
-
-    virtual void downsampleEdgeSubMap() {
-
     }
 
     virtual ~Frame() {}
@@ -250,6 +263,20 @@ public:
         f.close();
     }
 };
+
+void _mkdir(const std::string& filename) {
+    boost::filesystem::path save_path(filename);
+    auto folder_path = save_path.parent_path();
+    if (!boost::filesystem::exists(folder_path)) {
+        boost::filesystem::create_directories(folder_path);
+    }
+}
+
+gtsam::Pose3 pose_normalize(const gtsam::Pose3& pose) {
+    Eigen::Quaterniond q(Eigen::Isometry3d(pose.matrix()).rotation());
+    q.normalize();
+    return gtsam::Pose3(gtsam::Rot3(q.matrix()), pose.translation());
+}
 
 
 #endif //MLOAM_FRAME_H

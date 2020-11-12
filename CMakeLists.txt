@@ -3,13 +3,15 @@ project(mloam)
 
 set(CMAKE_CXX_STANDARD 17)
 
+set(CMAKE_BUILD_TYPE "Release")
 set(CMAKE_CXX_FLAGS "-std=c++11")
-set(CMAKE_CXX_FLAGS_RELEASE "-O0 -Wall -g")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -Wall -g")
 
 find_package(catkin REQUIRED COMPONENTS
     geometry_msgs
     nav_msgs
     sensor_msgs
+    geodesy
     roscpp
     rospy
     rosbag
@@ -50,7 +52,7 @@ catkin_package(
 add_executable(laserProcessing src/laserProcessing.cpp)
 target_link_libraries(laserProcessing ${catkin_LIBRARIES} ${PCL_LIBRARIES})
 
-add_executable(laserOdometry src/laserOdometry.cpp include/frame.h)
+add_executable(laserOdometry src/laserOdometry.cpp)
 target_link_libraries(laserOdometry ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES} gtsam)
 
 #add_executable(preprocessing src/preprocessing.cpp)

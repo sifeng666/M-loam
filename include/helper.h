@@ -11,6 +11,7 @@
 #include <string>
 #include <algorithm>
 #include <queue>
+#include <deque>
 #include <mutex>
 #include <cstdio>
 #include <thread>
@@ -18,9 +19,13 @@
 
 #include <ros/ros.h>
 #include <sensor_msgs/PointCloud2.h>
+#include <sensor_msgs/NavSatFix.h>
 #include <nav_msgs/Odometry.h>
 #include <nav_msgs/Path.h>
 #include <std_msgs/String.h>
+#include <geographic_msgs/GeoPointStamped.h>
+#include <geodesy/utm.h>
+#include <geodesy/wgs84.h>
 
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
