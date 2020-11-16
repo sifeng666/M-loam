@@ -19,6 +19,8 @@
 
     <node pkg="mloam" type="laserOdometry" name="laserOdometry" output="screen" />
 
+<!--    <node pkg="tf" type="static_transform_publisher" name="vel2rs_tf"  args="0 0 0 0 0 0 drone_1 base_link 10" />-->
+
 <!--    <node pkg="aloam_velodyne" type="alaserMapping" name="alaserMapping" output="screen" />-->
 
     <arg name="rviz" default="true" />

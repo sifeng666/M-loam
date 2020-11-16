@@ -56,23 +56,23 @@ public:
         po->intensity = pi->intensity;
     }
 
-    void pointAssociateToKeyframe(PointT const *const pi, PointT *const po) {
+    void pointAssociateToSlideWindow(PointT const *const pi, PointT *const po) {
         Eigen::Vector3d point_curr(pi->x, pi->y, pi->z);
-        Eigen::Vector3d point_w = T_curr2worldByKeyframe.rotation() * point_curr + T_curr2worldByKeyframe.translation();
+        Eigen::Vector3d point_w = T_curr2worldBySW.rotation() * point_curr + T_curr2worldBySW.translation();
         po->x = point_w.x();
         po->y = point_w.y();
         po->z = point_w.z();
         po->intensity = pi->intensity;
     }
 
-    void pointAssociateToKeyframeGTSAM(PointT const *const pi, PointT *const po) {
-        Eigen::Vector3d point_curr(pi->x, pi->y, pi->z);
-        Eigen::Vector3d point_w = T_curr2worldByKeyframe.rotation() * point_curr + T_curr2worldByKeyframe.translation();
-        po->x = point_w.x();
-        po->y = point_w.y();
-        po->z = point_w.z();
-        po->intensity = pi->intensity;
-    }
+//    void pointAssociateToKeyframeGTSAM(PointT const *const pi, PointT *const po) {
+//        Eigen::Vector3d point_curr(pi->x, pi->y, pi->z);
+//        Eigen::Vector3d point_w = T_curr2worldByKeyframe.rotation() * point_curr + T_curr2worldByKeyframe.translation();
+//        po->x = point_w.x();
+//        po->y = point_w.y();
+//        po->z = point_w.z();
+//        po->intensity = pi->intensity;
+//    }
 
     void pointAssociateToTrans(PointT const *const pi, PointT *const po, const Eigen::Isometry3d& T) {
         Eigen::Vector3d point_curr(pi->x, pi->y, pi->z);
@@ -83,16 +83,19 @@ public:
         po->intensity = pi->intensity;
     }
 
-    void addToLastKeyframe(const pcl::PointCloud<PointT>::Ptr &currEdgeCloud, const pcl::PointCloud<PointT>::Ptr &currSurfCloud) {
+    void addToLastKeyframe() {
 
+        auto currEdge = currFrame->edgeFeatures;
+        auto currSurf = currFrame->surfFeatures;
         PointT point_temp;
-        for (int i = 0; i < currEdgeCloud->size(); i++) {
-            pointAssociateToKeyframe(&currEdgeCloud->points[i], &point_temp);
+
+        for (int i = 0; i < currEdge->size(); i++) {
+            pointAssociateToSlideWindow(&currEdge->points[i], &point_temp);
             lastKeyframe->addEdgeFeaturesToSubMap(point_temp);
         }
 
-        for (int i = 0; i < currSurfCloud->size(); i++) {
-            pointAssociateToKeyframe(&currSurfCloud->points[i], &point_temp);
+        for (int i = 0; i < currSurf->size(); i++) {
+            pointAssociateToSlideWindow(&currSurf->points[i], &point_temp);
             lastKeyframe->addSurfFeaturesToSubMap(point_temp);
         }
 
@@ -108,16 +111,19 @@ public:
         lastKeyframe->setSurfSubMap(keyframeSurfSubMapDS);
     }
 
-    void addToSubMap(const pcl::PointCloud<PointT>::Ptr& currEdgeCloud, const pcl::PointCloud<PointT>::Ptr& currSurfCloud) {
+    void addToSubMap() {
 
+        auto currEdge = currFrame->edgeFeatures;
+        auto currSurf = currFrame->surfFeatures;
         PointT point_temp;
-        for (int i = 0; i < currEdgeCloud->size(); i++) {
-            pointAssociateToMap(&currEdgeCloud->points[i], &point_temp);
+
+        for (int i = 0; i < currEdge->size(); i++) {
+            pointAssociateToMap(&currEdge->points[i], &point_temp);
             pointCloudEdgeMap->push_back(point_temp);
         }
 
-        for (int i = 0; i < currSurfCloud->size(); i++) {
-            pointAssociateToMap(&currSurfCloud->points[i], &point_temp);
+        for (int i = 0; i < currSurf->size(); i++) {
+            pointAssociateToMap(&currSurf->points[i], &point_temp);
             pointCloudSurfMap->push_back(point_temp);
         }
 
@@ -146,18 +152,94 @@ public:
         downSizeFilterSurf.filter(*pointCloudEdgeMap);
     }
 
+    void updateSlideWindows() {
+
+        PointT point_temp;
+
+        if (keyframeVec.size() >= SLIDE_KEYFRAME_SUBMAP_LEN) {
+
+            slideWindowEdge->clear();
+            slideWindowSurf->clear();
+
+            for (int count = keyframeVec.size() - SLIDE_WINDOW_LEN; count < keyframeVec.size(); count++) {
+
+                auto currEdge = frameMap[keyframeVec[count]]->getEdgeSubMap();
+                auto currSurf = frameMap[keyframeVec[count]]->getSurfSubMap();
+                auto currPose = frameMap[keyframeVec[count]]->pose;
+
+                for (int i = 0; i < currEdge->size(); i++) {
+//                    pointAssociateToTrans(&currEdge->points[i], &point_temp, currPose);
+                    slideWindowEdge->push_back(currEdge->points[i]);
+                }
+
+                for (int i = 0; i < currSurf->size(); i++) {
+//                    pointAssociateToTrans(&currSurf->points[i], &point_temp, currPose);
+                    slideWindowSurf->push_back(currSurf->points[i]);
+                }
+
+            }
+
+        } else if (frameCount >= SLIDE_WINDOW_LEN) { // frameCount start from 0
+
+            slideWindowEdge->clear();
+            slideWindowSurf->clear();
+
+            for (int count = frameCount - SLIDE_WINDOW_LEN; count < frameCount; count++) {
+                auto currEdge = frameMap[count]->edgeFeatures;
+                auto currSurf = frameMap[count]->surfFeatures;
+                auto currPose = frameMap[count]->pose;
+
+                for (int i = 0; i < currEdge->size(); i++) {
+                    pointAssociateToTrans(&currEdge->points[i], &point_temp, currPose);
+                    slideWindowEdge->push_back(point_temp);
+                }
+
+                for (int i = 0; i < currSurf->size(); i++) {
+                    pointAssociateToTrans(&currSurf->points[i], &point_temp, currPose);
+                    slideWindowSurf->push_back(point_temp);
+                }
+            }
+
+        } else { // frameCount < SLIDE_WINDOW_LEN
+
+            // no need to flush slidewindow
+            auto currEdge = frameMap[frameCount - 1]->edgeFeatures;
+            auto currSurf = frameMap[frameCount - 1]->surfFeatures;
+            auto currPose = frameMap[frameCount - 1]->pose;
+
+            for (int i = 0; i < currEdge->size(); i++) {
+                pointAssociateToTrans(&currEdge->points[i], &point_temp, currPose);
+                slideWindowEdge->push_back(point_temp);
+            }
+
+            for (int i = 0; i < currSurf->size(); i++) {
+                pointAssociateToTrans(&currSurf->points[i], &point_temp, currPose);
+                slideWindowSurf->push_back(point_temp);
+            }
+
+
+        }
+
+        downSizeFilterEdge.setInputCloud(slideWindowEdge);
+        downSizeFilterEdge.filter(*slideWindowEdge);
+        downSizeFilterSurf.setInputCloud(slideWindowSurf);
+        downSizeFilterSurf.filter(*slideWindowSurf);
+
+    }
+
     bool nextFrameToBeKeyframe() {
+
         if (toBeKeyframeInterval < MIN_KEYFRAME_INTERVAL) {
             toBeKeyframeInterval++;
             return false;
         }
+
         if (toBeKeyframeInterval >= MAX_KEYFRAME_INTERVAL) {
             toBeKeyframeInterval = 0;
             return true;
         }
 
-        Eigen::Isometry3d T_delta = T_lastKeyframe.inverse() * T_curr2worldByKeyframe;
-
+        Eigen::Isometry3d T_delta = T_lastKeyframe.inverse() * T_curr2worldBySW;
         Eigen::Vector3d eulerAngle = T_delta.rotation().eulerAngles(2, 1, 0);
 
         bool isKeyframe = min(abs(eulerAngle.x()), abs(abs(eulerAngle.x()) - M_PI)) > keyframeAngleThreshold ||
@@ -179,9 +261,9 @@ public:
         lastKeyframe = currFrame;
         lastKeyframe->alloc();
 
-        addToLastKeyframe(currFrame->edgeFeatures, currFrame->surfFeatures);
+        addToLastKeyframe();
 
-        T_lastKeyframe = T_curr2worldByKeyframe;
+        T_lastKeyframe = T_curr2worldBySW;
         keyframeVec.push_back(frameCount);
     }
 
@@ -214,22 +296,22 @@ public:
 
         downSizeFilterEdge.setInputCloud(currFrame->edgeFeatures);
         downSizeFilterEdge.filter(*edgeFeaturesDS);
-        downSizeFilterEdge.setInputCloud(currFrame->surfFeatures);
-        downSizeFilterEdge.filter(*surfFeaturesDS);
+        downSizeFilterSurf.setInputCloud(currFrame->surfFeatures);
+        downSizeFilterSurf.filter(*surfFeaturesDS);
 
-        cout << "pointCloudEdgeMap size: " << pointCloudEdgeMap->size() << " pointCloudSurfMap size: "
-             << pointCloudSurfMap->size() << endl
-             << "lastKeyframeEdgeMap size: " << lastKeyframe->getEdgeSubMap()->size() << " lastKeyframeSurfMap size: "
-             << lastKeyframe->getSurfSubMap()->size() << endl
-             << "edgeFeaturesDS size: " << edgeFeaturesDS->size() << " surfFeaturesDS size: " << surfFeaturesDS->size()
-             << endl;
+//        currFrame->edgeFeatures = edgeFeaturesDS;
+//        currFrame->surfFeatures = surfFeaturesDS;
+
+        cout << "pointCloudEdgeMap size: " << pointCloudEdgeMap->size() << " pointCloudSurfMap size: " << pointCloudSurfMap->size() << endl
+             << "slideWindowEdge size: " << slideWindowEdge->size() << " slideWindowSurf size: " << slideWindowSurf->size() << endl
+             << "edgeFeaturesDS size: " << edgeFeaturesDS->size() << " surfFeaturesDS size: " << surfFeaturesDS->size() << endl;
 
         is_keyframe_next = nextFrameToBeKeyframe();
 
         // translation to local submap -> borrow from f-loam
-        getTransToSubMap(edgeFeaturesDS, surfFeaturesDS);
+        getTransToSubMap();
 //        getTransToSubMapGTSAM(edgeFeaturesDS, surfFeaturesDS);
-        addToSubMap(edgeFeaturesDS, surfFeaturesDS);
+        addToSubMap();
 //        addToSubMapGTSAM(edgeFeaturesDS, surfFeaturesDS);
 
 
@@ -247,86 +329,124 @@ public:
 //        }
 
 //        addToSubMapGTSAM(edgeFeaturesDS, surfFeaturesDS);
-        cout << "ceres:\n" << T_curr2world.matrix() << endl;
-        cout << "gtsam:\n" << odom.matrix() << endl;
+//        cout << "ceres:\n" << T_curr2world.matrix() << endl;
+//        cout << "gtsam:\n" << odom.matrix() << endl;
 
-        if (Eigen::Isometry3d(T_curr2world.matrix()).translation().norm() < 10) {
-            pW1.write(T_curr2world, false);
-            pW2.write(odom, false);
+//        if (Eigen::Isometry3d(T_curr2world.matrix()).translation().norm() < 10) {
+//            pW1.write(T_curr2world, false);
+//            pW2.write(odom, false);
+//        } else {
+//            pW1.close();
+//            pW2.close();
+//        }
+
+
+        // translation to slide window
+        if (!currFrame->is_keyframe()) {
+
+           getTransToSlideWindow(3);
+           addToLastKeyframe();
+
         } else {
-            pW1.close();
-            pW2.close();
-        }
-
-        // translation to keyframe
-       if (!currFrame->is_keyframe()) {
-
-           getTransToKeyframe(edgeFeaturesDS, surfFeaturesDS);
-           addToLastKeyframe(edgeFeaturesDS, surfFeaturesDS);
-
-       } else {
 
            // not downsample, opti_counter twice
-           getTransToKeyframeStrong(currFrame->edgeFeatures, currFrame->surfFeatures); // getTransToKeyframeStrong(edgeFeaturesDS, surfFeaturesDS);
+           getTransToSlideWindow(6);
            // not add to lastKeyframe's submap
            setCurrentFrameToLastKeyframe();
 
-//            addOdomFactor();
-           int frameFrom = keyframeVec[keyframeVec.size() - 2];
-           int frameTo   = keyframeVec[keyframeVec.size() - 1];
-           addOdomFactorBetweenFrames(frameFrom, frameTo);
+//           // last keyframe is available
+//           int frameFrom = keyframeVec[keyframeVec.size() - 3];
+//           int frameTo   = keyframeVec[keyframeVec.size() - 2];
+//           addOdomFactorBetweenFrames(frameFrom, frameTo);
+//
+//           getTransBetweenKeyframes(frameFrom, frameTo);
 
 
-       }
-
+        }
+        cout << "submap:\n" << T_curr2world.matrix() << endl;
+        cout << "slide window:\n" << T_curr2worldBySW.matrix() << endl;
 
 
         pubOdomAndPath();
+        pubMapSubMap();
+
+    }
+
+    void pubMapSlideWindow() {
+
+        pcl::PointCloud<PointT>::Ptr slideWindow(new pcl::PointCloud<PointT>());
+        sensor_msgs::PointCloud2Ptr cloud_msg(new sensor_msgs::PointCloud2());
+
+        *slideWindow += *slideWindowEdge;
+        *slideWindow += *slideWindowSurf;
+
+        pcl::toROSMsg(*slideWindow, *cloud_msg);
+        cloud_msg->header.stamp = cloud_in_time;
+        cloud_msg->header.frame_id = "map";
+
+        pub_map_slide_window.publish(cloud_msg);
+
+    }
+
+    void pubMapSubMap() {
+
+        pcl::PointCloud<PointT>::Ptr submap(new pcl::PointCloud<PointT>());
+        sensor_msgs::PointCloud2Ptr cloud_msg(new sensor_msgs::PointCloud2());
+
+        *submap += *pointCloudEdgeMap;
+        *submap += *pointCloudSurfMap;
+
+        pcl::toROSMsg(*submap, *cloud_msg);
+        cloud_msg->header.stamp = cloud_in_time;
+        cloud_msg->header.frame_id = "map";
+
+        pub_map_submap.publish(cloud_msg);
 
     }
 
 
     void pubOdomAndPath() {
 
-        // publish odometry
-        odometry.header.frame_id = "/base_link";
-        odometry.child_frame_id = "/laser_odom";
-        odometry.header.stamp = cloud_in_time;
-        Eigen::Quaterniond q(T_curr2world.rotation().matrix());
-        odometry.pose.pose.orientation.x    = q.x();
-        odometry.pose.pose.orientation.y    = q.y();
-        odometry.pose.pose.orientation.z    = q.z();
-        odometry.pose.pose.orientation.w    = q.w();
-        odometry.pose.pose.position.x       = T_curr2world.translation().x();
-        odometry.pose.pose.position.y       = T_curr2world.translation().y();
-        odometry.pose.pose.position.z       = T_curr2world.translation().z();
+        odometry_submap = poseToNavOdometry(cloud_in_time, T_curr2world, "map", "base_link");
 
-        odometry2.header.frame_id = "/base_link";
-        odometry2.child_frame_id = "/laser_odom";
-        odometry2.header.stamp = cloud_in_time;
-        Eigen::Quaterniond q2(odom.rotation().matrix());
-        odometry2.pose.pose.orientation.x   = q2.x();
-        odometry2.pose.pose.orientation.y   = q2.y();
-        odometry2.pose.pose.orientation.z   = q2.z();
-        odometry2.pose.pose.orientation.w   = q2.w();
-        odometry2.pose.pose.position.x      = odom.translation().x();
-        odometry2.pose.pose.position.y      = odom.translation().y();
-        odometry2.pose.pose.position.z      = odom.translation().z();
+        odometry_slide_window = poseToNavOdometry(cloud_in_time, T_curr2worldBySW, "map", "base_link");
+
+        static tf::TransformBroadcaster br;
+        tf::Transform transform;
+        transform.setOrigin( tf::Vector3(T_curr2world.translation().x(), T_curr2world.translation().y(), T_curr2world.translation().z()) );
+        Eigen::Quaterniond q_current(T_curr2world.rotation());
+        tf::Quaternion q(q_current.x(),q_current.y(),q_current.z(),q_current.w());
+        transform.setRotation(q);
+        br.sendTransform(tf::StampedTransform(transform, cloud_in_time, "map", "base_link"));
+
 
         geometry_msgs::PoseStamped laserPose;
-        laserPose.header = odometry.header;
-        laserPose.pose = odometry.pose.pose;
-        path.header.stamp = odometry.header.stamp;
-        path.poses.push_back(laserPose);
-        path.header.frame_id = "/base_link";
-        pubPath2SubMap.publish(path);
+        laserPose.header = odometry_submap.header;
+        laserPose.pose = odometry_submap.pose.pose;
+        path_submap.header.stamp = odometry_submap.header.stamp;
+        path_submap.poses.push_back(laserPose);
+        path_submap.header.frame_id = "map";
+        pub_path_submap.publish(path_submap);
 
-        laserPose.header = odometry2.header;
-        laserPose.pose = odometry2.pose.pose;
-        path2.header.stamp = odometry2.header.stamp;
-        path2.poses.push_back(laserPose);
-        path2.header.frame_id = "/base_link";
-        pubPath2Keyframe.publish(path2);
+        laserPose.header = odometry_slide_window.header;
+        laserPose.pose = odometry_slide_window.pose.pose;
+        path_slide_window.header.stamp = odometry_slide_window.header.stamp;
+        path_slide_window.poses.push_back(laserPose);
+        path_slide_window.header.frame_id = "map";
+        pub_path_slide_window.publish(path_slide_window);
+
+
+        sensor_msgs::PointCloud2Ptr edge_msg(new sensor_msgs::PointCloud2());
+        sensor_msgs::PointCloud2Ptr surf_msg(new sensor_msgs::PointCloud2());
+        pcl::toROSMsg(*cloud_in_edge, *edge_msg);
+        pcl::toROSMsg(*cloud_in_surf, *surf_msg);
+        edge_msg->header.stamp = cloud_in_time;
+        edge_msg->header.frame_id = "base_link";
+        surf_msg->header.stamp = cloud_in_time;
+        surf_msg->header.frame_id = "base_link";
+        pub_curr_edge.publish(edge_msg);
+        pub_curr_surf.publish(surf_msg);
+
     }
 
     struct EdgeFeatures {
@@ -499,15 +619,15 @@ public:
 
     }
 
-    void addEdgeCostFactorToKeyframe(const pcl::PointCloud<PointT>::Ptr& pc_in, const pcl::PointCloud<PointT>::Ptr& map_in, ceres::Problem& problem, ceres::LossFunction *loss_function) {
+    void addEdgeCostFactorToSlideWindow(const pcl::PointCloud<PointT>::Ptr& pc_in, const pcl::PointCloud<PointT>::Ptr& map_in, ceres::Problem& problem, ceres::LossFunction *loss_function) {
         int corner_num=0;
         PointT point_temp;
         std::vector<int> pointSearchInd;
         std::vector<float> pointSearchSqDis;
         for (int i = 0; i < (int)pc_in->points.size(); i++) {
 
-            pointAssociateToKeyframe(&(pc_in->points[i]), &point_temp);
-            kdtreeEdgeKeyframe->nearestKSearch(point_temp, 5, pointSearchInd, pointSearchSqDis);
+            pointAssociateToSlideWindow(&(pc_in->points[i]), &point_temp);
+            kdtreeEdgeSlideWindow->nearestKSearch(point_temp, 5, pointSearchInd, pointSearchSqDis);
             if (pointSearchSqDis[4] < 1.0) {
                 std::vector<Eigen::Vector3d> nearCorners;
                 Eigen::Vector3d center(0, 0, 0);
@@ -548,15 +668,15 @@ public:
 
     }
 
-    void addSurfCostFactorToKeyframe(const pcl::PointCloud<PointT>::Ptr& pc_in, const pcl::PointCloud<PointT>::Ptr& map_in, ceres::Problem& problem, ceres::LossFunction *loss_function) {
+    void addSurfCostFactorToSlideWindow(const pcl::PointCloud<PointT>::Ptr& pc_in, const pcl::PointCloud<PointT>::Ptr& map_in, ceres::Problem& problem, ceres::LossFunction *loss_function) {
         int surf_num=0;
         PointT point_temp;
         std::vector<int> pointSearchInd;
         std::vector<float> pointSearchSqDis;
         for (int i = 0; i < (int)pc_in->points.size(); i++) {
 
-            pointAssociateToKeyframe(&(pc_in->points[i]), &point_temp);
-            kdtreeSurfKeyframe->nearestKSearch(point_temp, 5, pointSearchInd, pointSearchSqDis);
+            pointAssociateToSlideWindow(&(pc_in->points[i]), &point_temp);
+            kdtreeSurfSlideWindow->nearestKSearch(point_temp, 5, pointSearchInd, pointSearchSqDis);
 
             Eigen::Matrix<double, 5, 3> matA0;
             Eigen::Matrix<double, 5, 1> matB0 = -1 * Eigen::Matrix<double, 5, 1>::Ones();
@@ -615,7 +735,7 @@ public:
         saveOdomGraph();
     }
 
-    void getTransToSubMap(const pcl::PointCloud<PointT>::Ptr& currEdge, const pcl::PointCloud<PointT>::Ptr& currSurf) {
+    void getTransToSubMap() {
 
 //        gtsam::Pose3 odom_prediction = odom * (last_odom.inverse() * odom);
 //        last_odom = odom;
@@ -626,6 +746,9 @@ public:
 //        pose_w_c = odom;
 //
 //        const auto state_key = X(0);
+
+        auto currEdge = currFrame->edgeFeatures;
+        auto currSurf = currFrame->surfFeatures;
 
         Eigen::Isometry3d odom_prediction = T_curr2world * (T_last.inverse() * T_curr2world);
         T_last = T_curr2world;
@@ -708,104 +831,80 @@ public:
         T_curr2world.translation() = t_curr2world;
     }
 
-    void updateSlideWindows() {
+    void getTransToSlideWindow(int opti_time = 3) {
 
-        PointT point_temp;
+        auto currEdge = currFrame->edgeFeatures;
+        auto currSurf = currFrame->surfFeatures;
 
-        if (keyframeVec.size() >= SLIDE_KEYFRAME_SUBMAP_LEN) {
-
-            slideWindowEdge->clear();
-            slideWindowSurf->clear();
-
-            for (int count = keyframeVec.size() - 1; count >= keyframeVec.size() - SLIDE_KEYFRAME_SUBMAP_LEN; count--) {
-
-                auto currEdge = frameMap[keyframeVec[count]]->getEdgeSubMap();
-                auto currSurf = frameMap[keyframeVec[count]]->getSurfSubMap();
-                auto currPose = frameMap[keyframeVec[count]]->pose;
-
-                for (int i = 0; i < currEdge->size(); i++) {
-                    pointAssociateToTrans(&currEdge->points[i], &point_temp, currPose);
-                    slideWindowEdge->push_back(point_temp);
-                }
-
-                for (int i = 0; i < currSurf->size(); i++) {
-                    pointAssociateToTrans(&currSurf->points[i], &point_temp, currPose);
-                    slideWindowSurf->push_back(point_temp);
-                }
-
-            }
-
-        } else if (frameCount >= SLIDE_WINDOW_LEN - 1) { // frameCount start from 0
-
-            slideWindowEdge->clear();
-            slideWindowSurf->clear();
-
-            for (int count = frameCount - 1; count >= frameCount - SLIDE_WINDOW_LEN; count--) {
-
-                auto currEdge = frameMap[count]->edgeFeatures;
-                auto currSurf = frameMap[count]->surfFeatures;
-                auto currPose = frameMap[count]->pose;
-
-                for (int i = 0; i < currEdge->size(); i++) {
-                    pointAssociateToTrans(&currEdge->points[i], &point_temp, currPose);
-                    slideWindowEdge->push_back(point_temp);
-                }
-
-                for (int i = 0; i < currSurf->size(); i++) {
-                    pointAssociateToTrans(&currSurf->points[i], &point_temp, currPose);
-                    slideWindowSurf->push_back(point_temp);
-                }
-            }
-
-        } else { // frameCount < SLIDE_WINDOW_LEN
-
-            // no need to flush slidewindows
-
-            for (int count = 0; count < frameCount; count++) {
-
-                auto currEdge = frameMap[count]->edgeFeatures;
-                auto currSurf = frameMap[count]->surfFeatures;
-                auto currPose = frameMap[count]->pose;
-
-                for (int i = 0; i < currEdge->size(); i++) {
-                    pointAssociateToTrans(&currEdge->points[i], &point_temp, currPose);
-                    slideWindowEdge->push_back(point_temp);
-                }
-
-                for (int i = 0; i < currSurf->size(); i++) {
-                    pointAssociateToTrans(&currSurf->points[i], &point_temp, currPose);
-                    slideWindowSurf->push_back(point_temp);
-                }
-
-            }
-
-        }
-
-    }
-
-    void getTransToKeyframe(const pcl::PointCloud<PointT>::Ptr &currEdge, const pcl::PointCloud<PointT>::Ptr &currSurf) {
-
-        // auto edgeSubMap = lastKeyframe->getEdgeSubMap();
-        // auto surfSubMap = lastKeyframe->getSurfSubMap();
         updateSlideWindows();
 
         if (slideWindowEdge == nullptr || slideWindowSurf == nullptr) {
-            printf("lastKeyframe not keyframe, error");
+            printf("slidewindow error\n");
             return;
         }
 
-        if (edgeSubMap->size() > 10 && surfSubMap->size() > 50) {
+        if (slideWindowEdge->size() > 10 && slideWindowSurf->size() > 50) {
 
-            kdtreeEdgeKeyframe->setInputCloud(edgeSubMap);
-            kdtreeSurfKeyframe->setInputCloud(surfSubMap);
+            kdtreeEdgeSlideWindow->setInputCloud(slideWindowEdge);
+            kdtreeSurfSlideWindow->setInputCloud(slideWindowSurf);
+
+            for (int opti_counter = 0; opti_counter < opti_time; opti_counter++) {
+                ceres::LossFunction *loss_function = new ceres::HuberLoss(0.1);
+                ceres::Problem::Options problem_options;
+                ceres::Problem problem(problem_options);
+                problem.AddParameterBlock(parameter2, 7, new PoseSE3Parameterization());
+                addEdgeCostFactorToSlideWindow(currEdge, slideWindowEdge, problem, loss_function);
+                addSurfCostFactorToSlideWindow(currSurf, slideWindowSurf, problem, loss_function);
+
+                ceres::Solver::Options options;
+                options.linear_solver_type = ceres::DENSE_QR;
+                options.max_num_iterations = 4;
+                options.minimizer_progress_to_stdout = false;
+                options.check_gradients = false;
+                options.gradient_check_relative_precision = 1e-4;
+                ceres::Solver::Summary summary;
+
+                ceres::Solve(options, &problem, &summary);
+            }
+        } else {
+            printf("not enough points in slide window to associate, error\n");
+        }
+        T_curr2worldBySW.linear() = q_curr2keyframe.toRotationMatrix();
+        T_curr2worldBySW.translation() = t_curr2keyframe;
+    }
+
+    gtsam::Pose3 getTransBetweenKeyframes(int keyframeFrom, int keyframeTo) {
+
+        gtsam::Pose3 poseBetween(gtsam::Pose3::identity());
+
+        auto fromFrame = frameMap[keyframeFrom];
+        auto toFrame   = frameMap[keyframeTo];
+
+        auto edgeFrom  = fromFrame->getEdgeSubMap();
+        auto surfFrom  = fromFrame->getSurfSubMap();
+//        auto poseFrom  = fromFrame->pose;
+
+        auto edgeTo    = toFrame->getEdgeSubMap();
+        auto surfTo    = toFrame->getSurfSubMap();
+//        auto toFrom    = toFrame->pose;
+
+        if (edgeFrom == nullptr || surfFrom == nullptr || edgeTo == nullptr || surfTo == nullptr) {
+            printf("getTransBetweenKeyframes error: empty map\n");
+            return poseBetween;
+        }
+
+        if (edgeFrom->size() > 10 && edgeTo->size() > 10 && surfFrom->size() > 50 && surfTo->size() > 50) {
+
+            kdtreeEdgeOpti->setInputCloud(edgeFrom);
+            kdtreeSurfOpti->setInputCloud(surfFrom);
 
             for (int opti_counter = 0; opti_counter < 3; opti_counter++) {
                 ceres::LossFunction *loss_function = new ceres::HuberLoss(0.1);
                 ceres::Problem::Options problem_options;
                 ceres::Problem problem(problem_options);
                 problem.AddParameterBlock(parameter2, 7, new PoseSE3Parameterization());
-                addEdgeCostFactorToKeyframe(currEdge, edgeSubMap, problem, loss_function);
-                addSurfCostFactorToKeyframe(currSurf, surfSubMap, problem, loss_function);
+                addEdgeCostFactorToSlideWindow(edgeTo, edgeFrom, problem, loss_function);
+                addSurfCostFactorToSlideWindow(surfTo, surfFrom, problem, loss_function);
 
                 ceres::Solver::Options options;
                 options.linear_solver_type = ceres::DENSE_QR;
@@ -818,54 +917,53 @@ public:
                 ceres::Solve(options, &problem, &summary);
             }
         } else {
-            printf("not enough points in keyframe to associate, error\n");
+            printf("not enough points in slide window to associate, error\n");
         }
-        T_curr2worldByKeyframe.linear() = q_curr2keyframe.toRotationMatrix();
-        T_curr2worldByKeyframe.translation() = t_curr2keyframe;
+
     }
 
-    void getTransToKeyframeStrong(const pcl::PointCloud<PointT>::Ptr& currEdge, const pcl::PointCloud<PointT>::Ptr& currSurf) {
-
-        auto edgeSubMap = lastKeyframe->getEdgeSubMap();
-        auto surfSubMap = lastKeyframe->getSurfSubMap();
-
-        if (edgeSubMap == nullptr || surfSubMap == nullptr) {
-            printf("lastKeyframe not keyframe, error\n");
-            return;
-        }
-
-        if (edgeSubMap->size() > 10 && surfSubMap->size() > 50) {
-
-            kdtreeEdgeKeyframe->setInputCloud(edgeSubMap);
-            kdtreeSurfKeyframe->setInputCloud(surfSubMap);
-
-            for (int opti_counter = 0; opti_counter < 6; opti_counter++) {
-                ceres::LossFunction *loss_function = new ceres::HuberLoss(0.1);
-                ceres::Problem::Options problem_options;
-                ceres::Problem problem(problem_options);
-                problem.AddParameterBlock(parameter2, 7, new PoseSE3Parameterization());
-                addEdgeCostFactorToKeyframe(currEdge, edgeSubMap, problem, loss_function);
-                addSurfCostFactorToKeyframe(currSurf, surfSubMap, problem, loss_function);
-
-                ceres::Solver::Options options;
-                options.linear_solver_type = ceres::DENSE_QR;
-                options.max_num_iterations = 4;
-                options.minimizer_progress_to_stdout = false;
-                options.check_gradients = false;
-                options.gradient_check_relative_precision = 1e-4;
-                ceres::Solver::Summary summary;
-
-                ceres::Solve(options, &problem, &summary);
-            }
-        } else {
-            printf("not enough points in keyframe to associate, error\n");
-        }
-        T_curr2worldByKeyframe.linear() = q_curr2keyframe.toRotationMatrix();
-        T_curr2worldByKeyframe.translation() = t_curr2keyframe;
-
-        //addToKeyframe(currEdge, currSurf);
-
-    }
+//    void getTransToKeyframeStrong(const pcl::PointCloud<PointT>::Ptr& currEdge, const pcl::PointCloud<PointT>::Ptr& currSurf) {
+//
+//        auto edgeSubMap = lastKeyframe->getEdgeSubMap();
+//        auto surfSubMap = lastKeyframe->getSurfSubMap();
+//
+//        if (edgeSubMap == nullptr || surfSubMap == nullptr) {
+//            printf("lastKeyframe not keyframe, error\n");
+//            return;
+//        }
+//
+//        if (edgeSubMap->size() > 10 && surfSubMap->size() > 50) {
+//
+//            kdtreeEdgeKeyframe->setInputCloud(edgeSubMap);
+//            kdtreeSurfKeyframe->setInputCloud(surfSubMap);
+//
+//            for (int opti_counter = 0; opti_counter < 6; opti_counter++) {
+//                ceres::LossFunction *loss_function = new ceres::HuberLoss(0.1);
+//                ceres::Problem::Options problem_options;
+//                ceres::Problem problem(problem_options);
+//                problem.AddParameterBlock(parameter2, 7, new PoseSE3Parameterization());
+//                addEdgeCostFactorToKeyframe(currEdge, edgeSubMap, problem, loss_function);
+//                addSurfCostFactorToKeyframe(currSurf, surfSubMap, problem, loss_function);
+//
+//                ceres::Solver::Options options;
+//                options.linear_solver_type = ceres::DENSE_QR;
+//                options.max_num_iterations = 4;
+//                options.minimizer_progress_to_stdout = false;
+//                options.check_gradients = false;
+//                options.gradient_check_relative_precision = 1e-4;
+//                ceres::Solver::Summary summary;
+//
+//                ceres::Solve(options, &problem, &summary);
+//            }
+//        } else {
+//            printf("not enough points in keyframe to associate, error\n");
+//        }
+//        T_curr2worldByKeyframe.linear() = q_curr2keyframe.toRotationMatrix();
+//        T_curr2worldByKeyframe.translation() = t_curr2keyframe;
+//
+//        //addToKeyframe(currEdge, currSurf);
+//
+//    }
 
 //    void pointAssociateToMapGTSAM(pcl::PointXYZI const *const pi, pcl::PointXYZI *const po) {
 //        Eigen::Vector3d point_curr (pi->x, pi->y, pi->z);
@@ -1085,12 +1183,14 @@ public:
 
 
     void updateCurrentFrame(const pcl::PointCloud<PointT>::Ptr& cloud_in_edge, const pcl::PointCloud<PointT>::Ptr& cloud_in_surf) {
+
         if (is_keyframe_next) {
             currFrame = boost::make_shared<Keyframe>(cloud_in_edge, cloud_in_surf);
             is_keyframe_next = false;
         } else {
             currFrame = boost::make_shared<Frame>(cloud_in_edge, cloud_in_surf);
         }
+
     }
 
     void gps_ground_truth() {
@@ -1114,25 +1214,25 @@ public:
                 }
                 xyz -= (*zero_utm);
 
-                gt_odometry.header.frame_id = "/base_link";
-                gt_odometry.child_frame_id = "/laser_odom";
-                gt_odometry.header.stamp = curr_gps->header.stamp;
+                odometry_gt.header.frame_id = "map";
+                odometry_gt.child_frame_id = "base_link";
+                odometry_gt.header.stamp = curr_gps->header.stamp;
                 Eigen::Quaterniond q2(odom.rotation().matrix());
-                gt_odometry.pose.pose.orientation.x   = 0;
-                gt_odometry.pose.pose.orientation.y   = 0;
-                gt_odometry.pose.pose.orientation.z   = 0;
-                gt_odometry.pose.pose.orientation.w   = 1;
-                gt_odometry.pose.pose.position.x      = xyz.x();
-                gt_odometry.pose.pose.position.y      = xyz.y();
-                gt_odometry.pose.pose.position.z      = xyz.z();
+                odometry_gt.pose.pose.orientation.x   = 0;
+                odometry_gt.pose.pose.orientation.y   = 0;
+                odometry_gt.pose.pose.orientation.z   = 0;
+                odometry_gt.pose.pose.orientation.w   = 1;
+                odometry_gt.pose.pose.position.x      = xyz.x();
+                odometry_gt.pose.pose.position.y      = xyz.y();
+                odometry_gt.pose.pose.position.z      = xyz.z();
 
                 geometry_msgs::PoseStamped laserPose;
-                laserPose.header = gt_odometry.header;
-                laserPose.pose = gt_odometry.pose.pose;
-                gt_path.header.stamp = gt_odometry.header.stamp;
-                gt_path.poses.push_back(laserPose);
-                gt_path.header.frame_id = "/base_link";
-                pubPath2GT.publish(gt_path);
+                laserPose.header = odometry_gt.header;
+                laserPose.pose = odometry_gt.pose.pose;
+                path_gt.header.stamp = odometry_gt.header.stamp;
+                path_gt.poses.push_back(laserPose);
+                path_gt.header.frame_id = "map";
+                pub_path_gt.publish(path_gt);
 
             }
 
@@ -1143,9 +1243,9 @@ public:
 
     void laser_odometry() {
 
-        pcl::PointCloud<PointT>::Ptr cloud_in_edge(new pcl::PointCloud<PointT>());
-        pcl::PointCloud<PointT>::Ptr cloud_in_surf(new pcl::PointCloud<PointT>());
-        pcl::PointCloud<PointT>::Ptr cloud_in_full(new pcl::PointCloud<PointT>());
+        cloud_in_edge.reset(new pcl::PointCloud<PointT>());
+        cloud_in_surf.reset(new pcl::PointCloud<PointT>());
+        cloud_in_full.reset(new pcl::PointCloud<PointT>());
 
         while (ros::ok()) {
 
@@ -1180,7 +1280,7 @@ public:
 
                 updateOdomWithFrame();
 
-                currFrame->pose = T_curr2worldByKeyframe;
+                currFrame->pose = T_curr2worldBySW;
                 frameMap[frameCount++] = currFrame;
                 t_laser_odometry.count();
             }
@@ -1195,39 +1295,53 @@ public:
         pointCloudSurfMap       = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
         slideWindowEdge         = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
         slideWindowSurf         = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
-        pointCloudEdgeMapGTSAM  = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
-        pointCloudSurfMapGTSAM  = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
+//        pointCloudEdgeMapGTSAM  = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
+//        pointCloudSurfMapGTSAM  = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
+
 
         kdtreeEdgeMap           = pcl::KdTreeFLANN<PointT>::Ptr(new pcl::KdTreeFLANN<PointT>());
         kdtreeSurfMap           = pcl::KdTreeFLANN<PointT>::Ptr(new pcl::KdTreeFLANN<PointT>());
         // kdtreeEdgeMapGTSAM      = pcl::KdTreeFLANN<PointT>::Ptr(new pcl::KdTreeFLANN<PointT>());
         // kdtreeSurfMapGTSAM      = pcl::KdTreeFLANN<PointT>::Ptr(new pcl::KdTreeFLANN<PointT>());
-        kdtreeEdgeKeyframe      = pcl::KdTreeFLANN<PointT>::Ptr(new pcl::KdTreeFLANN<PointT>());
-        kdtreeSurfKeyframe      = pcl::KdTreeFLANN<PointT>::Ptr(new pcl::KdTreeFLANN<PointT>());
+        kdtreeEdgeSlideWindow      = pcl::KdTreeFLANN<PointT>::Ptr(new pcl::KdTreeFLANN<PointT>());
+        kdtreeSurfSlideWindow      = pcl::KdTreeFLANN<PointT>::Ptr(new pcl::KdTreeFLANN<PointT>());
         kdtreeEdgeKeyframeGTSAM = pcl::KdTreeFLANN<PointT>::Ptr(new pcl::KdTreeFLANN<PointT>());
         kdtreeSurfKeyframeGTSAM = pcl::KdTreeFLANN<PointT>::Ptr(new pcl::KdTreeFLANN<PointT>());
+        kdtreeEdgeOpti          = pcl::KdTreeFLANN<PointT>::Ptr(new pcl::KdTreeFLANN<PointT>());
+        kdtreeSurfOpti          = pcl::KdTreeFLANN<PointT>::Ptr(new pcl::KdTreeFLANN<PointT>());
     }
 
     void initROSHandler() {
 
-        subLaserCloud = nh.subscribe<sensor_msgs::PointCloud2>("/velodyne_points_2", 100, &LaserOdometry::pointCloudFullHandler, this);
+        sub_laser_cloud = nh.subscribe<sensor_msgs::PointCloud2>("/velodyne_points_2", 100, &LaserOdometry::pointCloudFullHandler, this);
 
-        subEdgeLaserCloud = nh.subscribe<sensor_msgs::PointCloud2>("/laser_cloud_edge", 100, &LaserOdometry::pointCloudEdgeHandler, this);
+        sub_laser_cloud_edge = nh.subscribe<sensor_msgs::PointCloud2>("/laser_cloud_edge", 100, &LaserOdometry::pointCloudEdgeHandler, this);
 
-        subSurfLaserCloud = nh.subscribe<sensor_msgs::PointCloud2>("/laser_cloud_surf", 100, &LaserOdometry::pointCloudSurfHandler, this);
+        sub_laser_cloud_surf = nh.subscribe<sensor_msgs::PointCloud2>("/laser_cloud_surf", 100, &LaserOdometry::pointCloudSurfHandler, this);
 
-        subGPS = nh.subscribe<sensor_msgs::NavSatFix>("/airsim_node/drone_1/global_gps", 1000, &LaserOdometry::gpsHandler, this);
+        sub_gps = nh.subscribe<sensor_msgs::NavSatFix>("/airsim_node/drone_1/global_gps", 1000, &LaserOdometry::gpsHandler, this);
 
-        pubPath2SubMap = nh.advertise<nav_msgs::Path>("/path_to_submap", 100);
+        pub_path_submap = nh.advertise<nav_msgs::Path>("/path_submap", 100);
 
-        pubPath2Keyframe = nh.advertise<nav_msgs::Path>("/path2_to_keyframe", 100);
+        pub_path_slide_window = nh.advertise<nav_msgs::Path>("/path_slide_window", 100);
 
-        pubPath2GT = nh.advertise<nav_msgs::Path>("/path2_to_gt", 100);
+        pub_path_gt = nh.advertise<nav_msgs::Path>("/path_gt", 100);
+
+//        pub_transform_stamped = nh.advertise<geometry_msgs::TransformStamped>("/transform_stamped", 100);
+
+        pub_map_slide_window = nh.advertise<sensor_msgs::PointCloud2>("/map_slide_window", 5);
+
+        pub_map_submap = nh.advertise<sensor_msgs::PointCloud2>("/map_submap", 5);
+
+        pub_curr_edge = nh.advertise<sensor_msgs::PointCloud2>("/curr_edge", 10);
+
+        pub_curr_surf = nh.advertise<sensor_msgs::PointCloud2>("/curr_surf", 10);
+
     }
 
     void initParam() {
 
-        T_curr2world = T_lastKeyframe = T_curr2worldByKeyframe = T_last = Eigen::Isometry3d::Identity();
+        T_curr2world = T_lastKeyframe = T_curr2worldBySW = T_last = Eigen::Isometry3d::Identity();
 
         map_resolution = nh.param<double>("map_resolution", 0.2);
 
@@ -1279,7 +1393,7 @@ private:
 
     Eigen::Isometry3d T_curr2world;                 // odometry of current frame to world by submap
     Eigen::Isometry3d T_lastKeyframe;               // odometry of last keyframe to world
-    Eigen::Isometry3d T_curr2worldByKeyframe;       // odometry of current frame to world of by keyframe
+    Eigen::Isometry3d T_curr2worldBySW;             // odometry of current frame to world of by slide window
     Eigen::Isometry3d T_last;
 
     double parameter[7] = {0, 0, 0, 1, 0, 0, 0};
@@ -1305,9 +1419,14 @@ private:
     std::queue<sensor_msgs::PointCloud2ConstPtr> pointCloudFullBuf;
     std::queue<geographic_msgs::GeoPointStampedConstPtr> gps_queue;
 
+    pcl::PointCloud<PointT>::Ptr cloud_in_edge;
+    pcl::PointCloud<PointT>::Ptr cloud_in_surf;
+    pcl::PointCloud<PointT>::Ptr cloud_in_full;
+
+    // frame-to-submap
     pcl::PointCloud<PointT>::Ptr pointCloudEdgeMap;
     pcl::PointCloud<PointT>::Ptr pointCloudSurfMap;
-
+    // frame-to-slidewindow
     pcl::PointCloud<PointT>::Ptr slideWindowEdge;
     pcl::PointCloud<PointT>::Ptr slideWindowSurf;
 
@@ -1318,31 +1437,27 @@ private:
     pcl::KdTreeFLANN<PointT>::Ptr kdtreeSurfMap;
 //    pcl::KdTreeFLANN<PointT>::Ptr kdtreeEdgeMapGTSAM;
 //    pcl::KdTreeFLANN<PointT>::Ptr kdtreeSurfMapGTSAM;
-    pcl::KdTreeFLANN<PointT>::Ptr kdtreeEdgeKeyframe;
-    pcl::KdTreeFLANN<PointT>::Ptr kdtreeSurfKeyframe;
+    pcl::KdTreeFLANN<PointT>::Ptr kdtreeEdgeSlideWindow;
+    pcl::KdTreeFLANN<PointT>::Ptr kdtreeSurfSlideWindow;
 
     pcl::KdTreeFLANN<PointT>::Ptr kdtreeEdgeKeyframeGTSAM;
     pcl::KdTreeFLANN<PointT>::Ptr kdtreeSurfKeyframeGTSAM;
 
+    pcl::KdTreeFLANN<PointT>::Ptr kdtreeEdgeOpti;
+    pcl::KdTreeFLANN<PointT>::Ptr kdtreeSurfOpti;
+
     // downsample filter
     pcl::VoxelGrid<PointT> downSizeFilterEdge;
     pcl::VoxelGrid<PointT> downSizeFilterSurf;
-    //l ocal map
+    //local map
     pcl::CropBox<PointT> cropBoxFilter;
 
-    ros::Subscriber subLaserCloud, subEdgeLaserCloud, subSurfLaserCloud, subGPS;
-    ros::Publisher pubLaserOdometry, pubLaserOdometry2;
+    ros::Subscriber sub_laser_cloud, sub_laser_cloud_edge, sub_laser_cloud_surf, sub_gps;
+    ros::Publisher pub_path_submap, pub_path_slide_window, pub_path_gt, pub_map_slide_window, pub_map_submap;
+    ros::Publisher pub_curr_edge, pub_curr_surf;
 
-    ros::Publisher pubPath2SubMap;
-    ros::Publisher pubPath2Keyframe;
-    ros::Publisher pubPath2GT;
-
-    nav_msgs::Path path;
-    nav_msgs::Path path2;
-    nav_msgs::Path gt_path;
-    nav_msgs::Odometry odometry;
-    nav_msgs::Odometry odometry2;
-    nav_msgs::Odometry gt_odometry;
+    nav_msgs::Path path_submap, path_slide_window, path_gt;
+    nav_msgs::Odometry odometry_submap, odometry_slide_window, odometry_gt;
 
     double map_resolution;
 

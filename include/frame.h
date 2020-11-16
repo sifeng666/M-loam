@@ -96,7 +96,7 @@ public:
 
 class Keyframe : public Frame {
 public:
-    Eigen::Isometry3d toLastKeyframe;
+//    Eigen::Isometry3d toLastKeyframe;
     pcl::PointCloud<PointT>::Ptr edgeSubMap;
     pcl::PointCloud<PointT>::Ptr surfSubMap;
 
@@ -213,5 +213,45 @@ gtsam::Pose3 pose_normalize(const gtsam::Pose3& pose) {
     return gtsam::Pose3(gtsam::Rot3(q.matrix()), pose.translation());
 }
 
+geometry_msgs::TransformStamped navOdomToTransformStamped(const nav_msgs::Odometry& odometry) {
+
+    geometry_msgs::TransformStamped odom_trans;
+    odom_trans.header.stamp = ros::Time::now();
+    odom_trans.header.frame_id = odometry.header.frame_id;
+    odom_trans.child_frame_id = odometry.child_frame_id;
+
+    odom_trans.transform.rotation = odometry.pose.pose.orientation;
+    odom_trans.transform.translation.x = odometry.pose.pose.position.x;
+    odom_trans.transform.translation.y = odometry.pose.pose.position.y;
+    odom_trans.transform.translation.z = odometry.pose.pose.position.z;
+
+    return odom_trans;
+
+}
+
+nav_msgs::Odometry poseToNavOdometry(
+        const ros::Time& stamp,
+        const Eigen::Isometry3d& pose,
+        const std::string& frame_id,
+        const std::string& child_frame_id) {
+
+    nav_msgs::Odometry odometry;
+
+    odometry.header.frame_id = frame_id;
+    odometry.child_frame_id = child_frame_id;
+    odometry.header.stamp = stamp;
+    Eigen::Quaterniond q(pose.rotation().matrix());
+
+    odometry.pose.pose.orientation.x    = q.x();
+    odometry.pose.pose.orientation.y    = q.y();
+    odometry.pose.pose.orientation.z    = q.z();
+    odometry.pose.pose.orientation.w    = q.w();
+    odometry.pose.pose.position.x       = pose.translation().x();
+    odometry.pose.pose.position.y       = pose.translation().y();
+    odometry.pose.pose.position.z       = pose.translation().z();
+
+    return odometry;
+
+}
 
 #endif //MLOAM_FRAME_H
