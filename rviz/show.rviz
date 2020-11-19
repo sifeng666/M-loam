@@ -8,6 +8,7 @@ Panels:
         - /Status1
         - /PointCloud23
         - /Axes1
+        - /PointCloud24
       Splitter Ratio: 0.5
     Tree Height: 1079
   - Class: rviz/Selection
@@ -171,9 +172,9 @@ Visualization Manager:
       Enabled: true
       Invert Rainbow: false
       Max Color: 255; 255; 255
-      Max Intensity: 0
+      Max Intensity: 145.72128295898438
       Min Color: 0; 0; 0
-      Min Intensity: 0
+      Min Intensity: 2.4839673042297363
       Name: PointCloud2
       Position Transformer: XYZ
       Queue Size: 10
@@ -198,12 +199,12 @@ Visualization Manager:
       Color: 255; 255; 255
       Color Transformer: Intensity
       Decay Time: 0
-      Enabled: true
+      Enabled: false
       Invert Rainbow: false
       Max Color: 255; 255; 255
-      Max Intensity: 0
+      Max Intensity: 255
       Min Color: 0; 0; 0
-      Min Intensity: 0
+      Min Intensity: 1.6246836185455322
       Name: PointCloud2
       Position Transformer: XYZ
       Queue Size: 10
@@ -215,7 +216,7 @@ Visualization Manager:
       Unreliable: false
       Use Fixed Frame: true
       Use rainbow: true
-      Value: true
+      Value: false
     - Alpha: 1
       Class: rviz/Axes
       Enabled: true
@@ -223,6 +224,36 @@ Visualization Manager:
       Name: Axes
       Radius: 1
       Reference Frame: base_link
+      Value: true
+    - Alpha: 1
+      Autocompute Intensity Bounds: true
+      Autocompute Value Bounds:
+        Max Value: 10
+        Min Value: -10
+        Value: true
+      Axis: Z
+      Channel Name: intensity
+      Class: rviz/PointCloud2
+      Color: 255; 255; 255
+      Color Transformer: FlatColor
+      Decay Time: 0
+      Enabled: true
+      Invert Rainbow: false
+      Max Color: 255; 255; 255
+      Max Intensity: 255.73162841796875
+      Min Color: 0; 0; 0
+      Min Intensity: 1.5445432662963867
+      Name: PointCloud2
+      Position Transformer: XYZ
+      Queue Size: 10
+      Selectable: true
+      Size (Pixels): 3
+      Size (m): 0.009999999776482582
+      Style: Flat Squares
+      Topic: /map_submap
+      Unreliable: false
+      Use Fixed Frame: true
+      Use rainbow: true
       Value: true
   Enabled: true
   Global Options:
@@ -252,7 +283,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 537.67919921875
+      Distance: 36.561763763427734
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -260,17 +291,17 @@ Visualization Manager:
         Value: false
       Field of View: 0.7853981852531433
       Focal Point:
-        X: 32.727943420410156
-        Y: 47.12466812133789
-        Z: 5.66363525390625
-      Focal Shape Fixed Size: true
+        X: 7.667440414428711
+        Y: -2.0999596118927
+        Z: 3.5812602043151855
+      Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 1.2797966003417969
+      Pitch: 1.5697963237762451
       Target Frame: <Fixed Frame>
-      Yaw: 1.8147085905075073
+      Yaw: 2.970417022705078
     Saved: ~
 Window Geometry:
   Displays:

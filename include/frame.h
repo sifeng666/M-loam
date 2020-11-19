@@ -22,12 +22,35 @@
 
 #include <gtsam/nonlinear/ISAM2.h>
 
-using namespace gtsam;
+//using namespace gtsam;
 
 using gtsam::symbol_shorthand::E; //  edge factor
 using gtsam::symbol_shorthand::P; // plane factor
 using gtsam::symbol_shorthand::X; // state
 
+struct EdgeFeatures {
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+    Eigen::Vector3d curr_point;
+    Eigen::Vector3d point_a;
+    Eigen::Vector3d point_b;
+
+    EdgeFeatures(Eigen::Vector3d p1, Eigen::Vector3d p2, Eigen::Vector3d p3)
+            : curr_point(std::move(p1)), point_a(std::move(p2)), point_b(std::move(p3)) {
+
+    }
+};
+
+struct PlaneFeatures {
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+    Eigen::Vector3d curr_point;
+    Eigen::Vector3d norm;
+    double negative_OA_dot_norm;
+
+    PlaneFeatures(Eigen::Vector3d p1, Eigen::Vector3d norm_, double nor)
+            : curr_point(std::move(p1)), norm(std::move(norm_)), negative_OA_dot_norm(nor) {
+
+    }
+};
 
 class Frame {
 
@@ -159,6 +182,10 @@ gtsam::Pose3 trans2gtsamPose3(const Eigen::Isometry3d& trans) {
     return gtsam::Pose3(trans.matrix());
 }
 
+gtsam::Pose3 trans2gtsamPose3(const Eigen::Matrix4d& trans) {
+    return gtsam::Pose3(trans.matrix());
+}
+
 gtsam::Pose3 trans2gtsamPose3(double transformIn[]) {
     return gtsam::Pose3(gtsam::Rot3::Quaternion(transformIn[3], transformIn[0], transformIn[1], transformIn[2]),
                         gtsam::Point3(transformIn[4], transformIn[5], transformIn[6]));
@@ -231,7 +258,7 @@ geometry_msgs::TransformStamped navOdomToTransformStamped(const nav_msgs::Odomet
 
 nav_msgs::Odometry poseToNavOdometry(
         const ros::Time& stamp,
-        const Eigen::Isometry3d& pose,
+        const gtsam::Pose3& pose,
         const std::string& frame_id,
         const std::string& child_frame_id) {
 
