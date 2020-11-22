@@ -55,6 +55,7 @@ struct PlaneFeatures {
 class Frame {
 
 public:
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
     Eigen::Isometry3d pose;
 
     using Ptr = boost::shared_ptr<Frame>;
@@ -165,19 +166,6 @@ public:
 
 };
 
-//Eigen::Affine3f fromPose3(const Pose3& poseIn) {
-//    Eigen::Affine3f b;
-//    Eigen::Matrix3f R = Eigen::Matrix3d(poseIn.q).cast<float>();
-//    Eigen::Vector3f t = Eigen::Vector3d(poseIn.t).cast<float>();
-//    b.matrix().block<3, 3>(0, 0) = R;
-//    b.matrix().block<3, 1>(0, 3) = t;
-//    return b;
-//}
-//
-//gtsam::Pose3 trans2gtsamPose(const Pose3& poseIn) {
-//    return gtsam::Pose3(gtsam::Quaternion(poseIn.q), gtsam::Point3(poseIn.t));
-//}
-
 gtsam::Pose3 trans2gtsamPose3(const Eigen::Isometry3d& trans) {
     return gtsam::Pose3(trans.matrix());
 }
@@ -186,11 +174,9 @@ gtsam::Pose3 trans2gtsamPose3(const Eigen::Matrix4d& trans) {
     return gtsam::Pose3(trans.matrix());
 }
 
-gtsam::Pose3 trans2gtsamPose3(double transformIn[]) {
-    return gtsam::Pose3(gtsam::Rot3::Quaternion(transformIn[3], transformIn[0], transformIn[1], transformIn[2]),
-                        gtsam::Point3(transformIn[4], transformIn[5], transformIn[6]));
+Eigen::Isometry3d poseBetween(const Eigen::Isometry3d& poseFrom, const Eigen::Isometry3d& poseTo) {
+    return poseFrom.inverse() * poseTo;
 }
-
 
 class PoseWriter {
 private:
