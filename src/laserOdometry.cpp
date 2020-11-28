@@ -16,7 +16,7 @@
 class LaserOdometry {
 
 public:
-    using LoopFactor = gtsam::BetweenFactor<gtsam::Pose3>;
+    using LoopFactor = gtsam::NonlinearFactor::shared_ptr;
 public:
 
     void pointCloudFullHandler(const sensor_msgs::PointCloud2ConstPtr &pointCloudMsg) {
@@ -414,7 +414,7 @@ public:
 
     }
 
-    void addEdgeCostFactor(
+    int addEdgeCostFactor(
         const pcl::PointCloud<PointT>::Ptr& pc_in,
         const pcl::PointCloud<PointT>::Ptr& map_in,
         const pcl::KdTreeFLANN<PointT>::Ptr& kdtreeEdge,
@@ -469,10 +469,11 @@ public:
         if (corner_num < 20) {
             printf("not enough correct points\n");
         }
+        return corner_num;
 
     }
 
-    void addSurfCostFactor(
+    int addSurfCostFactor(
         const pcl::PointCloud<PointT>::Ptr& pc_in,
         const pcl::PointCloud<PointT>::Ptr& map_in,
         const pcl::KdTreeFLANN<PointT>::Ptr& kdtreeSurf,
@@ -527,21 +528,23 @@ public:
             printf("not enough correct points\n");
         }
 
+        return surf_num;
+
     }
 
     void initGTSAM() {
-        factorGraphSubmap.add(gtsam::PriorFactor<gtsam::Pose3>(X(0), trans2gtsamPose3(odom_submap.matrix()), prior_noise_model));
-        initValuesSubmap.insert(X(0), trans2gtsamPose3(odom_submap.matrix()));
+        poseGraph.add(gtsam::PriorFactor<gtsam::Pose3>(X(0), trans2gtsamPose3(odom.matrix()), prior_noise_model));
+        addOdomFactor();
         cout << "initGTSAM" << endl;
     }
 
-    void addOdomFactorBetweenFrames(int frameFrom, int frameTo) {
-        gtsam::Pose3 poseFrom = trans2gtsamPose3(frameMap[frameFrom]->pose);
-        gtsam::Pose3 poseTo   = trans2gtsamPose3(frameMap[frameTo]  ->pose);
-        factorGraphSubmap.add(gtsam::BetweenFactor<gtsam::Pose3>(X(frameFrom), X(frameTo), poseFrom.between(poseTo), odometry_noise_model));
-        initValuesSubmap.insert(frameTo, poseTo);
+    void addOdomFactor() {
+        initVal.insert(X(frameCount), trans2gtsamPose3(odom.matrix()));
+    }
 
-        saveOdomGraph();
+    void addBetweenFactor(int frameFrom, int frameTo, const gtsam::Pose3& poseBetween) {
+        poseGraph.add(gtsam::BetweenFactor<gtsam::Pose3>(X(frameFrom), X(frameTo), poseBetween, odometry_noise_model));
+        cout << "add between factor" << endl;
     }
 
     void getTransToSubMap(pcl::PointCloud<PointT>::Ptr currEdge = nullptr, pcl::PointCloud<PointT>::Ptr currSurf = nullptr) {
@@ -670,7 +673,7 @@ public:
             printf("not enough points in submap to associate, error\n");
         }
         odom = pose_w_c;
-
+        addOdomFactor();
         if (currFrame->is_keyframe()) {
             setCurrFrameAsLastKeyframe(currEdge, currSurf);
         } else {
@@ -748,7 +751,7 @@ public:
 
         gtsam::Pose3 pose = pose_guess;
 
-        if (cropEdge->size() > 10 && cropSurf->size() > 50) {
+        if (cropEdge->size() > 100 && cropSurf->size() > 300) {
 
             kdtreeEdgeLoop->setInputCloud(cropEdge);
             kdtreeSurfLoop->setInputCloud(cropSurf);
@@ -757,10 +760,14 @@ public:
 
                 gtsam::NonlinearFactorGraph factors;
                 gtsam::Values init_values;
-                init_values.insert(state_key, pose_guess);
+                init_values.insert(state_key, pose);
 
-                addEdgeCostFactor(keyframeEdge, cropEdge, kdtreeEdgeLoop, gtsam::Pose3::identity(), factors);
-                addSurfCostFactor(keyframeSurf, cropSurf, kdtreeSurfLoop, gtsam::Pose3::identity(), factors);
+                int edge_factor_count = addEdgeCostFactor(keyframeEdge, cropEdge, kdtreeEdgeLoop, pose, factors);
+                int surf_factor_count = addSurfCostFactor(keyframeSurf, cropSurf, kdtreeSurfLoop, pose, factors);
+
+                if (edge_factor_count < 50 || surf_factor_count < 200) {
+                    return false;
+                }
 
                 // gtsam
                 gtsam::LevenbergMarquardtParams params;
@@ -772,7 +779,7 @@ public:
                 auto result = gtsam::LevenbergMarquardtOptimizer(factors, init_values, params).optimize();
 //
 //                // write result
-                pose_w_c = result.at<gtsam::Pose3>(state_key);
+                pose = result.at<gtsam::Pose3>(state_key);
 
             }
 
@@ -780,10 +787,7 @@ public:
             printf("not enough points in submap to loopMatching, error\n");
             return false;
         }
-        odom = pose_w_c;
-
-
-
+        pose_out = pose;
     }
 
     void perform_loop_closure() {
@@ -791,6 +795,17 @@ public:
 
             if (call_loop_detector) {
                 call_loop_detector = false;
+
+                std::vector<LoopFactor> loopFactors;
+                Timer loop;
+                loop_detector(loopFactors);
+                loop.count("loop detector");
+
+                for (const auto& factor: loopFactors) {
+                    poseGraph.add(factor);
+                    cout << "add loop factor" << endl;
+                }
+                loopFactors.clear();
             }
 
             //sleep 10 ms every time
@@ -799,41 +814,61 @@ public:
     }
 
 
-    bool loop_detector(std::vector<LoopFactor>& loopFactors) {
+    void loop_detector(std::vector<LoopFactor>& loopFactors) {
 
+        // real latest frame is not a good one
         int keyframeVecSize = keyframeVec.size() - 1;
         int lasest_keyframe = keyframeVec[keyframeVecSize - 1];
 
         if (keyframeVecSize < 5)
-            return false;
+            return;
 
         auto latestKeyframe = frameMap[lasest_keyframe];
         auto pose_inverse = lastKeyframe->pose.inverse().matrix();
 
         pcl::transformPointCloud(*lastKeyframe->getEdgeSubMap(), *copy_keyframeEdge, pose_inverse);
         pcl::transformPointCloud(*lastKeyframe->getSurfSubMap(), *copy_keyframeSurf, pose_inverse);
+
         pcl::PointCloud<PointT>::Ptr cropEdge(new pcl::PointCloud<PointT>());
         pcl::PointCloud<PointT>::Ptr cropSurf(new pcl::PointCloud<PointT>());
 
-        std::vector<int> candidates;
-        for (int i = 0; i < keyframeVecSize - 3; i++) {
+        for (int i = 0; i < keyframeVecSize - 5; i++) {
 
-            auto pose_between = poseBetween(frameMap[keyframeVec[i]]->pose, frameMap[lasest_keyframe]->pose);
+            auto pose_between = poseBetween(lastKeyframe->pose, frameMap[keyframeVec[i]]->pose);
             auto distance_between = pose_between.translation().norm();
             // too far
-            if (distance_between > 10) {
+            if (distance_between > 5)
                 continue;
+//            // too close
+//            if (distance_between < 2)
+//                continue;
+
+            int start_crop = max(0, i - LOOP_KEYFRAME_CROP_LEN / 2);
+            int end_crop = min(keyframeVecSize - 5, i + LOOP_KEYFRAME_CROP_LEN / 2);
+
+            cropEdge->clear();
+            cropSurf->clear();
+
+            for (int k = start_crop; k < end_crop; k++) {
+                *cropEdge += *frameMap[keyframeVec[k]]->getEdgeSubMap();
+                *cropSurf += *frameMap[keyframeVec[k]]->getSurfSubMap();
             }
-            // too close
-            if (distance_between < 2) {
+
+            pose_inverse = frameMap[keyframeVec[i]]->pose.inverse().matrix();
+            pcl::transformPointCloud(*cropEdge, *cropEdge, pose_inverse);
+            pcl::transformPointCloud(*cropSurf, *cropSurf, pose_inverse);
+
+            gtsam::Pose3 pose_finetune;
+            bool can_match = loopMatching(cropEdge, cropSurf,
+                              lastKeyframe->getEdgeSubMap(), lastKeyframe->getSurfSubMap(),
+                              gtsam::Pose3(pose_between.matrix()), pose_finetune);
+            if (!can_match)
                 continue;
-            }
 
-
-
-
-
-
+            loopFactors.emplace_back(new gtsam::BetweenFactor<gtsam::Pose3>(X(lasest_keyframe), X(keyframeVec[i]), pose_finetune, odometry_noise_model));
+            cout << "find loop: [" << lasest_keyframe << "] and [" << keyframeVec[i] << "]\n";
+            cout << "pose before: \n" << pose_between.matrix() << endl;
+            cout << "pose after: \n" << pose_finetune.matrix() << endl;
         }
 
 
@@ -850,7 +885,7 @@ public:
 
             if (!pointCloudFullBuf.empty() && !pointCloudEdgeBuf.empty() && !pointCloudSurfBuf.empty()) {
 
-                Timer t_laser_odometry("laser_odometry");
+                Timer t_laser_odometry;
 
                 pcd_msg_mtx.lock();
 
@@ -881,7 +916,7 @@ public:
 
                 currFrame->pose = odom.matrix();
                 frameMap[frameCount++] = currFrame;
-                t_laser_odometry.count();
+                t_laser_odometry.count("laser_odometry");
             }
 
             //sleep 2 ms every time
@@ -979,7 +1014,7 @@ public:
     void saveOdomGraph() {
         std::cout << "saveOdomFactor" << std::endl;
         std::ofstream if_graph("/home/ziv/mloam.dot");
-        gtSAMgraph.saveGraph(if_graph, initialEstimate);
+        poseGraph.saveGraph(if_graph, initVal);
     }
 
 private:
@@ -1060,21 +1095,14 @@ private:
     int toBeKeyframeInterval = 0;
 
     const int SLIDE_KEYFRAME_SUBMAP_LEN = 6;
+    const int LOOP_KEYFRAME_CROP_LEN = 6;
 
     double keyframeDistThreshold = 0.8;
     double keyframeAngleThreshold = 0.15;
 
     // gtsam
-    gtsam::NonlinearFactorGraph factorGraphSubmap;
-    gtsam::Values initValuesSubmap;
-
-    // gtsam
-    gtsam::NonlinearFactorGraph gtSAMgraph;
-    gtsam::Values initialEstimate;
-    gtsam::Values optimizedEstimate;
-    gtsam::ISAM2 *isam;
-    gtsam::Values isamCurrentEstimate;
-    Eigen::MatrixXd poseCovariance;
+    gtsam::NonlinearFactorGraph poseGraph;
+    gtsam::Values initVal;
 
     gtsam::Pose3 pose_w_c_submap;  // world to current
     gtsam::Pose3 last_odom_submap;
