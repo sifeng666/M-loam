@@ -58,6 +58,7 @@ public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
     Eigen::Isometry3d pose;
 
+    int frameCount;
     using Ptr = boost::shared_ptr<Frame>;
     using PointCloudPtr = pcl::PointCloud<PointT>::Ptr;
 
@@ -70,8 +71,8 @@ public:
 
 public:
 
-    explicit Frame(PointCloudPtr EF, PointCloudPtr PF, PointCloudPtr FULL = nullptr) :
-            edgeFeatures(EF), surfFeatures(PF), pointCloudFull(FULL) {
+    explicit Frame(int _frame_count, PointCloudPtr EF, PointCloudPtr PF, PointCloudPtr FULL = nullptr) :
+            frameCount(_frame_count), edgeFeatures(EF), surfFeatures(PF), pointCloudFull(FULL) {
         // init
         pose = Eigen::Isometry3d::Identity();
     }
@@ -82,6 +83,11 @@ public:
 
     virtual bool is_keyframe() const {
         return false;
+    }
+
+    virtual int keyframe_count() const {
+        std::cout << "not keyframe, cannot add to submap." << std::endl;
+        return -1;
     }
 
     virtual void addEdgeFeaturesToSubMap(const PointT& p) {
@@ -120,12 +126,12 @@ public:
 
 class Keyframe : public Frame {
 public:
-//    Eigen::Isometry3d toLastKeyframe;
+    int keyframeCount;
     pcl::PointCloud<PointT>::Ptr edgeSubMap;
     pcl::PointCloud<PointT>::Ptr surfSubMap;
 
-    explicit Keyframe(PointCloudPtr EF, PointCloudPtr PF, PointCloudPtr FULL = nullptr) :
-            Frame(EF, PF, FULL) {
+    explicit Keyframe(int _frame_count, int _keyframe_count, PointCloudPtr EF, PointCloudPtr PF, PointCloudPtr FULL = nullptr) :
+            Frame(_frame_count, EF, PF, FULL), keyframeCount(_keyframe_count) {
         // init
     }
 
@@ -136,6 +142,10 @@ public:
 
     virtual bool is_keyframe() const {
         return true;
+    }
+
+    virtual int keyframe_count() const {
+        return keyframeCount;
     }
 
     virtual void addEdgeFeaturesToSubMap(const PointT& p) {

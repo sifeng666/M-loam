@@ -233,6 +233,7 @@ public:
         while (ros::ok()) {
 
             if (!pointCloudBuf.empty()) {
+
                 pcl::PointCloud<PointT>::Ptr cloud_in(new pcl::PointCloud<PointT>());
                 pcl::PointCloud<PointT>::Ptr cloud_edge(new pcl::PointCloud<PointT>());
                 pcl::PointCloud<PointT>::Ptr cloud_surf(new pcl::PointCloud<PointT>());
@@ -244,9 +245,9 @@ public:
                 mtx.unlock();
 
 
-                Timer feat_extra("featureExtraction");
+//                Timer feat_extra("featureExtraction");
                 featureExtraction(cloud_in, cloud_edge, cloud_surf);
-                feat_extra.count();
+//                feat_extra.count();
 
                 sensor_msgs::PointCloud2 laserCloudFilteredMsg;
                 pcl::PointCloud<PointT>::Ptr cloud_filtered(new pcl::PointCloud<PointT>());

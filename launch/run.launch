@@ -1,9 +1,9 @@
 <launch>
     
     <param name="/use_sim_time" value="ture"/>
-    <node pkg="rosbag" type="play" name="playbag" args="--clock /home/ziv/dataForCalibrate/kitti/kitti_2011_09_26_drive_0117_synced.bag /kitti/velo/pointcloud:=/velodyne_points"/>
+    <node pkg="rosbag" type="play" name="playbag" args="--clock /home/ziv/dataForCalibrate/loop1.bag /rslidar_points:=/velodyne_points"/>
 
-    <param name="scan_line" type="int" value="64" />
+    <param name="scan_line" type="int" value="16" />
 
     <!-- if 1, do mapping 10 Hz, if 2, do mapping 5 Hz. Suggest to use 1, it will adjust frequence automaticlly -->
 <!--    <param name="mapping_skip_frame" type="int" value="1" />-->
