@@ -13,6 +13,7 @@
 #include <queue>
 #include <deque>
 #include <mutex>
+#include <shared_mutex>
 #include <cstdio>
 #include <thread>
 #include <utility>

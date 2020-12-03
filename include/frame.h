@@ -52,141 +52,46 @@ struct PlaneFeatures {
     }
 };
 
-class Frame {
-
+class Keyframe {
 public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-    Eigen::Isometry3d pose;
-
+    gtsam::Pose3 pose;
+    int index;
     int frameCount;
-    using Ptr = boost::shared_ptr<Frame>;
+    using Ptr = boost::shared_ptr<Keyframe>;
     using PointCloudPtr = pcl::PointCloud<PointT>::Ptr;
 
-    // full pcd
-    pcl::PointCloud<PointT>::Ptr pointCloudFull;
-
-    // feature pcd
+    // feature point cloud
     pcl::PointCloud<PointT>::Ptr edgeFeatures;
     pcl::PointCloud<PointT>::Ptr surfFeatures;
 
+    // slice-contains all frames between this and next keyframe
+    pcl::PointCloud<PointT>::Ptr edgeSlice;
+    pcl::PointCloud<PointT>::Ptr surfSlice;
+
 public:
 
-    explicit Frame(int _frame_count, PointCloudPtr EF, PointCloudPtr PF, PointCloudPtr FULL = nullptr) :
-            frameCount(_frame_count), edgeFeatures(EF), surfFeatures(PF), pointCloudFull(FULL) {
+    explicit Keyframe(int _index, PointCloudPtr EF, PointCloudPtr PF) :
+            index(_index), edgeFeatures(EF), surfFeatures(PF) {
         // init
-        pose = Eigen::Isometry3d::Identity();
+        pose = gtsam::Pose3::identity();
+        frameCount = 0;
+
+        edgeSlice = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
+        surfSlice = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
+
     }
 
-    virtual void alloc() {
-        return;
+    void normalizePose() {
+        Eigen::Quaterniond q(Eigen::Isometry3d(pose.matrix()).rotation());
+        q.normalize();
+        pose = gtsam::Pose3(gtsam::Rot3(q.matrix()), pose.translation());
     }
 
-    virtual bool is_keyframe() const {
-        return false;
-    }
 
-    virtual int keyframe_count() const {
-        std::cout << "not keyframe, cannot add to submap." << std::endl;
-        return -1;
-    }
-
-    virtual void addEdgeFeaturesToSubMap(const PointT& p) {
-        std::cout << "not keyframe, cannot add to submap." << std::endl;
-        return;
-    }
-
-    virtual void addSurfFeaturesToSubMap(const PointT& p) {
-        std::cout << "not keyframe, cannot add to submap." << std::endl;
-        return;
-    }
-
-    virtual pcl::PointCloud<PointT>::Ptr getEdgeSubMap() {
-        std::cout << "not keyframe, cannot get submap." << std::endl;
-        return nullptr;
-    }
-
-    virtual pcl::PointCloud<PointT>::Ptr getSurfSubMap() {
-        std::cout << "not keyframe, cannot get submap." << std::endl;
-        return nullptr;
-    }
-
-    virtual void setEdgeSubMap(pcl::PointCloud<PointT>::Ptr ptr) {
-        std::cout << "not keyframe, cannot set submap." << std::endl;
-        return;
-    }
-
-    virtual void setSurfSubMap(pcl::PointCloud<PointT>::Ptr ptr) {
-        std::cout << "not keyframe, cannot set submap." << std::endl;
-        return;
-    }
-
-    virtual ~Frame() {}
 
 };
 
-class Keyframe : public Frame {
-public:
-    int keyframeCount;
-    pcl::PointCloud<PointT>::Ptr edgeSubMap;
-    pcl::PointCloud<PointT>::Ptr surfSubMap;
-
-    explicit Keyframe(int _frame_count, int _keyframe_count, PointCloudPtr EF, PointCloudPtr PF, PointCloudPtr FULL = nullptr) :
-            Frame(_frame_count, EF, PF, FULL), keyframeCount(_keyframe_count) {
-        // init
-    }
-
-    virtual void alloc() {
-        edgeSubMap = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
-        surfSubMap = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
-    }
-
-    virtual bool is_keyframe() const {
-        return true;
-    }
-
-    virtual int keyframe_count() const {
-        return keyframeCount;
-    }
-
-    virtual void addEdgeFeaturesToSubMap(const PointT& p) {
-        edgeSubMap->push_back(p);
-    }
-
-    virtual void addSurfFeaturesToSubMap(const PointT& p) {
-        surfSubMap->push_back(p);
-    }
-
-    virtual pcl::PointCloud<PointT>::Ptr getEdgeSubMap() {
-        return edgeSubMap;
-    }
-
-    virtual pcl::PointCloud<PointT>::Ptr getSurfSubMap() {
-        return surfSubMap;
-    }
-
-    virtual void setEdgeSubMap(pcl::PointCloud<PointT>::Ptr ptr) {
-        edgeSubMap = ptr;
-    }
-
-    virtual void setSurfSubMap(pcl::PointCloud<PointT>::Ptr ptr) {
-        surfSubMap = ptr;
-    }
-
-    virtual ~Keyframe() {}
-
-};
-
-gtsam::Pose3 trans2gtsamPose3(const Eigen::Isometry3d& trans) {
-    return gtsam::Pose3(trans.matrix());
-}
-
-gtsam::Pose3 trans2gtsamPose3(const Eigen::Matrix4d& trans) {
-    return gtsam::Pose3(trans.matrix());
-}
-
-Eigen::Isometry3d poseBetween(const Eigen::Isometry3d& poseFrom, const Eigen::Isometry3d& poseTo) {
-    return poseFrom.inverse() * poseTo;
-}
 
 class PoseWriter {
 private:
