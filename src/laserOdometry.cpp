@@ -10,8 +10,12 @@
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/kdtree/kdtree_flann.h>
 #include <pcl/filters/crop_box.h>
+#include <pcl/registration/icp.h>
+#include <pcl/registration/gicp.h>
 
-
+static int correct_count = 1;
+static int save_count = 1;
+static int graph_count = 1;
 
 class LaserOdometry {
 
@@ -68,6 +72,25 @@ public:
         po->intensity = pi->intensity;
     }
 
+    void downsampling(const pcl::PointCloud<PointT>::Ptr& input, pcl::PointCloud<PointT>& output, FeatureType featureType) {
+
+        if (input == nullptr) {
+            cout << "input is nullptr!" << endl;
+            return;
+        }
+
+        if (featureType == FeatureType::Edge) {
+            downSizeFilterEdge.setInputCloud(input);
+            downSizeFilterEdge.filter(output);
+        } else if (featureType == FeatureType::Surf) {
+            downSizeFilterSurf.setInputCloud(input);
+            downSizeFilterSurf.filter(output);
+        } else {
+            cout << "invalid downsample type" << endl;
+            return;
+        }
+    }
+
     void addToCurrSlice(pcl::PointCloud<PointT>::Ptr currEdge, pcl::PointCloud<PointT>::Ptr currSurf, const gtsam::Pose3& odom) {
 
         if (isCurrKeyframeSliceEmpty()) {
@@ -88,8 +111,8 @@ public:
         *current_keyframe->surfSlice += *transformedSurf;
         current_keyframe->frameCount++;
 
-        downsampling(current_keyframe->edgeSlice, current_keyframe->edgeSlice, FeatureType::Edge);
-        downsampling(current_keyframe->surfSlice, current_keyframe->surfSlice, FeatureType::Surf);
+        downsampling(current_keyframe->edgeSlice, *current_keyframe->edgeSlice, FeatureType::Edge);
+        downsampling(current_keyframe->surfSlice, *current_keyframe->surfSlice, FeatureType::Surf);
 
     }
 
@@ -97,12 +120,12 @@ public:
 
         PointT point_temp;
 
-        for (int i = 0; i < currEdge->size(); i++) {
+        for (size_t i = 0; i < currEdge->size(); i++) {
             pointAssociateToMap(&currEdge->points[i], &point_temp);
             pointCloudEdgeMap->push_back(point_temp);
         }
 
-        for (int i = 0; i < currSurf->size(); i++) {
+        for (size_t i = 0; i < currSurf->size(); i++) {
             pointAssociateToMap(&currSurf->points[i], &point_temp);
             pointCloudSurfMap->push_back(point_temp);
         }
@@ -132,11 +155,6 @@ public:
         downSizeFilterSurf.filter(*pointCloudEdgeMap);
     }
 
-
-    bool isCurrKeyframeSliceEmpty() {
-        return current_keyframe->frameCount == 0;
-    }
-
     void updateSlideWindows() {
 
         slideWindowEdge->clear();
@@ -162,6 +180,21 @@ public:
 
     }
 
+    bool isCurrKeyframeSliceEmpty() {
+        return current_keyframe->frameCount == 0;
+    }
+
+    void initWithFirstFrame(pcl::PointCloud<PointT>::Ptr currEdge, pcl::PointCloud<PointT>::Ptr currSurf) {
+
+        // init local submap
+        *pointCloudEdgeMap += *currEdge;
+        *pointCloudSurfMap += *currSurf;
+
+        addToCurrSlice(currEdge, currSurf, odom);
+        // init odom factor
+        initOdomFactor();
+    }
+
     bool nextFrameToBeKeyframe() {
 
         Eigen::Isometry3d T_delta((current_keyframe->pose.inverse() * odom).matrix());
@@ -177,81 +210,33 @@ public:
 
     }
 
-    void initWithFirstFrame(pcl::PointCloud<PointT>::Ptr currEdge, pcl::PointCloud<PointT>::Ptr currSurf) {
-
-        // init local submap
-        *pointCloudEdgeMap += *currEdge;
-        *pointCloudSurfMap += *currSurf;
-
-        addToCurrSlice(currEdge, currSurf, odom);
-        // init odom factor
-        initOdomFactor();
-    }
-
-    void downsampling(const pcl::PointCloud<PointT>::Ptr& input, const pcl::PointCloud<PointT>::Ptr& output, FeatureType featureType) {
-
-        if (input == nullptr || output == nullptr) {
-            cout << "input or output cloud is nullptr!" << endl;
-            return;
-        }
-
-        if (featureType == FeatureType::Edge) {
-            downSizeFilterEdge.setInputCloud(input);
-            downSizeFilterEdge.filter(*output);
-        } else if (featureType == FeatureType::Surf) {
-            downSizeFilterSurf.setInputCloud(input);
-            downSizeFilterSurf.filter(*output);
-        } else {
-            cout << "invalid downsample type" << endl;
-            return;
+    void updateKeyframes(const pcl::PointCloud<PointT>::Ptr& cloud_in_edge, const pcl::PointCloud<PointT>::Ptr& cloud_in_surf) {
+        if (is_keyframe_next) {
+            current_keyframe = boost::make_shared<Keyframe>(keyframes.size(), cloud_in_edge, cloud_in_surf);
+            printf("This is keyframe!!!! %d\n", int(keyframes.size()));
+            keyframes.push_back(current_keyframe);
+            is_keyframe_next = false;
         }
     }
 
-    void updateOdomWithFrame(pcl::PointCloud<PointT>::Ptr currEdge, pcl::PointCloud<PointT>::Ptr currSurf) {
+    void pubMapSubMap(const pcl::PointCloud<PointT>::Ptr& cloud_in_edge, const pcl::PointCloud<PointT>::Ptr& cloud_in_surf) {
 
-        if (!is_init) {
-            initWithFirstFrame(currEdge, currSurf);
-            is_init = true;
-            std::cout << "Initialization finished \n";
-            return;
-        }
+        pcl::PointCloud<PointT>::Ptr edge(new pcl::PointCloud<PointT>());
+        pcl::PointCloud<PointT>::Ptr surf(new pcl::PointCloud<PointT>());
 
-        pcl::PointCloud<PointT>::Ptr currEdgeDS(new pcl::PointCloud<PointT>());
-        pcl::PointCloud<PointT>::Ptr currSurfDS(new pcl::PointCloud<PointT>());
+        pcl::transformPointCloud(*cloud_in_edge, *edge, odom.matrix());
+        pcl::transformPointCloud(*cloud_in_surf, *surf, odom.matrix());
 
-        downsampling(currEdge, currEdgeDS, FeatureType::Edge);
-        downsampling(currSurf, currSurfDS, FeatureType::Surf);
+        *globalMap_odom += *edge;
+        *globalMap_odom += *surf;
 
-        getTransToSubMap(currEdgeDS, currSurfDS);
-        getTransToSlideWindow(currEdgeDS, currSurfDS);
-
-        handleRegistration(currEdgeDS, currSurfDS);
-        correctPose();
-
-        pubOdomAndPath();
-        pubMapSubMap();
-        saveOdomGraph();
-    }
-
-    void pubMapSubMap() {
-
-        pcl::PointCloud<PointT>::Ptr submap(new pcl::PointCloud<PointT>());
-        sensor_msgs::PointCloud2Ptr cloud_msg(new sensor_msgs::PointCloud2());
-
-        *submap += *pointCloudEdgeMap;
-        *submap += *pointCloudSurfMap;
-
-        pcl::toROSMsg(*submap, *cloud_msg);
-        cloud_msg->header.stamp = cloud_in_time;
-        cloud_msg->header.frame_id = "map";
-
-        pub_map_submap.publish(cloud_msg);
+//        downsampling(globalMap_odom, *globalMap_odom, FeatureType::Edge);
 
     }
 
     void pubOdomAndPath() {
 
-        odometry_submap = poseToNavOdometry(cloud_in_time, odom_submap, "map", "base_link");
+        odometry_submap = poseToNavOdometry(cloud_in_time, odom, "map", "base_link");
 
         odometry_slide_window = poseToNavOdometry(cloud_in_time, odom, "map", "base_link");
 
@@ -268,6 +253,19 @@ public:
         laserPose.header = odometry_submap.header;
         laserPose.pose = odometry_submap.pose.pose;
         path_submap.header.stamp = odometry_submap.header.stamp;
+        path_submap.poses.clear();
+        for (size_t i = 0; i < keyframes.size(); i++) {
+            laserPose.header = odometry_submap.header;
+            Eigen::Quaterniond q(keyframes[i]->pose.rotation().matrix());
+            laserPose.pose.orientation.x    = q.x();
+            laserPose.pose.orientation.y    = q.y();
+            laserPose.pose.orientation.z    = q.z();
+            laserPose.pose.orientation.w    = q.w();
+            laserPose.pose.position.x       = keyframes[i]->pose.translation().x();
+            laserPose.pose.position.y       = keyframes[i]->pose.translation().y();
+            laserPose.pose.position.z       = keyframes[i]->pose.translation().z();
+            path_submap.poses.push_back(laserPose);
+        }
         path_submap.poses.push_back(laserPose);
         path_submap.header.frame_id = "map";
         pub_path_submap.publish(path_submap);
@@ -413,24 +411,6 @@ public:
 
     }
 
-    void initOdomFactor() {
-
-        poseGraph.add(gtsam::PriorFactor<gtsam::Pose3>(X(0), odom, prior_noise_model));
-        initEstimate.insert(X(0), odom);
-        cout << "initGTSAM" << endl;
-
-    }
-
-    void addOdomFactor(int lastPoseIdx) {
-
-        int currIdx = current_keyframe->index;
-        auto lastPose = keyframes[lastPoseIdx]->pose;
-        poseGraph.add(gtsam::BetweenFactor<gtsam::Pose3>(X(lastPoseIdx), X(currIdx), lastPose.between(current_keyframe->pose), odometry_noise_model));
-        initEstimate.insert(X(currIdx), current_keyframe->pose);
-        printf("add odom factor between %d and %d\n", lastPoseIdx, currIdx);
-
-    }
-
     void getTransToSubMap(pcl::PointCloud<PointT>::Ptr currEdge, pcl::PointCloud<PointT>::Ptr currSurf) {
 
         gtsam::Pose3 odom_prediction = odom_submap * (last_odom_submap.inverse() * odom_submap);
@@ -487,8 +467,7 @@ public:
 
         updateSlideWindows();
 
-        gtsam::Pose3 odom_prediction = odom * (last_odom.inverse() * odom);
-        odom_prediction = pose_normalize(odom_prediction);
+        gtsam::Pose3 odom_prediction = pose_normalize(odom * delta);
 
         last_odom = odom;
         odom = odom_prediction;
@@ -531,6 +510,33 @@ public:
         odom = pose_w_c;
     }
 
+    void initOdomFactor() {
+
+        poseGraph.add(gtsam::PriorFactor<gtsam::Pose3>(X(0), odom, prior_noise_model));
+        initEstimate.insert(X(0), odom);
+        cout << "initGTSAM" << endl;
+
+        copyGraph.add(gtsam::PriorFactor<gtsam::Pose3>(X(0), odom, prior_noise_model));
+        copyEstimate.insert(X(0), odom);
+
+    }
+
+    void addOdomFactor(int lastPoseIdx) {
+
+        int currIdx = current_keyframe->index;
+        auto lastPose = keyframes[lastPoseIdx]->pose;
+
+        gtsam::Pose3 pose_last_curr = lastPose.between(current_keyframe->pose);
+
+        poseGraph.add(gtsam::BetweenFactor<gtsam::Pose3>(X(lastPoseIdx), X(currIdx), pose_last_curr, odometry_noise_model));
+        initEstimate.insert(X(currIdx), current_keyframe->pose);
+        printf("add odom factor between %d and %d\n", lastPoseIdx, currIdx);
+
+        copyGraph.add(gtsam::BetweenFactor<gtsam::Pose3>(X(lastPoseIdx), X(currIdx), pose_last_curr, odometry_noise_model));
+        copyEstimate.insert(X(currIdx), current_keyframe->pose);
+
+    }
+
     void handleRegistration(pcl::PointCloud<PointT>::Ptr currEdge, pcl::PointCloud<PointT>::Ptr currSurf) {
 
         if (isCurrKeyframeSliceEmpty()) {
@@ -550,11 +556,22 @@ public:
         } else {
             is_keyframe_next = nextFrameToBeKeyframe();
             addToCurrSlice(currEdge, currSurf, odom);
+            delta = pose_normalize(last_odom.inverse() * odom);
         }
 
     }
 
     void factorGraphUpdate() {
+//        string filepath = "/home/ziv/mloam/";
+        // before loop
+//        if (loop_found)
+//        {
+//            // save
+//            graph_count++;
+//
+//            std::ofstream of_save_graph(filepath + "isam_before" + to_string(graph_count) + ".dot");
+//            isam->getFactorsUnsafe().saveGraph(of_save_graph, isam->calculateEstimate());
+//        }
 
         isam->update(poseGraph, initEstimate);
         isam->update();
@@ -562,18 +579,32 @@ public:
         if (loop_found) {
             isam->update();
             isam->update();
-            isam->update();
-            isam->update();
-            isam->update();
         }
+
+        // after loop
+//        if (loop_found)
+//        {
+//            // save
+//            std::ofstream of_save_graph(filepath + "isam_after" + to_string(graph_count) + ".dot");
+//            isam->getFactorsUnsafe().saveGraph(of_save_graph, isam->calculateEstimate());
+//        }
+
 
         poseGraph.resize(0);
         initEstimate.clear();
 
         isamOptimize = isam->calculateEstimate();
+
+        if (loop_found) {
+            correctPose();
+            loop_found = false;
+        }
+
         auto latestEstimate = isamOptimize.at<gtsam::Pose3>(X(keyframes.size() - 1));
 
         cout << "origin odom: \n" << odom.matrix() << endl;
+
+        delta = pose_normalize(last_odom.inverse() * odom);
 
         odom = latestEstimate;
 
@@ -581,136 +612,59 @@ public:
 
     }
 
-    void updateKeyframes(const pcl::PointCloud<PointT>::Ptr& cloud_in_edge, const pcl::PointCloud<PointT>::Ptr& cloud_in_surf) {
-        if (is_keyframe_next) {
-            current_keyframe = boost::make_shared<Keyframe>(keyframes.size(), cloud_in_edge, cloud_in_surf);
-            printf("This is keyframe!!!! %d\n", int(keyframes.size()));
-            keyframes.push_back(current_keyframe);
-            is_keyframe_next = false;
-        }
-    }
-
     void correctPose() {
 
-        if (loop_found) {
+        int numPoses = isamOptimize.size();
 
-            int numPoses = isamOptimize.size();
-            cout << "keyframeVec size " << keyframes.size() << endl;
-            cout << "isam size " << numPoses << endl;
+        string filename = "/home/ziv/mloam/loop_correct" + std::to_string(correct_count++) + "/";
+        _mkdir(filename + "1.txt");
+        std::ofstream f1(filename+"before.txt");
+        std::ofstream f2(filename+"after.txt");
 
-            for (int i = 0; i < numPoses; i++) {
-                auto poseOpti = isamOptimize.at<gtsam::Pose3>(X(i));
-                keyframes[i]->pose = poseOpti;
-            }
-
-            flush_map = true;
-            loop_found = false;
+        f1 << "keyframeVec size " << keyframes.size() << endl;
+        f1 << "isam size " << numPoses << endl;
+        for (int i = 0; i < numPoses; i++) {
+            f1 << pose_to_str(keyframes[i]->pose);
+            auto poseOpti = isamOptimize.at<gtsam::Pose3>(X(i));
+            keyframes[i]->pose = poseOpti;
+            f2 << pose_to_str(keyframes[i]->pose);
         }
+        f1.close();
+        f2.close();
+
+        flush_map = true;
 
     }
 
-    void pub_global_map() {
-
-        while (ros::ok()) {
-
-            int size = keyframes.size();
-            if (!is_init) {
-                continue;
-            }
-            if (isCurrKeyframeSliceEmpty()) {
-                size--;
-            }
-
-            pcl::PointCloud<PointT>::Ptr tempEdge(new pcl::PointCloud<PointT>());
-            pcl::PointCloud<PointT>::Ptr tempSurf(new pcl::PointCloud<PointT>());
-
-            if (flush_map) {
-
-                globalMap->clear();
-
-                for (int i = 0; i < size; i++) {
-                    pcl::transformPointCloud(*keyframes[i]->edgeSlice, *tempEdge, keyframes[i]->pose.matrix());
-                    pcl::transformPointCloud(*keyframes[i]->surfSlice, *tempSurf, keyframes[i]->pose.matrix());
-                    *globalMap += *tempEdge;
-                    *globalMap += *tempSurf;
-                }
-
-                last_keyframe_index = size;
-                cout << "flush map!" << last_keyframe_index << endl;
-                flush_map = false;
-            }
-
-            else if (size > last_keyframe_index) {
-
-                for (int i = last_keyframe_index; i < size; i++) {
-                    pcl::transformPointCloud(*keyframes[i]->edgeSlice, *tempEdge, keyframes[i]->pose.matrix());
-                    pcl::transformPointCloud(*keyframes[i]->surfSlice, *tempSurf, keyframes[i]->pose.matrix());
-                    *globalMap += *tempEdge;
-                    *globalMap += *tempSurf;
-                }
-
-                last_keyframe_index = size;
-            }
-
-            sensor_msgs::PointCloud2Ptr cloud_msg(new sensor_msgs::PointCloud2());
-            pcl::toROSMsg(*globalMap, *cloud_msg);
-            cloud_msg->header.stamp = cloud_in_time;
-            cloud_msg->header.frame_id = "map";
-
-            pub_map_slide_window.publish(cloud_msg);
-
-            //sleep 100 ms every time
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
-
+    void saveOdomGraph() {
+        std::ofstream if_graph("/home/ziv/mloam/mloam.dot");
+        copyGraph.saveGraph(if_graph, copyEstimate);
+        if_graph.close();
     }
 
-    void gps_ground_truth() {
-        boost::optional<Eigen::Vector3d> zero_utm;
-        while (ros::ok()) {
-            if (!gps_queue.empty()) {
+    void updateOdomWithFrame(pcl::PointCloud<PointT>::Ptr currEdge, pcl::PointCloud<PointT>::Ptr currSurf) {
 
-                gps_msg_mtx.lock();
-                auto curr_gps = gps_queue.front();
-                gps_queue.pop();
-                gps_msg_mtx.unlock();
-
-                // convert (latitude, longitude, altitude) -> (easting, northing, altitude) in UTM coordinate
-                geodesy::UTMPoint utm;
-                geodesy::fromMsg((*curr_gps).position, utm);
-                Eigen::Vector3d xyz(-utm.easting, utm.northing, utm.altitude);
-
-                // the first gps data position will be the origin of the map
-                if(!zero_utm) {
-                    zero_utm = xyz;
-                }
-                xyz -= (*zero_utm);
-
-                odometry_gt.header.frame_id = "map";
-                odometry_gt.child_frame_id = "base_link";
-                odometry_gt.header.stamp = curr_gps->header.stamp;
-                Eigen::Quaterniond q2(odom.rotation().matrix());
-                odometry_gt.pose.pose.orientation.x   = 0;
-                odometry_gt.pose.pose.orientation.y   = 0;
-                odometry_gt.pose.pose.orientation.z   = 0;
-                odometry_gt.pose.pose.orientation.w   = 1;
-                odometry_gt.pose.pose.position.x      = xyz.x();
-                odometry_gt.pose.pose.position.y      = xyz.y();
-                odometry_gt.pose.pose.position.z      = xyz.z();
-
-                geometry_msgs::PoseStamped laserPose;
-                laserPose.header = odometry_gt.header;
-                laserPose.pose = odometry_gt.pose.pose;
-                path_gt.header.stamp = odometry_gt.header.stamp;
-                path_gt.poses.push_back(laserPose);
-                path_gt.header.frame_id = "map";
-                pub_path_gt.publish(path_gt);
-
-            }
-
-            //sleep 2 ms every time
-            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        if (!is_init) {
+            initWithFirstFrame(currEdge, currSurf);
+            is_init = true;
+            std::cout << "Initialization finished \n";
+            return;
         }
+
+        pcl::PointCloud<PointT>::Ptr currEdgeDS(new pcl::PointCloud<PointT>());
+        pcl::PointCloud<PointT>::Ptr currSurfDS(new pcl::PointCloud<PointT>());
+
+        downsampling(currEdge, *currEdgeDS, FeatureType::Edge);
+        downsampling(currSurf, *currSurfDS, FeatureType::Surf);
+
+//        getTransToSubMap(currEdgeDS, currSurfDS);
+        getTransToSlideWindow(currEdgeDS, currSurfDS);
+
+        handleRegistration(currEdgeDS, currSurfDS);
+
+        pubOdomAndPath();
+        pubMapSubMap(currEdgeDS, currSurfDS);
+//        saveOdomGraph();
     }
 
     bool loopMatching(
@@ -766,56 +720,83 @@ public:
         return true;
     }
 
-    void perform_loop_closure() {
+    bool loopMacthing_ICP(
+            const pcl::PointCloud<PointT>::Ptr& cropEdge,
+            const pcl::PointCloud<PointT>::Ptr& cropSurf,
+            const pcl::PointCloud<PointT>::Ptr& keyframeEdge,
+            const pcl::PointCloud<PointT>::Ptr& keyframeSurf,
+            const gtsam::Pose3& pose_guess,
+            gtsam::Pose3& pose) {
 
-        while (ros::ok()) {
+        pcl::GeneralizedIterativeClosestPoint<PointT, PointT> gicp;
+        gicp.setMaxCorrespondenceDistance(5);
+        gicp.setMaximumIterations(100);
+        gicp.setTransformationEpsilon(1e-6);
+        gicp.setEuclideanFitnessEpsilon(1e-6);
 
-            if (!loopDetectBuf.empty()) {
+        pcl::PointCloud<PointT>::Ptr crop(new pcl::PointCloud<PointT>());
+        pcl::PointCloud<PointT>::Ptr keyframe(new pcl::PointCloud<PointT>());
 
-                Timer t_loop("loop detector");
+        *crop += *cropEdge;
+        *crop += *cropSurf;
 
-                loop_mtx.lock();
-                std::vector<LoopFactor> loopFactors;
-                auto latestFrame = loopDetectBuf.front();
-                loopDetectBuf.pop();
-                loop_mtx.unlock();
+        *keyframe += *keyframeEdge;
+        *keyframe += *keyframeSurf;
 
-                loop_detector(latestFrame, loopFactors);
+        string filepath = "/home/ziv/mloam/" +std::to_string(save_count++) + "/";
+        _mkdir(filepath + "1.txt");
+        std::ofstream f(filepath+"init.txt");
+        f << pose_guess.matrix();
+        f.close();
+        pcl::io::savePCDFileASCII(filepath + "crop.pcd", *crop);
+        pcl::io::savePCDFileASCII(filepath + "keyframe.pcd", *keyframe);
 
-                for (const auto& factor: loopFactors) {
-                    poseGraph.add(factor);
-                    cout << "add loop factor" << endl;
-                }
+        // Align clouds
+        gicp.setInputSource(keyframe);
+        gicp.setInputTarget(crop);
 
-                if (loopFactors.size() > 0) {
-                    loop_found = true;
-                }
+        pcl::PointCloud<PointT>::Ptr unused_result(new pcl::PointCloud<PointT>());
+        gicp.align(*unused_result, pose_guess.matrix().cast<float>());
 
-                loopFactors.clear();
-                t_loop.count();
-            }
-
-            //sleep 10 ms every time
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        if (!gicp.hasConverged()) {
+            cout << "gicp fail, not converged" << endl;
+            return false;
         }
-    }
+        cout << "fitness score: " << gicp.getFitnessScore() << endl;
 
+        if (gicp.getFitnessScore() > 0.8) {
+            cout << "gicp fail, fitness score too large" << endl;
+            std::ofstream f(filepath+"fail.txt");
+            f << gicp.getFitnessScore() << endl;
+            f << gicp.getFinalTransformation().cast<double>().matrix();
+            f.close();
+            return false;
+        }
+
+        cout << "icp success" << endl;
+        std::ofstream f1(filepath+"success.txt");
+        f1 << gicp.getFitnessScore() << endl;
+        f1 << gicp.getFinalTransformation().cast<double>().matrix();
+        f1.close();
+        pose = pose_normalize(gtsam::Pose3(gicp.getFinalTransformation().cast<double>().matrix()));
+        return true;
+    }
 
     void loop_detector(const Keyframe::Ptr& latestKeyframe, std::vector<LoopFactor>& loopFactors) {
 
-        int last_index = latestKeyframe->index;
+        int latest_index = latestKeyframe->index;
 
-        if (last_index < LOOP_LATEST_KEYFRAME_SKIP + 1)
+        if (latest_index < LOOP_LATEST_KEYFRAME_SKIP + 1)
             return;
 
-        if (last_loop_found_index > 0 && last_index <= last_loop_found_index + LOOP_COOLDOWN_KEYFRAME_COUNT)
+        if (last_loop_found_index > 0 && latest_index <= last_loop_found_index + LOOP_COOLDOWN_KEYFRAME_COUNT)
             return;
 
 
         // <frameCount, distance>
         std::vector<pair<int, int>> candidates;
-        candidates.reserve(last_index - LOOP_LATEST_KEYFRAME_SKIP);
-        for (int i = 0; i < last_index - LOOP_LATEST_KEYFRAME_SKIP; i++) {
+        candidates.reserve(latest_index - LOOP_LATEST_KEYFRAME_SKIP);
+        for (int i = 0; i < latest_index - LOOP_LATEST_KEYFRAME_SKIP; i++) {
             auto pose_between = latestKeyframe->pose.between(keyframes[i]->pose);
             auto distance = pose_between.translation().norm();
             // too far
@@ -839,7 +820,7 @@ public:
 
         auto closestKeyIdx = candidates[0].first;
         int start_crop = max(0, closestKeyIdx - LOOP_KEYFRAME_CROP_LEN / 2);
-        int end_crop = min(last_index - LOOP_LATEST_KEYFRAME_SKIP, closestKeyIdx + LOOP_KEYFRAME_CROP_LEN / 2);
+        int end_crop = min(latest_index - LOOP_LATEST_KEYFRAME_SKIP, closestKeyIdx + LOOP_KEYFRAME_CROP_LEN / 2);
 
         // crop submap to closestKeyIdx's pose frame
         auto closestPoseInverse = keyframes[closestKeyIdx]->pose.inverse();
@@ -851,20 +832,23 @@ public:
             *cropSurf += *tempSurf;
         }
 
-        gtsam::Pose3 pose_finetune;
+        gtsam::Pose3 pose_crop_latest_opti;
 
-        auto pose_coarse = latestKeyframe->pose.between(keyframes[closestKeyIdx]->pose);
-        bool can_match = loopMatching(cropEdge, cropSurf, latestKeyframe->edgeSlice, latestKeyframe->surfSlice,
-                                      gtsam::Pose3(pose_coarse.matrix()), pose_finetune);
+        auto pose_crop_latest_coarse = keyframes[closestKeyIdx]->pose.between(latestKeyframe->pose);
+
+//        bool can_match = loopMatching(cropEdge, cropSurf, latestKeyframe->edgeSlice, latestKeyframe->surfSlice,
+//                                      pose_latest_crop_coarse, pose_latest_crop_opti);
+        cout << "pose coarse: \n" << pose_crop_latest_coarse.matrix() << endl;
+//        cout << "pose gtsam featrue: \n" << pose_latest_crop_opti.matrix() << endl;
+        bool can_match = loopMacthing_ICP(cropEdge, cropSurf, latestKeyframe->edgeSlice, latestKeyframe->surfSlice, pose_crop_latest_coarse, pose_crop_latest_opti);
+        cout << "pose after icp "<< save_count - 1 << ": \n" << pose_crop_latest_opti.matrix() << endl;
         if (!can_match)
             return;
 
-        loopFactors.emplace_back(new gtsam::BetweenFactor<gtsam::Pose3>(X(last_index), X(closestKeyIdx), pose_finetune, odometry_noise_model));
-        cout << "find loop: [" << last_index << "] and [" << closestKeyIdx << "]\n";
-        cout << "pose before: \n" << pose_coarse.matrix() << endl;
-        cout << "pose after: \n" << pose_finetune.matrix() << endl;
+        loopFactors.emplace_back(new gtsam::BetweenFactor<gtsam::Pose3>( X(closestKeyIdx), X(latest_index), pose_crop_latest_opti, odometry_noise_model) );
+        cout << "find loop: [" << latest_index << "] and [" << closestKeyIdx << "]\n";
 
-        last_loop_found_index = last_index;
+        last_loop_found_index = latest_index;
 
     }
 
@@ -916,12 +900,157 @@ public:
         }
     }
 
+    void perform_loop_closure() {
+
+        while (ros::ok()) {
+
+            if (!loopDetectBuf.empty()) {
+
+                Timer t_loop("loop detector");
+
+                loop_mtx.lock();
+                std::vector<LoopFactor> loopFactors;
+                auto latestFrame = loopDetectBuf.front();
+                loopDetectBuf.pop();
+                loop_mtx.unlock();
+
+                loop_detector(latestFrame, loopFactors);
+
+                for (const auto& factor: loopFactors) {
+                    poseGraph.add(factor);
+                    copyGraph.add(factor);
+                    cout << "add loop factor" << endl;
+                }
+
+                if (loopFactors.size() > 0) {
+                    loop_found = true;
+                    saveOdomGraph();
+                }
+
+                loopFactors.clear();
+                t_loop.count();
+            }
+
+            //sleep 10 ms every time
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+    }
+
+    void gps_ground_truth() {
+        boost::optional<Eigen::Vector3d> zero_utm;
+        while (ros::ok()) {
+            if (!gps_queue.empty()) {
+
+                gps_msg_mtx.lock();
+                auto curr_gps = gps_queue.front();
+                gps_queue.pop();
+                gps_msg_mtx.unlock();
+
+                // convert (latitude, longitude, altitude) -> (easting, northing, altitude) in UTM coordinate
+                geodesy::UTMPoint utm;
+                geodesy::fromMsg((*curr_gps).position, utm);
+                Eigen::Vector3d xyz(-utm.easting, utm.northing, utm.altitude);
+
+                // the first gps data position will be the origin of the map
+                if(!zero_utm) {
+                    zero_utm = xyz;
+                }
+                xyz -= (*zero_utm);
+
+                odometry_gt.header.frame_id = "map";
+                odometry_gt.child_frame_id = "base_link";
+                odometry_gt.header.stamp = curr_gps->header.stamp;
+                Eigen::Quaterniond q2(odom.rotation().matrix());
+                odometry_gt.pose.pose.orientation.x   = 0;
+                odometry_gt.pose.pose.orientation.y   = 0;
+                odometry_gt.pose.pose.orientation.z   = 0;
+                odometry_gt.pose.pose.orientation.w   = 1;
+                odometry_gt.pose.pose.position.x      = xyz.x();
+                odometry_gt.pose.pose.position.y      = xyz.y();
+                odometry_gt.pose.pose.position.z      = xyz.z();
+
+                geometry_msgs::PoseStamped laserPose;
+                laserPose.header = odometry_gt.header;
+                laserPose.pose = odometry_gt.pose.pose;
+                path_gt.header.stamp = odometry_gt.header.stamp;
+                path_gt.poses.push_back(laserPose);
+                path_gt.header.frame_id = "map";
+                pub_path_gt.publish(path_gt);
+
+            }
+
+            //sleep 2 ms every time
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+    }
+
+    void pub_global_map() {
+
+        while (ros::ok()) {
+
+            int size = keyframes.size();
+            if (!is_init) {
+                continue;
+            }
+            if (isCurrKeyframeSliceEmpty()) {
+                size--;
+            }
+
+            pcl::PointCloud<PointT>::Ptr tempEdge(new pcl::PointCloud<PointT>());
+            pcl::PointCloud<PointT>::Ptr tempSurf(new pcl::PointCloud<PointT>());
+            pcl::PointCloud<PointT>::Ptr globalMap2(new pcl::PointCloud<PointT>());
+
+//            if (flush_map) {
+
+            globalMap->clear();
+
+            for (int i = 0; i < size; i++) {
+                pcl::transformPointCloud(*keyframes[i]->edgeSlice, *tempEdge, keyframes[i]->pose.matrix());
+                pcl::transformPointCloud(*keyframes[i]->surfSlice, *tempSurf, keyframes[i]->pose.matrix());
+                *globalMap += *tempEdge;
+                *globalMap += *tempSurf;
+            }
+
+//            downsampling(globalMap, *globalMap2, FeatureType::Surf);
+// remove nan
+
+            last_keyframe_index = size;
+//            cout << "flush map!" << last_keyframe_index << endl;
+            flush_map = false;
+//            }
+
+//            else if (size > last_keyframe_index) {
+//
+//                for (int i = last_keyframe_index; i < size; i++) {
+//                    pcl::transformPointCloud(*keyframes[i]->edgeSlice, *tempEdge, keyframes[i]->pose.matrix());
+//                    pcl::transformPointCloud(*keyframes[i]->surfSlice, *tempSurf, keyframes[i]->pose.matrix());
+//                    *globalMap += *tempEdge;
+//                    *globalMap += *tempSurf;
+//                }
+//
+//                last_keyframe_index = size;
+//            }
+
+            sensor_msgs::PointCloud2Ptr cloud_msg(new sensor_msgs::PointCloud2());
+            pcl::toROSMsg(*globalMap, *cloud_msg);
+            cloud_msg->header.stamp = cloud_in_time;
+            cloud_msg->header.frame_id = "map";
+
+            pub_map_slide_window.publish(cloud_msg);
+
+            //sleep 100 ms every time
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+
+    }
+
     void allocateMem() {
         pointCloudEdgeMap  = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
         pointCloudSurfMap  = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
         slideWindowEdge    = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
         slideWindowSurf    = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
         globalMap          = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
+        globalMap_odom     = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
 
         kdtreeEdgeMap      = pcl::KdTreeFLANN<PointT>::Ptr(new pcl::KdTreeFLANN<PointT>());
         kdtreeSurfMap      = pcl::KdTreeFLANN<PointT>::Ptr(new pcl::KdTreeFLANN<PointT>());
@@ -957,6 +1086,13 @@ public:
 
     }
 
+    ~LaserOdometry() {
+
+        pcl::io::savePCDFileASCII("/home/ziv/mloam/globalmap_opti.pcd", *globalMap);
+        pcl::io::savePCDFileASCII("/home/ziv/mloam/globalmap_odom.pcd", *globalMap_odom);
+
+    }
+
     void initParam() {
 
         map_resolution = nh.param<double>("map_resolution", 0.2);
@@ -967,6 +1103,7 @@ public:
         pose_w_c = gtsam::Pose3::identity();
         odom    = gtsam::Pose3::identity();
         last_odom = gtsam::Pose3::identity();
+        delta = gtsam::Pose3::identity();
 
         pose_w_c_submap = gtsam::Pose3::identity();
         odom_submap    = gtsam::Pose3::identity();
@@ -992,7 +1129,6 @@ public:
 
     }
 
-
     LaserOdometry()
     {
 
@@ -1003,11 +1139,7 @@ public:
         initParam();
     }
 
-    void saveOdomGraph() {
-//        std::cout << "saveOdomFactor" << std::endl;
-        std::ofstream if_graph("/home/ziv/mloam.dot");
-        poseGraph.saveGraph(if_graph, initEstimate);
-    }
+
 
 private:
 
@@ -1044,6 +1176,7 @@ private:
     pcl::PointCloud<PointT>::Ptr slideWindowSurf;
     // global-map of frame-to-slidewindow
     pcl::PointCloud<PointT>::Ptr globalMap;
+    pcl::PointCloud<PointT>::Ptr globalMap_odom;
 
     pcl::KdTreeFLANN<PointT>::Ptr kdtreeEdgeMap;
     pcl::KdTreeFLANN<PointT>::Ptr kdtreeSurfMap;
@@ -1087,7 +1220,9 @@ private:
 
     // gtsam
     gtsam::NonlinearFactorGraph poseGraph;
+    gtsam::NonlinearFactorGraph copyGraph;
     gtsam::Values initEstimate;
+    gtsam::Values copyEstimate;
     std::shared_ptr<gtsam::ISAM2> isam;
     gtsam::Values isamOptimize;
 
@@ -1098,6 +1233,7 @@ private:
     gtsam::Pose3 pose_w_c;  // world to current
     gtsam::Pose3 last_odom;
     gtsam::Pose3 odom;
+    gtsam::Pose3 delta;
 
     // gaussian model
     gtsam::SharedNoiseModel edge_gaussian_model, surf_gaussian_model, prior_gaussian_model, odometry_gaussian_model;

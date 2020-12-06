@@ -92,6 +92,12 @@ public:
 
 };
 
+string pose_to_str(const gtsam::Pose3& pose) {
+    char ret[128];
+    auto rpy = pose.rotation().rpy();
+    sprintf(ret, "%f %f %f %f %f %f\n", rpy[0], rpy[1], rpy[2], pose.translation().x(), pose.translation().y(), pose.translation().z());
+    return string(ret);
+}
 
 class PoseWriter {
 private:
