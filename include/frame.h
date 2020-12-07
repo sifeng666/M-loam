@@ -147,22 +147,6 @@ gtsam::Pose3 pose_normalize(const gtsam::Pose3& pose) {
     return gtsam::Pose3(gtsam::Rot3(q.matrix()), pose.translation());
 }
 
-geometry_msgs::TransformStamped navOdomToTransformStamped(const nav_msgs::Odometry& odometry) {
-
-    geometry_msgs::TransformStamped odom_trans;
-    odom_trans.header.stamp = ros::Time::now();
-    odom_trans.header.frame_id = odometry.header.frame_id;
-    odom_trans.child_frame_id = odometry.child_frame_id;
-
-    odom_trans.transform.rotation = odometry.pose.pose.orientation;
-    odom_trans.transform.translation.x = odometry.pose.pose.position.x;
-    odom_trans.transform.translation.y = odometry.pose.pose.position.y;
-    odom_trans.transform.translation.z = odometry.pose.pose.position.z;
-
-    return odom_trans;
-
-}
-
 nav_msgs::Odometry poseToNavOdometry(
         const ros::Time& stamp,
         const gtsam::Pose3& pose,
@@ -185,6 +169,23 @@ nav_msgs::Odometry poseToNavOdometry(
     odometry.pose.pose.position.z       = pose.translation().z();
 
     return odometry;
+
+}
+
+//
+geometry_msgs::TransformStamped navOdomToTransformStamped(const nav_msgs::Odometry& odometry) {
+
+    geometry_msgs::TransformStamped odom_trans;
+    odom_trans.header.stamp = ros::Time::now();
+    odom_trans.header.frame_id = odometry.header.frame_id;
+    odom_trans.child_frame_id = odometry.child_frame_id;
+
+    odom_trans.transform.rotation = odometry.pose.pose.orientation;
+    odom_trans.transform.translation.x = odometry.pose.pose.position.x;
+    odom_trans.transform.translation.y = odometry.pose.pose.position.y;
+    odom_trans.transform.translation.z = odometry.pose.pose.position.z;
+
+    return odom_trans;
 
 }
 

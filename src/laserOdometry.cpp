@@ -2,15 +2,14 @@
 // Created by ziv on 2020/10/26.
 //
 
-#include "helper.h"
-#include "frame.h"
+//#include "helper.h"
+//#include "frame.h"
+#include "map_generator.h"
 #include "factors.h"
-#include "lidarFactor.hpp"
 
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/kdtree/kdtree_flann.h>
 #include <pcl/filters/crop_box.h>
-#include <pcl/registration/icp.h>
 #include <pcl/registration/gicp.h>
 
 static int correct_count = 1;
@@ -155,6 +154,24 @@ public:
         downSizeFilterSurf.filter(*pointCloudEdgeMap);
     }
 
+    void addToGlobalMapOdom(pcl::PointCloud<PointT>::Ptr currEdge, pcl::PointCloud<PointT>::Ptr currSurf) {
+
+        PointT point_temp;
+
+        for (size_t i = 0; i < currEdge->size(); i++) {
+            pointAssociate(&currEdge->points[i], &point_temp, odom);
+            globalMap_odom->push_back(point_temp);
+        }
+
+        for (size_t i = 0; i < currSurf->size(); i++) {
+            pointAssociate(&currSurf->points[i], &point_temp, odom);
+            globalMap_odom->push_back(point_temp);
+        }
+
+//        downSizeFilterEdge.setInputCloud(globalMap_odom);
+//        downSizeFilterEdge.filter(*globalMap_odom);
+    }
+
     void updateSlideWindows() {
 
         slideWindowEdge->clear();
@@ -217,21 +234,6 @@ public:
             keyframes.push_back(current_keyframe);
             is_keyframe_next = false;
         }
-    }
-
-    void pubMapSubMap(const pcl::PointCloud<PointT>::Ptr& cloud_in_edge, const pcl::PointCloud<PointT>::Ptr& cloud_in_surf) {
-
-        pcl::PointCloud<PointT>::Ptr edge(new pcl::PointCloud<PointT>());
-        pcl::PointCloud<PointT>::Ptr surf(new pcl::PointCloud<PointT>());
-
-        pcl::transformPointCloud(*cloud_in_edge, *edge, odom.matrix());
-        pcl::transformPointCloud(*cloud_in_surf, *surf, odom.matrix());
-
-        *globalMap_odom += *edge;
-        *globalMap_odom += *surf;
-
-//        downsampling(globalMap_odom, *globalMap_odom, FeatureType::Edge);
-
     }
 
     void pubOdomAndPath() {
@@ -555,7 +557,7 @@ public:
 
         } else {
             is_keyframe_next = nextFrameToBeKeyframe();
-            addToCurrSlice(currEdge, currSurf, odom);
+//            addToCurrSlice(currEdge, currSurf, odom);
             delta = pose_normalize(last_odom.inverse() * odom);
         }
 
@@ -663,7 +665,7 @@ public:
         handleRegistration(currEdgeDS, currSurfDS);
 
         pubOdomAndPath();
-        pubMapSubMap(currEdgeDS, currSurfDS);
+//        addToGlobalMapOdom(currEdgeDS, currSurfDS);
 //        saveOdomGraph();
     }
 
@@ -800,7 +802,7 @@ public:
             auto pose_between = latestKeyframe->pose.between(keyframes[i]->pose);
             auto distance = pose_between.translation().norm();
             // too far
-            if (distance > 5)
+            if (distance > 15)
                 continue;
             candidates.emplace_back(i, distance);
         }
@@ -998,38 +1000,27 @@ public:
 
             pcl::PointCloud<PointT>::Ptr tempEdge(new pcl::PointCloud<PointT>());
             pcl::PointCloud<PointT>::Ptr tempSurf(new pcl::PointCloud<PointT>());
-            pcl::PointCloud<PointT>::Ptr globalMap2(new pcl::PointCloud<PointT>());
-
-//            if (flush_map) {
+            pcl::PointCloud<PointT>::Ptr globalMap(new pcl::PointCloud<PointT>());
 
             globalMap->clear();
 
-            for (int i = 0; i < size; i++) {
-                pcl::transformPointCloud(*keyframes[i]->edgeSlice, *tempEdge, keyframes[i]->pose.matrix());
-                pcl::transformPointCloud(*keyframes[i]->surfSlice, *tempSurf, keyframes[i]->pose.matrix());
-                *globalMap += *tempEdge;
-                *globalMap += *tempSurf;
-            }
-
-//            downsampling(globalMap, *globalMap2, FeatureType::Surf);
-// remove nan
-
-            last_keyframe_index = size;
-//            cout << "flush map!" << last_keyframe_index << endl;
-            flush_map = false;
+//            for (int i = 0; i < size; i++) {
+//                pcl::transformPointCloud(*keyframes[i]->edgeSlice, *tempEdge, keyframes[i]->pose.matrix());
+//                pcl::transformPointCloud(*keyframes[i]->surfSlice, *tempSurf, keyframes[i]->pose.matrix());
+//                *globalMapEdge += *tempEdge;
+//                *globalMapSurf += *tempSurf;
 //            }
+//            downsampleMap2.setInputCloud(globalMapEdge);
+//            downsampleMap2.filter(*globalMapEdge);
+//            downsampleMap2.setInputCloud(globalMapSurf);
+//            downsampleMap2.filter(*globalMapSurf);
 
-//            else if (size > last_keyframe_index) {
-//
-//                for (int i = last_keyframe_index; i < size; i++) {
-//                    pcl::transformPointCloud(*keyframes[i]->edgeSlice, *tempEdge, keyframes[i]->pose.matrix());
-//                    pcl::transformPointCloud(*keyframes[i]->surfSlice, *tempSurf, keyframes[i]->pose.matrix());
-//                    *globalMap += *tempEdge;
-//                    *globalMap += *tempSurf;
-//                }
-//
-//                last_keyframe_index = size;
-//            }
+//            *globalMap2 += *globalMapEdge;
+//            *globalMap2 += *globalMapSurf;
+            globalMap = mapGenerator.generate(keyframes, 0.2);
+
+//            last_keyframe_index = size;
+//            flush_map = false;
 
             sensor_msgs::PointCloud2Ptr cloud_msg(new sensor_msgs::PointCloud2());
             pcl::toROSMsg(*globalMap, *cloud_msg);
@@ -1037,6 +1028,10 @@ public:
             cloud_msg->header.frame_id = "map";
 
             pub_map_slide_window.publish(cloud_msg);
+
+            if (size == 298) {
+                saveMap();
+            }
 
             //sleep 100 ms every time
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -1049,7 +1044,8 @@ public:
         pointCloudSurfMap  = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
         slideWindowEdge    = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
         slideWindowSurf    = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
-        globalMap          = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
+//        globalMapEdge      = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
+//        globalMapSurf      = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
         globalMap_odom     = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
 
         kdtreeEdgeMap      = pcl::KdTreeFLANN<PointT>::Ptr(new pcl::KdTreeFLANN<PointT>());
@@ -1086,10 +1082,20 @@ public:
 
     }
 
+    void saveMap() {
+//        pcl::io::savePCDFileASCII("/home/ziv/mloam/global_map_odom.pcd", *globalMap_odom);
+        pcl::PointCloud<PointT>::Ptr gmap(new pcl::PointCloud<PointT>());
+
+        gmap = mapGenerator.generate(keyframes, 0.2);
+        pcl::io::savePCDFileASCII("/home/ziv/mloam/global_map_opti.pcd", *gmap);
+
+        cout << "saved map!" << endl;
+    }
+
     ~LaserOdometry() {
 
-        pcl::io::savePCDFileASCII("/home/ziv/mloam/globalmap_opti.pcd", *globalMap);
-        pcl::io::savePCDFileASCII("/home/ziv/mloam/globalmap_odom.pcd", *globalMap_odom);
+        cout << "exit!" << endl;
+
 
     }
 
@@ -1099,6 +1105,8 @@ public:
 
         downSizeFilterEdge.setLeafSize(map_resolution, map_resolution, map_resolution);
         downSizeFilterSurf.setLeafSize(map_resolution * 2, map_resolution * 2, map_resolution * 2);
+        downsampleMap.setLeafSize(0.2, 0.2, 0.2);
+        downsampleMap2.setLeafSize(0.2, 0.2, 0.2);
 
         pose_w_c = gtsam::Pose3::identity();
         odom    = gtsam::Pose3::identity();
@@ -1151,6 +1159,8 @@ private:
     ros::NodeHandle nh;
     ros::Time cloud_in_time;
 
+    MapGenerator mapGenerator;
+
     std::vector<Keyframe::Ptr> keyframes;
     Keyframe::Ptr current_keyframe;
 
@@ -1175,7 +1185,8 @@ private:
     pcl::PointCloud<PointT>::Ptr slideWindowEdge;
     pcl::PointCloud<PointT>::Ptr slideWindowSurf;
     // global-map of frame-to-slidewindow
-    pcl::PointCloud<PointT>::Ptr globalMap;
+    pcl::PointCloud<PointT>::Ptr globalMapEdge;
+    pcl::PointCloud<PointT>::Ptr globalMapSurf;
     pcl::PointCloud<PointT>::Ptr globalMap_odom;
 
     pcl::KdTreeFLANN<PointT>::Ptr kdtreeEdgeMap;
@@ -1188,6 +1199,8 @@ private:
     // downsample filter
     pcl::VoxelGrid<PointT> downSizeFilterEdge;
     pcl::VoxelGrid<PointT> downSizeFilterSurf;
+    pcl::VoxelGrid<PointT> downsampleMap;
+    pcl::VoxelGrid<PointT> downsampleMap2;
     //local map
     pcl::CropBox<PointT> cropBoxFilter;
     pcl::CropBox<PointT> cropLoopFilter;
