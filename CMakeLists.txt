@@ -55,7 +55,7 @@ catkin_package(
 add_executable(laserProcessing src/laserProcessing.cpp)
 target_link_libraries(laserProcessing ${catkin_LIBRARIES} ${PCL_LIBRARIES})
 
-add_executable(laserOdometry src/laserOdometry.cpp src/map_generator.cpp)
+add_executable(laserOdometry src/laserOdometry.cpp src/keyframe.cpp src/map_generator.cpp)
 target_link_libraries(laserOdometry ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES} gtsam)
 
 #add_executable(preprocessing src/preprocessing.cpp)

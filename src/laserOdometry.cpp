@@ -2,8 +2,9 @@
 // Created by ziv on 2020/10/26.
 //
 
-//#include "helper.h"
-//#include "frame.h"
+#include "helper.h"
+#include "keyframe.h"
+#include "utils.h"
 #include "map_generator.h"
 #include "factors.h"
 
@@ -20,11 +21,6 @@ class LaserOdometry {
 
 public:
     using LoopFactor = gtsam::NonlinearFactor::shared_ptr;
-
-    enum class FeatureType {
-        Edge = 0,
-        Surf = 1
-    };
 
 public:
 
@@ -177,8 +173,8 @@ public:
         slideWindowEdge->clear();
         slideWindowSurf->clear();
 
-        pcl::PointCloud<PointT>::Ptr tempEdge(new pcl::PointCloud<PointT>());
-        pcl::PointCloud<PointT>::Ptr tempSurf(new pcl::PointCloud<PointT>());
+//        pcl::PointCloud<PointT>::Ptr tempEdge(new pcl::PointCloud<PointT>());
+//        pcl::PointCloud<PointT>::Ptr tempSurf(new pcl::PointCloud<PointT>());
 
         int size = keyframes.size();
         // not add latest keyframe, cuz its slice is empty, haven't registered
@@ -188,12 +184,14 @@ public:
 
         int start = size < SLIDE_KEYFRAME_SUBMAP_LEN ? 0 : size - SLIDE_KEYFRAME_SUBMAP_LEN;
 
-        for (int count = start; count < size; count++) {
-            pcl::transformPointCloud(*keyframes[count]->edgeSlice, *tempEdge, keyframes[count]->pose.matrix());
-            pcl::transformPointCloud(*keyframes[count]->surfSlice, *tempSurf, keyframes[count]->pose.matrix());
-            *slideWindowEdge += *tempEdge;
-            *slideWindowSurf += *tempSurf;
-        }
+        slideWindowEdge = mapGenerator.generate(keyframes, 0, keyframes.begin() + start, keyframes.begin() + size, FeatureType::Edge);
+        slideWindowSurf = mapGenerator.generate(keyframes, 0, keyframes.begin() + start, keyframes.begin() + size, FeatureType::Surf);
+//        for (int count = start; count < size; count++) {
+//            pcl::transformPointCloud(*keyframes[count]->edgeSlice, *tempEdge, keyframes[count]->pose.matrix());
+//            pcl::transformPointCloud(*keyframes[count]->surfSlice, *tempSurf, keyframes[count]->pose.matrix());
+//            *slideWindowEdge += *tempEdge;
+//            *slideWindowSurf += *tempSurf;
+//        }
 
     }
 
@@ -551,7 +549,7 @@ public:
             loop_mtx.unlock();
 
             current_keyframe->pose = odom;
-            addToCurrSlice(current_keyframe->edgeSlice, current_keyframe->surfSlice, odom);
+            addToCurrSlice(current_keyframe->edgeFeatures, current_keyframe->surfFeatures, odom);
             addOdomFactor(lastCompleteIndex);
             factorGraphUpdate();
 
@@ -564,16 +562,6 @@ public:
     }
 
     void factorGraphUpdate() {
-//        string filepath = "/home/ziv/mloam/";
-        // before loop
-//        if (loop_found)
-//        {
-//            // save
-//            graph_count++;
-//
-//            std::ofstream of_save_graph(filepath + "isam_before" + to_string(graph_count) + ".dot");
-//            isam->getFactorsUnsafe().saveGraph(of_save_graph, isam->calculateEstimate());
-//        }
 
         isam->update(poseGraph, initEstimate);
         isam->update();
@@ -582,14 +570,6 @@ public:
             isam->update();
             isam->update();
         }
-
-        // after loop
-//        if (loop_found)
-//        {
-//            // save
-//            std::ofstream of_save_graph(filepath + "isam_after" + to_string(graph_count) + ".dot");
-//            isam->getFactorsUnsafe().saveGraph(of_save_graph, isam->calculateEstimate());
-//        }
 
 
         poseGraph.resize(0);
@@ -615,27 +595,10 @@ public:
     }
 
     void correctPose() {
-
-        int numPoses = isamOptimize.size();
-
-        string filename = "/home/ziv/mloam/loop_correct" + std::to_string(correct_count++) + "/";
-        _mkdir(filename + "1.txt");
-        std::ofstream f1(filename+"before.txt");
-        std::ofstream f2(filename+"after.txt");
-
-        f1 << "keyframeVec size " << keyframes.size() << endl;
-        f1 << "isam size " << numPoses << endl;
-        for (int i = 0; i < numPoses; i++) {
-            f1 << pose_to_str(keyframes[i]->pose);
+        for (int i = 0; i < isamOptimize.size(); i++) {
             auto poseOpti = isamOptimize.at<gtsam::Pose3>(X(i));
             keyframes[i]->pose = poseOpti;
-            f2 << pose_to_str(keyframes[i]->pose);
         }
-        f1.close();
-        f2.close();
-
-        flush_map = true;
-
     }
 
     void saveOdomGraph() {
@@ -723,10 +686,8 @@ public:
     }
 
     bool loopMacthing_ICP(
-            const pcl::PointCloud<PointT>::Ptr& cropEdge,
-            const pcl::PointCloud<PointT>::Ptr& cropSurf,
-            const pcl::PointCloud<PointT>::Ptr& keyframeEdge,
-            const pcl::PointCloud<PointT>::Ptr& keyframeSurf,
+            pcl::PointCloud<PointT>::Ptr crop,
+            pcl::PointCloud<PointT>::Ptr latest,
             const gtsam::Pose3& pose_guess,
             gtsam::Pose3& pose) {
 
@@ -736,14 +697,6 @@ public:
         gicp.setTransformationEpsilon(1e-6);
         gicp.setEuclideanFitnessEpsilon(1e-6);
 
-        pcl::PointCloud<PointT>::Ptr crop(new pcl::PointCloud<PointT>());
-        pcl::PointCloud<PointT>::Ptr keyframe(new pcl::PointCloud<PointT>());
-
-        *crop += *cropEdge;
-        *crop += *cropSurf;
-
-        *keyframe += *keyframeEdge;
-        *keyframe += *keyframeSurf;
 
         string filepath = "/home/ziv/mloam/" +std::to_string(save_count++) + "/";
         _mkdir(filepath + "1.txt");
@@ -751,10 +704,10 @@ public:
         f << pose_guess.matrix();
         f.close();
         pcl::io::savePCDFileASCII(filepath + "crop.pcd", *crop);
-        pcl::io::savePCDFileASCII(filepath + "keyframe.pcd", *keyframe);
+        pcl::io::savePCDFileASCII(filepath + "keyframe.pcd", *latest);
 
         // Align clouds
-        gicp.setInputSource(keyframe);
+        gicp.setInputSource(latest);
         gicp.setInputTarget(crop);
 
         pcl::PointCloud<PointT>::Ptr unused_result(new pcl::PointCloud<PointT>());
@@ -802,7 +755,7 @@ public:
             auto pose_between = latestKeyframe->pose.between(keyframes[i]->pose);
             auto distance = pose_between.translation().norm();
             // too far
-            if (distance > 15)
+            if (distance > LOOP_CLOSE_DISTANCE)
                 continue;
             candidates.emplace_back(i, distance);
         }
@@ -814,11 +767,12 @@ public:
             return p1.second < p2.second;
         });
 
-        pcl::PointCloud<PointT>::Ptr cropEdge(new pcl::PointCloud<PointT>());
-        pcl::PointCloud<PointT>::Ptr cropSurf(new pcl::PointCloud<PointT>());
-
         pcl::PointCloud<PointT>::Ptr tempEdge(new pcl::PointCloud<PointT>());
         pcl::PointCloud<PointT>::Ptr tempSurf(new pcl::PointCloud<PointT>());
+
+        pcl::PointCloud<PointT>::Ptr crop(new pcl::PointCloud<PointT>());
+        pcl::PointCloud<PointT>::Ptr latest(new pcl::PointCloud<PointT>());
+
 
         auto closestKeyIdx = candidates[0].first;
         int start_crop = max(0, closestKeyIdx - LOOP_KEYFRAME_CROP_LEN / 2);
@@ -830,19 +784,21 @@ public:
             Eigen::Isometry3d correct_pose((closestPoseInverse * keyframes[k]->pose).matrix());
             pcl::transformPointCloud(*keyframes[k]->edgeSlice, *tempEdge, correct_pose.matrix());
             pcl::transformPointCloud(*keyframes[k]->surfSlice, *tempSurf, correct_pose.matrix());
-            *cropEdge += *tempEdge;
-            *cropSurf += *tempSurf;
+            *crop += *tempEdge;
+            *crop += *tempSurf;
         }
+
+        *latest += *latestKeyframe->edgeSlice;
+        *latest += *latestKeyframe->surfSlice;
+
+
 
         gtsam::Pose3 pose_crop_latest_opti;
 
         auto pose_crop_latest_coarse = keyframes[closestKeyIdx]->pose.between(latestKeyframe->pose);
 
-//        bool can_match = loopMatching(cropEdge, cropSurf, latestKeyframe->edgeSlice, latestKeyframe->surfSlice,
-//                                      pose_latest_crop_coarse, pose_latest_crop_opti);
         cout << "pose coarse: \n" << pose_crop_latest_coarse.matrix() << endl;
-//        cout << "pose gtsam featrue: \n" << pose_latest_crop_opti.matrix() << endl;
-        bool can_match = loopMacthing_ICP(cropEdge, cropSurf, latestKeyframe->edgeSlice, latestKeyframe->surfSlice, pose_crop_latest_coarse, pose_crop_latest_opti);
+        bool can_match = loopMacthing_ICP(crop, latest, pose_crop_latest_coarse, pose_crop_latest_opti);
         cout << "pose after icp "<< save_count - 1 << ": \n" << pose_crop_latest_opti.matrix() << endl;
         if (!can_match)
             return;
@@ -1004,23 +960,7 @@ public:
 
             globalMap->clear();
 
-//            for (int i = 0; i < size; i++) {
-//                pcl::transformPointCloud(*keyframes[i]->edgeSlice, *tempEdge, keyframes[i]->pose.matrix());
-//                pcl::transformPointCloud(*keyframes[i]->surfSlice, *tempSurf, keyframes[i]->pose.matrix());
-//                *globalMapEdge += *tempEdge;
-//                *globalMapSurf += *tempSurf;
-//            }
-//            downsampleMap2.setInputCloud(globalMapEdge);
-//            downsampleMap2.filter(*globalMapEdge);
-//            downsampleMap2.setInputCloud(globalMapSurf);
-//            downsampleMap2.filter(*globalMapSurf);
-
-//            *globalMap2 += *globalMapEdge;
-//            *globalMap2 += *globalMapSurf;
-            globalMap = mapGenerator.generate(keyframes, 0.2);
-
-//            last_keyframe_index = size;
-//            flush_map = false;
+            globalMap = mapGenerator.generate(keyframes, 0);
 
             sensor_msgs::PointCloud2Ptr cloud_msg(new sensor_msgs::PointCloud2());
             pcl::toROSMsg(*globalMap, *cloud_msg);
@@ -1029,10 +969,16 @@ public:
 
             pub_map_slide_window.publish(cloud_msg);
 
-            if (size == 298) {
+            if (last_save_size == size) {
+                save_latency++;
+            } else {
+                save_latency = 0;
+            }
+            if (save_latency == 10) {
                 saveMap();
             }
 
+            last_save_size = size;
             //sleep 100 ms every time
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
@@ -1086,7 +1032,7 @@ public:
 //        pcl::io::savePCDFileASCII("/home/ziv/mloam/global_map_odom.pcd", *globalMap_odom);
         pcl::PointCloud<PointT>::Ptr gmap(new pcl::PointCloud<PointT>());
 
-        gmap = mapGenerator.generate(keyframes, 0.2);
+        gmap = mapGenerator.generate(keyframes, 0);
         pcl::io::savePCDFileASCII("/home/ziv/mloam/global_map_opti.pcd", *gmap);
 
         cout << "saved map!" << endl;
@@ -1105,8 +1051,6 @@ public:
 
         downSizeFilterEdge.setLeafSize(map_resolution, map_resolution, map_resolution);
         downSizeFilterSurf.setLeafSize(map_resolution * 2, map_resolution * 2, map_resolution * 2);
-        downsampleMap.setLeafSize(0.2, 0.2, 0.2);
-        downsampleMap2.setLeafSize(0.2, 0.2, 0.2);
 
         pose_w_c = gtsam::Pose3::identity();
         odom    = gtsam::Pose3::identity();
@@ -1151,11 +1095,6 @@ public:
 
 private:
 
-    int frameCount = 0;
-
-//    PoseWriter pW1;
-//    PoseWriter pW2;
-
     ros::NodeHandle nh;
     ros::Time cloud_in_time;
 
@@ -1199,8 +1138,6 @@ private:
     // downsample filter
     pcl::VoxelGrid<PointT> downSizeFilterEdge;
     pcl::VoxelGrid<PointT> downSizeFilterSurf;
-    pcl::VoxelGrid<PointT> downsampleMap;
-    pcl::VoxelGrid<PointT> downsampleMap2;
     //local map
     pcl::CropBox<PointT> cropBoxFilter;
     pcl::CropBox<PointT> cropLoopFilter;
@@ -1218,10 +1155,11 @@ private:
     bool is_init = false;
     bool is_keyframe_next = true;
 
-    const int SLIDE_KEYFRAME_SUBMAP_LEN = 6;
-    const int LOOP_KEYFRAME_CROP_LEN = 6;
+    const int SLIDE_KEYFRAME_SUBMAP_LEN = 10;
+    const int LOOP_KEYFRAME_CROP_LEN = 10;
     const int LOOP_LATEST_KEYFRAME_SKIP = 30;
-    const int LOOP_COOLDOWN_KEYFRAME_COUNT = 5;
+    const int LOOP_COOLDOWN_KEYFRAME_COUNT = 20;
+    const int LOOP_CLOSE_DISTANCE = 15;
 
 
     double keyframeDistThreshold = 1;
@@ -1229,7 +1167,8 @@ private:
     int last_loop_found_index = 0;
     bool loop_found = false;
     bool flush_map = false;
-    int last_keyframe_index = 0;
+    int save_latency = 5;
+    int last_save_size = -1;
 
     // gtsam
     gtsam::NonlinearFactorGraph poseGraph;

@@ -10,28 +10,49 @@ MapGenerator::MapGenerator() {}
 
 MapGenerator::~MapGenerator() {}
 
-pcl::PointCloud<PointT>::Ptr MapGenerator::generate(const std::vector<Keyframe::Ptr>& keyframes, double resolution) const {
+pcl::PointCloud<PointT>::Ptr MapGenerator::generate(const std::vector<Keyframe::Ptr>& keyframes, double resolution,
+                                      ConstIter start, ConstIter end, FeatureType featureType) const {
+
     if(keyframes.empty()) {
         std::cerr << "warning: keyframes empty!!" << std::endl;
         return nullptr;
     }
 
-    pcl::PointCloud<PointT>::Ptr cloud(new pcl::PointCloud<PointT>());
-    cloud->reserve((keyframes.front()->surfSlice->size() + keyframes.front()->edgeSlice->size()) * keyframes.size());
+    if (start == keyframes.end() || start == end) {
+        std::cerr << "warning: iter err!!" << std::endl;
+        return nullptr;
+    }
 
-    for(const auto& keyframe : keyframes) {
+    size_t size = 0;
+    if (featureType == FeatureType::Edge) {
+        size = (*start)->edgeSlice->size() * (end - start);
+    } else if (featureType == FeatureType::Surf) {
+        size = (*start)->surfSlice->size() * (end - start);
+    } else {
+        size = ((*start)->surfSlice->size() + (*start)->edgeSlice->size()) * (end - start);
+    }
+
+    pcl::PointCloud<PointT>::Ptr cloud(new pcl::PointCloud<PointT>());
+    cloud->reserve(size);
+
+    for (auto iter = start; iter != end; ++iter) {
+        auto keyframe = *iter;
         Eigen::Matrix4f pose = keyframe->pose.matrix().cast<float>();
-        for(const auto& src_pt : keyframe->surfSlice->points) {
-            PointT dst_pt;
-            dst_pt.getVector4fMap() = pose * src_pt.getVector4fMap();
-            dst_pt.intensity = src_pt.intensity;
-            cloud->push_back(dst_pt);
+        if (featureType == FeatureType::Edge || featureType == FeatureType::Full) {
+            for(const auto& src_pt : keyframe->edgeSlice->points) {
+                PointT dst_pt;
+                dst_pt.getVector4fMap() = pose * src_pt.getVector4fMap();
+                dst_pt.intensity = src_pt.intensity;
+                cloud->push_back(dst_pt);
+            }
         }
-        for(const auto& src_pt : keyframe->edgeSlice->points) {
-            PointT dst_pt;
-            dst_pt.getVector4fMap() = pose * src_pt.getVector4fMap();
-            dst_pt.intensity = src_pt.intensity;
-            cloud->push_back(dst_pt);
+        if (featureType == FeatureType::Surf || featureType == FeatureType::Full) {
+            for(const auto& src_pt : keyframe->surfSlice->points) {
+                PointT dst_pt;
+                dst_pt.getVector4fMap() = pose * src_pt.getVector4fMap();
+                dst_pt.intensity = src_pt.intensity;
+                cloud->push_back(dst_pt);
+            }
         }
     }
 
@@ -54,5 +75,13 @@ pcl::PointCloud<PointT>::Ptr MapGenerator::generate(const std::vector<Keyframe::
     filtered->is_dense = false;
 
     return filtered;
+}
+
+pcl::PointCloud<PointT>::Ptr MapGenerator::generate(const std::vector<Keyframe::Ptr>& keyframes, double resolution, ConstIter start, ConstIter end) const {
+    return generate(keyframes, resolution, start, end, FeatureType::Full);
+}
+
+pcl::PointCloud<PointT>::Ptr MapGenerator::generate(const std::vector<Keyframe::Ptr>& keyframes, double resolution) const {
+    return generate(keyframes, resolution, keyframes.begin(), keyframes.end());
 }
 
