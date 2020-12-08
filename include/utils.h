@@ -108,4 +108,56 @@ public:
     }
 };
 
+using ConstIter = std::vector<Keyframe::Ptr>::const_iterator;
+
+pcl::PointCloud<PointT>::Ptr generate_cloud(ConstIter start, ConstIter end, FeatureType featureType) {
+
+    if (start <= end) {
+        std::cerr << "warning: iter err!!" << std::endl;
+        return nullptr;
+    }
+
+    size_t size;
+    if (featureType == FeatureType::Edge) {
+        size = (*start)->edgeFeatures->size() * (end - start);
+    } else if (featureType == FeatureType::Surf) {
+        size = (*start)->surfFeatures->size() * (end - start);
+    } else {
+        size = ((*start)->surfFeatures->size() + (*start)->edgeFeatures->size()) * (end - start);
+    }
+
+    pcl::PointCloud<PointT>::Ptr cloud(new pcl::PointCloud<PointT>());
+    cloud->reserve(size);
+
+    for (auto iter = start; iter != end; ++iter) {
+        auto keyframe = *iter;
+        Eigen::Matrix4f pose = keyframe->pose.matrix().cast<float>();
+        if (featureType == FeatureType::Edge || featureType == FeatureType::Full) {
+            for(const auto& src_pt : keyframe->edgeFeatures->points) {
+                PointT dst_pt;
+                dst_pt.getVector4fMap() = pose * src_pt.getVector4fMap();
+                dst_pt.intensity = src_pt.intensity;
+                cloud->push_back(dst_pt);
+            }
+        }
+        if (featureType == FeatureType::Surf || featureType == FeatureType::Full) {
+            for(const auto& src_pt : keyframe->surfFeatures->points) {
+                PointT dst_pt;
+                dst_pt.getVector4fMap() = pose * src_pt.getVector4fMap();
+                dst_pt.intensity = src_pt.intensity;
+                cloud->push_back(dst_pt);
+            }
+        }
+    }
+
+    cloud->width = cloud->size();
+    cloud->height = 1;
+    cloud->is_dense = false;
+    return cloud;
+}
+
+pcl::PointCloud<PointT>::Ptr generate_cloud(ConstIter start, ConstIter end) {
+    return generate_cloud(start, end, FeatureType::Full);
+}
+
 #endif //MLOAM_UTILS_H

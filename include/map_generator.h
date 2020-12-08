@@ -6,20 +6,20 @@
 #define MLOAM_MAP_GENERATOR_H
 
 #include "keyframe.h"
+#include <pcl/octree/octree_search.h>
 #include <pcl/point_types.h>
 #include <pcl/point_cloud.h>
 
 class MapGenerator {
-public:
+private:
     using ConstIter = std::vector<Keyframe::Ptr>::const_iterator;
-    MapGenerator();
+    pcl::octree::OctreePointCloud<PointT> octree;
+public:
+    MapGenerator(double resolution = 0.1);
     ~MapGenerator();
-
-    pcl::PointCloud<PointT>::Ptr generate(const std::vector<Keyframe::Ptr>& keyframes, double resolution) const;
-    pcl::PointCloud<PointT>::Ptr generate(const std::vector<Keyframe::Ptr>& keyframes, double resolution,
-                                          ConstIter start, ConstIter end) const;
-    pcl::PointCloud<PointT>::Ptr generate(const std::vector<Keyframe::Ptr>& keyframes, double resolution,
-                                          ConstIter start, ConstIter end, FeatureType featureType) const;
+    void clear();
+    void insert(ConstIter begin, ConstIter end);
+    pcl::PointCloud<PointT>::Ptr get() const;
 };
 
 

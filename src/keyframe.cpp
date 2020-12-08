@@ -6,19 +6,16 @@
 
 Keyframe::Keyframe(int _index, PointCloudPtr EF, PointCloudPtr PF) :
         index(_index), edgeFeatures(EF), surfFeatures(PF) {
-    // init
     pose = gtsam::Pose3::identity();
-    frameCount = 0;
-
-    edgeSlice = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
-    surfSlice = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
-
+    inited = false;
 }
-
 
 Keyframe::~Keyframe() {}
 
+bool Keyframe::initialized() const {
+    return inited;
+}
 
-void Keyframe::normalizePose() {
-    pose = gtsam::Pose3(pose.rotation().normalized(), pose.translation());
+void Keyframe::set_init() {
+    inited = true;
 }

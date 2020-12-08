@@ -58,24 +58,21 @@ enum class FeatureType {
 
 class Keyframe {
 public:
-    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-    gtsam::Pose3 pose;
-    int index;
-    int frameCount;
     using Ptr = boost::shared_ptr<Keyframe>;
     using PointCloudPtr = pcl::PointCloud<PointT>::Ptr;
-
+public:
+    gtsam::Pose3 pose;
+    int index;
+    bool inited;
     // feature point cloud
     pcl::PointCloud<PointT>::Ptr edgeFeatures;
     pcl::PointCloud<PointT>::Ptr surfFeatures;
-    // slice-contains all frames between this and next keyframe
-    pcl::PointCloud<PointT>::Ptr edgeSlice;
-    pcl::PointCloud<PointT>::Ptr surfSlice;
 
 public:
     Keyframe(int _index, PointCloudPtr EF, PointCloudPtr PF);
     ~Keyframe();
-    void normalizePose();
+    bool initialized() const;
+    void set_init();
 };
 
 
