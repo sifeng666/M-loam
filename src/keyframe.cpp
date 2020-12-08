@@ -12,10 +12,6 @@ Keyframe::Keyframe(int _index, PointCloudPtr EF, PointCloudPtr PF) :
 
 Keyframe::~Keyframe() {}
 
-bool Keyframe::initialized() const {
-    return inited;
-}
-
 void Keyframe::set_init() {
     inited = true;
 }

@@ -108,29 +108,27 @@ public:
     }
 };
 
-using ConstIter = std::vector<Keyframe::Ptr>::const_iterator;
+pcl::PointCloud<PointT>::Ptr generate_cloud(std::vector<Keyframe::Ptr>& keyframes, int start, int end, FeatureType featureType) {
 
-pcl::PointCloud<PointT>::Ptr generate_cloud(ConstIter start, ConstIter end, FeatureType featureType) {
-
-    if (start <= end) {
-        std::cerr << "warning: iter err!!" << std::endl;
+    if (start >= end) {
+        std::cerr << "generate_cloud warning: range err!!" << std::endl;
         return nullptr;
     }
 
     size_t size;
     if (featureType == FeatureType::Edge) {
-        size = (*start)->edgeFeatures->size() * (end - start);
+        size = keyframes[start]->edgeFeatures->size() * (end - start);
     } else if (featureType == FeatureType::Surf) {
-        size = (*start)->surfFeatures->size() * (end - start);
+        size = keyframes[start]->surfFeatures->size() * (end - start);
     } else {
-        size = ((*start)->surfFeatures->size() + (*start)->edgeFeatures->size()) * (end - start);
+        size = (keyframes[start]->surfFeatures->size() + keyframes[start]->edgeFeatures->size()) * (end - start);
     }
 
     pcl::PointCloud<PointT>::Ptr cloud(new pcl::PointCloud<PointT>());
     cloud->reserve(size);
 
-    for (auto iter = start; iter != end; ++iter) {
-        auto keyframe = *iter;
+    for (int i = start; i < end; i++) {
+        auto keyframe = keyframes[i];
         Eigen::Matrix4f pose = keyframe->pose.matrix().cast<float>();
         if (featureType == FeatureType::Edge || featureType == FeatureType::Full) {
             for(const auto& src_pt : keyframe->edgeFeatures->points) {
@@ -156,8 +154,8 @@ pcl::PointCloud<PointT>::Ptr generate_cloud(ConstIter start, ConstIter end, Feat
     return cloud;
 }
 
-pcl::PointCloud<PointT>::Ptr generate_cloud(ConstIter start, ConstIter end) {
-    return generate_cloud(start, end, FeatureType::Full);
+pcl::PointCloud<PointT>::Ptr generate_cloud(std::vector<Keyframe::Ptr>& keyframes, int start, int end) {
+    return generate_cloud(keyframes, start, end, FeatureType::Full);
 }
 
 #endif //MLOAM_UTILS_H

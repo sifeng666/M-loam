@@ -17,7 +17,6 @@ void MapGenerator::clear() {
 void MapGenerator::insert(ConstIter begin, ConstIter end) {
 
     if (begin >= end) {
-        std::cerr << "warning: err iter!!" << std::endl;
         return;
     }
 

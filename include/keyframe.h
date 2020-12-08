@@ -71,7 +71,6 @@ public:
 public:
     Keyframe(int _index, PointCloudPtr EF, PointCloudPtr PF);
     ~Keyframe();
-    bool initialized() const;
     void set_init();
 };
 
