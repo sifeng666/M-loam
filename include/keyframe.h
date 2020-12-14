@@ -56,22 +56,42 @@ enum class FeatureType {
     Full = 2
 };
 
+//struct Frame {
+//    using Ptr = boost::shared_ptr<Frame>;
+//    gtsam::Pose3 pose;
+//    pcl::PointCloud<PointT>::Ptr edgeFeatures;
+//    pcl::PointCloud<PointT>::Ptr surfFeatures;
+//    Frame(const gtsam::Pose3& pose_, pcl::PointCloud<PointT>::Ptr edgeFeatures_, pcl::PointCloud<PointT>::Ptr surfFeatures_) :
+//            pose(pose_), edgeFeatures(edgeFeatures_), surfFeatures(surfFeatures_) {}
+//};
+
 class Keyframe {
 public:
     using Ptr = boost::shared_ptr<Keyframe>;
     using PointCloudPtr = pcl::PointCloud<PointT>::Ptr;
 public:
-    gtsam::Pose3 pose;
     int index;
-    bool inited;
+//    mutable std::shared_mutex sharedMutex;
+    gtsam::Pose3 pose;
     // feature point cloud
     pcl::PointCloud<PointT>::Ptr edgeFeatures;
     pcl::PointCloud<PointT>::Ptr surfFeatures;
-
+    pcl::PointCloud<PointT>::Ptr raw;
+//    // sub frames from current to next keyframe. [current, next)
+//    std::vector<Frame::Ptr> sub_frames;
+private:
+    bool init = false;
 public:
-    Keyframe(int _index, PointCloudPtr EF, PointCloudPtr PF);
+    Keyframe(int _index, PointCloudPtr EF, PointCloudPtr PF, PointCloudPtr RAW);
     ~Keyframe();
-    void set_init();
+    void set_init(gtsam::Pose3 pose_);
+    bool is_init() const;
+//    pcl::PointCloud<PointT>::Ptr generate_sub_map(FeatureType featureType) const;
+//    void insert(const gtsam::Pose3& pose_, PointCloudPtr EF, PointCloudPtr PF);
+//    gtsam::Pose3 pose() const;
+//    gtsam::Pose3& pose();
+//    void optimize(const gtsam::Pose3& next_pose);
+
 };
 
 

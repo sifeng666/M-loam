@@ -7,18 +7,19 @@
 
 #include "keyframe.h"
 #include <pcl/octree/octree_search.h>
+#include <pcl/filters/voxel_grid.h>
 #include <pcl/point_types.h>
 #include <pcl/point_cloud.h>
 
 class MapGenerator {
 private:
-    using ConstIter = std::vector<Keyframe::Ptr>::const_iterator;
-    pcl::octree::OctreePointCloud<PointT> octree;
+    pcl::PointCloud<PointT>::Ptr map;
+    pcl::VoxelGrid<PointT> voxelGrid;
 public:
-    MapGenerator(double resolution = 0.1);
+    MapGenerator();
     ~MapGenerator();
     void clear();
-    void insert(ConstIter begin, ConstIter end);
+    void insert(std::vector<Keyframe::Ptr>& keyframes, int begin, int end);
     pcl::PointCloud<PointT>::Ptr get() const;
 };
 

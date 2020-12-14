@@ -6,11 +6,8 @@ Panels:
       Expanded:
         - /Global Options1
         - /Status1
-        - /Path1
-        - /Path2
-        - /PointCloud23
-        - /Axes1
         - /PointCloud24
+        - /Axes1
         - /PointCloud25
       Splitter Ratio: 0.5
     Tree Height: 1079
@@ -175,9 +172,9 @@ Visualization Manager:
       Enabled: false
       Invert Rainbow: false
       Max Color: 255; 255; 255
-      Max Intensity: 255
+      Max Intensity: 191.0474395751953
       Min Color: 0; 0; 0
-      Min Intensity: 1.3940389156341553
+      Min Intensity: 1.3134723901748657
       Name: PointCloud2
       Position Transformer: XYZ
       Queue Size: 10
@@ -186,6 +183,36 @@ Visualization Manager:
       Size (m): 0.009999999776482582
       Style: Points
       Topic: /curr_surf
+      Unreliable: false
+      Use Fixed Frame: true
+      Use rainbow: true
+      Value: false
+    - Alpha: 1
+      Autocompute Intensity Bounds: true
+      Autocompute Value Bounds:
+        Max Value: 10
+        Min Value: -10
+        Value: true
+      Axis: Z
+      Channel Name: intensity
+      Class: rviz/PointCloud2
+      Color: 255; 255; 255
+      Color Transformer: ""
+      Decay Time: 0
+      Enabled: false
+      Invert Rainbow: false
+      Max Color: 255; 255; 255
+      Max Intensity: 4096
+      Min Color: 0; 0; 0
+      Min Intensity: 0
+      Name: PointCloud2
+      Position Transformer: ""
+      Queue Size: 10
+      Selectable: true
+      Size (Pixels): 3
+      Size (m): 0.009999999776482582
+      Style: Points
+      Topic: /curr_full
       Unreliable: false
       Use Fixed Frame: true
       Use rainbow: true
@@ -238,14 +265,14 @@ Visualization Manager:
       Channel Name: intensity
       Class: rviz/PointCloud2
       Color: 255; 255; 255
-      Color Transformer: Intensity
+      Color Transformer: FlatColor
       Decay Time: 0
       Enabled: true
       Invert Rainbow: false
       Max Color: 255; 255; 255
-      Max Intensity: 176.74082946777344
+      Max Intensity: 255
       Min Color: 0; 0; 0
-      Min Intensity: 1.276342749595642
+      Min Intensity: 1.1920245885849
       Name: PointCloud2
       Position Transformer: XYZ
       Queue Size: 10
@@ -273,9 +300,9 @@ Visualization Manager:
       Enabled: true
       Invert Rainbow: false
       Max Color: 255; 255; 255
-      Max Intensity: 255
+      Max Intensity: 252.71803283691406
       Min Color: 0; 0; 0
-      Min Intensity: 2.409456253051758
+      Min Intensity: 1.445367455482483
       Name: PointCloud2
       Position Transformer: XYZ
       Queue Size: 10
@@ -316,7 +343,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 50.897499084472656
+      Distance: 69.02882385253906
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -324,17 +351,17 @@ Visualization Manager:
         Value: false
       Field of View: 0.7853981852531433
       Focal Point:
-        X: 7.624908447265625
-        Y: 3.5148909091949463
-        Z: -0.7343629598617554
+        X: 7.96700382232666
+        Y: 3.699247121810913
+        Z: 2.947180986404419
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 1.1847965717315674
+      Pitch: 0.7997969388961792
       Target Frame: <Fixed Frame>
-      Yaw: 1.7054206132888794
+      Yaw: 3.120414972305298
     Saved: ~
 Window Geometry:
   Displays:

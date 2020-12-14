@@ -108,29 +108,30 @@ public:
     }
 };
 
-pcl::PointCloud<PointT>::Ptr generate_cloud(std::vector<Keyframe::Ptr>& keyframes, int start, int end, FeatureType featureType) {
+pcl::PointCloud<PointT>::Ptr generate_cloud(std::vector<Keyframe::Ptr>& keyframes, int begin, int end, FeatureType featureType) {
 
-    if (start >= end) {
+    if (begin >= end) {
         std::cerr << "generate_cloud warning: range err!!" << std::endl;
         return nullptr;
     }
 
     size_t size;
     if (featureType == FeatureType::Edge) {
-        size = keyframes[start]->edgeFeatures->size() * (end - start);
+        size = keyframes[begin]->edgeFeatures->size() * (end - begin);
     } else if (featureType == FeatureType::Surf) {
-        size = keyframes[start]->surfFeatures->size() * (end - start);
+        size = keyframes[begin]->surfFeatures->size() * (end - begin);
     } else {
-        size = (keyframes[start]->surfFeatures->size() + keyframes[start]->edgeFeatures->size()) * (end - start);
+        size = (keyframes[begin]->raw->size()) * (end - begin);
     }
 
     pcl::PointCloud<PointT>::Ptr cloud(new pcl::PointCloud<PointT>());
     cloud->reserve(size);
 
-    for (int i = start; i < end; i++) {
+    for (int i = begin; i < end; i++) {
         auto keyframe = keyframes[i];
         Eigen::Matrix4f pose = keyframe->pose.matrix().cast<float>();
-        if (featureType == FeatureType::Edge || featureType == FeatureType::Full) {
+
+        if (featureType == FeatureType::Edge) {
             for(const auto& src_pt : keyframe->edgeFeatures->points) {
                 PointT dst_pt;
                 dst_pt.getVector4fMap() = pose * src_pt.getVector4fMap();
@@ -138,8 +139,15 @@ pcl::PointCloud<PointT>::Ptr generate_cloud(std::vector<Keyframe::Ptr>& keyframe
                 cloud->push_back(dst_pt);
             }
         }
-        if (featureType == FeatureType::Surf || featureType == FeatureType::Full) {
+        else if (featureType == FeatureType::Surf) {
             for(const auto& src_pt : keyframe->surfFeatures->points) {
+                PointT dst_pt;
+                dst_pt.getVector4fMap() = pose * src_pt.getVector4fMap();
+                dst_pt.intensity = src_pt.intensity;
+                cloud->push_back(dst_pt);
+            }
+        } else {
+            for(const auto& src_pt : keyframe->raw->points) {
                 PointT dst_pt;
                 dst_pt.getVector4fMap() = pose * src_pt.getVector4fMap();
                 dst_pt.intensity = src_pt.intensity;
@@ -152,10 +160,6 @@ pcl::PointCloud<PointT>::Ptr generate_cloud(std::vector<Keyframe::Ptr>& keyframe
     cloud->height = 1;
     cloud->is_dense = false;
     return cloud;
-}
-
-pcl::PointCloud<PointT>::Ptr generate_cloud(std::vector<Keyframe::Ptr>& keyframes, int start, int end) {
-    return generate_cloud(keyframes, start, end, FeatureType::Full);
 }
 
 #endif //MLOAM_UTILS_H
