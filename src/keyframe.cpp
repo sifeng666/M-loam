@@ -17,6 +17,7 @@ Keyframe::~Keyframe() {}
 void Keyframe::set_init(gtsam::Pose3 pose_) {
     pose = pose_;
     init = true;
+    valid_frames++;
 }
 
 bool Keyframe::is_init() const {

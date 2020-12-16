@@ -71,6 +71,7 @@ public:
     using PointCloudPtr = pcl::PointCloud<PointT>::Ptr;
 public:
     int index;
+    int valid_frames = 0;
 //    mutable std::shared_mutex sharedMutex;
     gtsam::Pose3 pose;
     // feature point cloud

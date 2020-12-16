@@ -75,30 +75,25 @@ public:
     }
 
     void updateSlideWindows() {
+        if (current_keyframe->valid_frames == 1) {
+            int size = keyframes.size();
+            int start = size < SLIDE_KEYFRAME_LEN ? 0 : size - SLIDE_KEYFRAME_LEN;
 
-        int size = keyframes.size();
+            slideWindowEdge = generate_cloud(keyframes, start, size, FeatureType::Edge);
+            slideWindowSurf = generate_cloud(keyframes, start, size, FeatureType::Surf);
+            downsampling(slideWindowEdge, *slideWindowEdge, FeatureType::Edge);
+            downsampling(slideWindowSurf, *slideWindowSurf, FeatureType::Edge);
 
-        if (!current_keyframe->is_init()) {
-            size--;
+            sensor_msgs::PointCloud2Ptr cloud_msg(new sensor_msgs::PointCloud2());
+            pcl::toROSMsg(*slideWindowEdge, *cloud_msg);
+            cloud_msg->header.stamp = cloud_in_time;
+            cloud_msg->header.frame_id = "map";
+            pub_sw_edge.publish(cloud_msg);
+            pcl::toROSMsg(*slideWindowSurf, *cloud_msg);
+            cloud_msg->header.stamp = cloud_in_time;
+            cloud_msg->header.frame_id = "map";
+            pub_sw_surf.publish(cloud_msg);
         }
-
-        int start = size < SLIDE_KEYFRAME_LEN ? 0 : size - SLIDE_KEYFRAME_LEN;
-
-        slideWindowEdge = generate_cloud(keyframes, start, size, FeatureType::Edge);
-        slideWindowSurf = generate_cloud(keyframes, start, size, FeatureType::Surf);
-        downsampling(slideWindowEdge, *slideWindowEdge, FeatureType::Edge);
-        downsampling(slideWindowSurf, *slideWindowSurf, FeatureType::Surf);
-
-        sensor_msgs::PointCloud2Ptr cloud_msg(new sensor_msgs::PointCloud2());
-        pcl::toROSMsg(*slideWindowEdge, *cloud_msg);
-        cloud_msg->header.stamp = cloud_in_time;
-        cloud_msg->header.frame_id = "map";
-        pub_sw_edge.publish(cloud_msg);
-        pcl::toROSMsg(*slideWindowSurf, *cloud_msg);
-        cloud_msg->header.stamp = cloud_in_time;
-        cloud_msg->header.frame_id = "map";
-        pub_sw_surf.publish(cloud_msg);
-
     }
 
     bool nextFrameToBeKeyframe() {
@@ -422,6 +417,7 @@ public:
         } else {
             is_keyframe_next = nextFrameToBeKeyframe();
             delta = pose_normalize(last_odom.inverse() * odom);
+            current_keyframe->valid_frames++;
         }
 
     }
@@ -432,6 +428,7 @@ public:
         isam->update();
 
         if (loop_found) {
+            isam->update();
             isam->update();
             isam->update();
         }
@@ -486,7 +483,8 @@ public:
         pcl::PointCloud<PointT>::Ptr currEdgeDS(new pcl::PointCloud<PointT>());
         pcl::PointCloud<PointT>::Ptr currSurfDS(new pcl::PointCloud<PointT>());
 
-        downsampling(currEdge, *currEdgeDS, FeatureType::Edge);
+//        downsampling(currEdge, *currEdgeDS, FeatureType::Edge);
+        currEdgeDS = currEdge->makeShared();
         downsampling(currSurf, *currSurfDS, FeatureType::Surf);
 
         // if is keyframe, append to keyframes vector
@@ -498,7 +496,6 @@ public:
 
         if (!is_init) {
             current_keyframe->set_init(odom);
-//            savePCDandPose();
             initOdomFactor();
             is_init = true;
             std::cerr << "Initialization finished " << std::endl;
@@ -512,6 +509,36 @@ public:
         handleRegistration(currEdgeDS, currSurfDS);
         // pub path
         pubOdomAndPath();
+    }
+
+    bool gicp_matching(pcl::PointCloud<PointT>::Ptr cloud_to, pcl::PointCloud<PointT>::Ptr cloud_from, const gtsam::Pose3& pose_guess, gtsam::Pose3& pose) {
+
+        pcl::GeneralizedIterativeClosestPoint<PointT, PointT> gicp;
+        gicp.setTransformationEpsilon(1e-6);
+        gicp.setEuclideanFitnessEpsilon(1e-6);
+        gicp.setMaximumIterations(64);
+        gicp.setUseReciprocalCorrespondences(false);
+        gicp.setCorrespondenceRandomness(20);
+        gicp.setMaximumOptimizerIterations(20);
+
+        // Align clouds
+        gicp.setInputSource(cloud_from);
+        gicp.setInputTarget(cloud_to);
+
+        pcl::PointCloud<PointT>::Ptr unused_result(new pcl::PointCloud<PointT>());
+        gicp.align(*unused_result, pose_guess.matrix().cast<float>());
+
+        if (!gicp.hasConverged()) {
+            cout << "gicp fail, not converged" << endl;
+            return false;
+        }
+        cout << "fitness score: " << gicp.getFitnessScore() << endl;
+
+        if (gicp.getFitnessScore() > 0.8) {
+            return false;
+        }
+        pose = pose_normalize(gtsam::Pose3(gicp.getFinalTransformation().cast<double>().matrix()));
+        return true;
     }
 
 
@@ -591,42 +618,30 @@ public:
             return p1.second < p2.second;
         });
 
-        pcl::PointCloud<PointT>::Ptr tempEdge(new pcl::PointCloud<PointT>());
-        pcl::PointCloud<PointT>::Ptr tempSurf(new pcl::PointCloud<PointT>());
-
-        pcl::PointCloud<PointT>::Ptr crop(new pcl::PointCloud<PointT>());
-        pcl::PointCloud<PointT>::Ptr latest(new pcl::PointCloud<PointT>());
-
-
         auto closestKeyIdx = candidates[0].first;
-        int start_crop = max(0, closestKeyIdx - LOOP_KEYFRAME_CROP_LEN / 2);
-        int end_crop = min(latest_index - LOOP_LATEST_KEYFRAME_SKIP, closestKeyIdx + LOOP_KEYFRAME_CROP_LEN / 2);
+        int start_crop = max(0, closestKeyIdx - LOOP_KEYFRAME_CROP_LEN);
+        int end_crop = min(latest_index - LOOP_LATEST_KEYFRAME_SKIP, closestKeyIdx + LOOP_KEYFRAME_CROP_LEN);
 
         // crop submap to closestKeyIdx's pose frame
-        auto closestPoseInverse = keyframes[closestKeyIdx]->pose.inverse();
-        for (int k = start_crop; k < end_crop; k++) {
-            Eigen::Isometry3d correct_pose((closestPoseInverse * keyframes[k]->pose).matrix());
-            pcl::transformPointCloud(*keyframes[k]->edgeFeatures, *tempEdge, correct_pose.matrix());
-            pcl::transformPointCloud(*keyframes[k]->surfFeatures, *tempSurf, correct_pose.matrix());
-            *crop += *tempEdge;
-            *crop += *tempSurf;
-        }
-
-        *latest += *latestKeyframe->edgeFeatures;
-        *latest += *latestKeyframe->surfFeatures;
+        auto crop = generate_cloud(keyframes, start_crop, end_crop, FeatureType::Full);
+        pcl::transformPointCloud(*crop, *crop, keyframes[closestKeyIdx]->pose.inverse().matrix());
+        auto latest = generate_cloud(keyframes, latest_index - 1, latest_index + 1, FeatureType::Full);
+        pcl::transformPointCloud(*latest, *latest, latestKeyframe->pose.inverse().matrix());
 
         gtsam::Pose3 pose_crop_latest_opti;
 
         auto pose_crop_latest_coarse = keyframes[closestKeyIdx]->pose.between(latestKeyframe->pose);
-        bool can_match = loopMacthing_ICP(crop, latest, pose_crop_latest_coarse, pose_crop_latest_opti);
+        bool can_match = gicp_matching(crop, latest, pose_crop_latest_coarse, pose_crop_latest_opti);
 
         if (!can_match)
             return;
 
-        loopFactors.emplace_back(new gtsam::BetweenFactor<gtsam::Pose3>(X(closestKeyIdx), X(latest_index), pose_crop_latest_opti, odometry_noise_model));
+        loopFactors.emplace_back(new gtsam::BetweenFactor<gtsam::Pose3>(X(closestKeyIdx), X(latest_index), pose_crop_latest_opti, odometry_gaussian_model));
         cout << "find loop: [" << latest_index << "] and [" << closestKeyIdx << "]\n";
         cout << "pose coarse: \n" << pose_crop_latest_coarse.matrix() << endl;
-        cout << "pose after icp "<< save_count - 1 << ": \n" << pose_crop_latest_opti.matrix() << endl;
+        cout << "pose after gicp "<< save_count - 1 << ": \n" << pose_crop_latest_opti.matrix() << endl;
+        pcl::io::savePCDFileASCII("/home/ziv/mloam/loop/crop.pcd", *crop);
+        pcl::io::savePCDFileASCII("/home/ziv/mloam/loop/latest.pcd", *latest);
         last_loop_found_index = latest_index;
 
     }
@@ -760,13 +775,11 @@ public:
     void allocateMem() {
         slideWindowEdge    = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
         slideWindowSurf    = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
-
         kdtreeEdgeSW       = pcl::KdTreeFLANN<PointT>::Ptr(new pcl::KdTreeFLANN<PointT>());
         kdtreeSurfSW       = pcl::KdTreeFLANN<PointT>::Ptr(new pcl::KdTreeFLANN<PointT>());
     }
 
     void initROSHandler() {
-
         sub_laser_cloud      = nh.subscribe<sensor_msgs::PointCloud2>("/velodyne_points_2", 100, &LaserOdometry::pointCloudFullHandler, this);
         sub_laser_cloud_edge = nh.subscribe<sensor_msgs::PointCloud2>("/laser_cloud_edge", 100, &LaserOdometry::pointCloudEdgeHandler, this);
         sub_laser_cloud_surf = nh.subscribe<sensor_msgs::PointCloud2>("/laser_cloud_surf", 100, &LaserOdometry::pointCloudSurfHandler, this);
@@ -778,7 +791,6 @@ public:
         pub_curr_full = nh.advertise<sensor_msgs::PointCloud2>("/curr_full", 10);
         pub_sw_edge   = nh.advertise<sensor_msgs::PointCloud2>("/sw_edge", 10);
         pub_sw_surf   = nh.advertise<sensor_msgs::PointCloud2>("/sw_surf", 10);
-
     }
 
     ~LaserOdometry() {
@@ -795,17 +807,20 @@ public:
         odom      = gtsam::Pose3::identity();
         delta     = gtsam::Pose3::identity();
 
-        edge_gaussian_model = gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(3) << 1.0, 1.0, 1.0).finished());
-        surf_gaussian_model = gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(1) << 1.0).finished());
+        edge_gaussian_model = gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(3) << 0.2, 0.2, 0.2).finished());
+        surf_gaussian_model = gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(1) << 0.2).finished());
 
-        edge_noise_model = gtsam::noiseModel::Robust::Create(gtsam::noiseModel::mEstimator::Huber::Create(0.1), edge_gaussian_model);
-        surf_noise_model = gtsam::noiseModel::Robust::Create(gtsam::noiseModel::mEstimator::Huber::Create(0.1), surf_gaussian_model);
+        edge_noise_model = gtsam::noiseModel::Robust::Create(gtsam::noiseModel::mEstimator::Huber::Create(0.58), edge_gaussian_model);
+        surf_noise_model = gtsam::noiseModel::Robust::Create(gtsam::noiseModel::mEstimator::Huber::Create(0.02), surf_gaussian_model);
 
-        prior_gaussian_model = gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(6) << 1e-6, 1e-6, 1e-6, 1e-8, 1e-8, 1e-6).finished());
-        odometry_gaussian_model = gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(6) << 1e-6, 1e-6, 1e-6, 1e-8, 1e-8, 1e-6).finished());
+        prior_gaussian_model = gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(6) << 1e-6, 1e-6, 1e-6, 1e-6, 1e-6, 1e-6).finished());
+        odometry_gaussian_model = gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(6) << 1e-3, 1e-3, 1e-3, 1e-2, 1e-2, 1e-1).finished());
 
-        prior_noise_model = gtsam::noiseModel::Robust::Create(gtsam::noiseModel::mEstimator::Huber::Create(0.1), prior_gaussian_model);
-        odometry_noise_model = gtsam::noiseModel::Robust::Create(gtsam::noiseModel::mEstimator::Huber::Create(0.1), odometry_gaussian_model);
+//        prior_noise_model = gtsam::noiseModel::Robust::Create(gtsam::noiseModel::mEstimator::Huber::Create(1.345), prior_gaussian_model);
+//        odometry_noise_model = gtsam::noiseModel::Robust::Create(gtsam::noiseModel::mEstimator::Huber::Create(1.345), odometry_gaussian_model);
+        prior_noise_model = prior_gaussian_model;
+        odometry_noise_model = odometry_gaussian_model;
+
 
         gtsam::ISAM2Params isam2Params;
         isam2Params.relinearizeThreshold = 0.1;
@@ -879,10 +894,10 @@ private:
     const int LOOP_KEYFRAME_CROP_LEN = 10;
     const int LOOP_LATEST_KEYFRAME_SKIP = 50;
     const int LOOP_COOLDOWN_KEYFRAME_COUNT = 20;
-    const int LOOP_CLOSE_DISTANCE = 10;
+    const int LOOP_CLOSE_DISTANCE = 15;
 
     const double keyframeDistThreshold = 0.6;
-    const double keyframeAngleThreshold = 0.15;
+    const double keyframeAngleThreshold = 0.1;
 
     bool is_init = false;
     bool is_keyframe_next = true;
@@ -890,6 +905,7 @@ private:
 
     int last_loop_found_index = 0;
     bool loop_found = false;
+    bool status_change = false;
     bool regenerate_map = false;
     int save_latency = 0;
     int last_map_generate_index = 0;

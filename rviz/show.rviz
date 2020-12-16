@@ -8,7 +8,6 @@ Panels:
         - /Status1
         - /PointCloud24
         - /Axes1
-        - /PointCloud25
       Splitter Ratio: 0.5
     Tree Height: 1079
   - Class: rviz/Selection
@@ -169,12 +168,12 @@ Visualization Manager:
       Color: 255; 255; 255
       Color Transformer: Intensity
       Decay Time: 0
-      Enabled: false
+      Enabled: true
       Invert Rainbow: false
       Max Color: 255; 255; 255
-      Max Intensity: 191.0474395751953
+      Max Intensity: 255.04115295410156
       Min Color: 0; 0; 0
-      Min Intensity: 1.3134723901748657
+      Min Intensity: 1.7839335203170776
       Name: PointCloud2
       Position Transformer: XYZ
       Queue Size: 10
@@ -186,7 +185,7 @@ Visualization Manager:
       Unreliable: false
       Use Fixed Frame: true
       Use rainbow: true
-      Value: false
+      Value: true
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
@@ -199,7 +198,7 @@ Visualization Manager:
       Color: 255; 255; 255
       Color Transformer: ""
       Decay Time: 0
-      Enabled: false
+      Enabled: true
       Invert Rainbow: false
       Max Color: 255; 255; 255
       Max Intensity: 4096
@@ -216,7 +215,7 @@ Visualization Manager:
       Unreliable: false
       Use Fixed Frame: true
       Use rainbow: true
-      Value: false
+      Value: true
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
@@ -267,7 +266,7 @@ Visualization Manager:
       Color: 255; 255; 255
       Color Transformer: FlatColor
       Decay Time: 0
-      Enabled: true
+      Enabled: false
       Invert Rainbow: false
       Max Color: 255; 255; 255
       Max Intensity: 255
@@ -284,7 +283,7 @@ Visualization Manager:
       Unreliable: false
       Use Fixed Frame: true
       Use rainbow: true
-      Value: true
+      Value: false
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
@@ -297,12 +296,12 @@ Visualization Manager:
       Color: 255; 255; 255
       Color Transformer: Intensity
       Decay Time: 0
-      Enabled: true
+      Enabled: false
       Invert Rainbow: false
       Max Color: 255; 255; 255
-      Max Intensity: 252.71803283691406
+      Max Intensity: 246.8137969970703
       Min Color: 0; 0; 0
-      Min Intensity: 1.445367455482483
+      Min Intensity: 1.4088164567947388
       Name: PointCloud2
       Position Transformer: XYZ
       Queue Size: 10
@@ -314,7 +313,7 @@ Visualization Manager:
       Unreliable: false
       Use Fixed Frame: true
       Use rainbow: true
-      Value: true
+      Value: false
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
@@ -359,9 +358,9 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 0.7997969388961792
+      Pitch: 1.4297963380813599
       Target Frame: <Fixed Frame>
-      Yaw: 3.120414972305298
+      Yaw: 3.150413990020752
     Saved: ~
 Window Geometry:
   Displays:

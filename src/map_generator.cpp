@@ -7,7 +7,7 @@
 
 
 MapGenerator::MapGenerator() : map(new pcl::PointCloud<PointT>()) {
-    voxelGrid.setLeafSize(0.1, 0.1, 0.1);
+    voxelGrid.setLeafSize(0.01f, 0.01f, 0.01f);
 }
 
 MapGenerator::~MapGenerator() {}
@@ -34,6 +34,8 @@ void MapGenerator::insert(std::vector<Keyframe::Ptr>& keyframes, int begin, int 
             dst_pt.intensity = src_pt.intensity;
             map->push_back(dst_pt);
         }
+        voxelGrid.setInputCloud(map);
+        voxelGrid.filter(*map);
     }
 }
 
