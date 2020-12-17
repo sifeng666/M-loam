@@ -21,6 +21,7 @@ public:
     void clear();
     void insert(std::vector<Keyframe::Ptr>& keyframes, int begin, int end);
     pcl::PointCloud<PointT>::Ptr get() const;
+    static pcl::PointCloud<PointT>::Ptr generate_cloud(const std::vector<Keyframe::Ptr>& keyframes, int begin, int end, FeatureType featureType);
 };
 
 

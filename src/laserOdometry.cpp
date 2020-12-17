@@ -7,20 +7,13 @@
 #include "utils.h"
 #include "map_generator.h"
 #include "factors.h"
-
-#include <pcl/filters/voxel_grid.h>
-#include <pcl/kdtree/kdtree_flann.h>
-#include <pcl/registration/gicp.h>
+#include "loop_detector.h"
 
 static int correct_count = 1;
 static int save_count = 1;
 static int graph_count = 1;
 
 class LaserOdometry {
-
-public:
-    using LoopFactor = gtsam::NonlinearFactor::shared_ptr;
-
 public:
 
     void pointCloudFullHandler(const sensor_msgs::PointCloud2ConstPtr &pointCloudMsg) {
@@ -76,13 +69,14 @@ public:
 
     void updateSlideWindows() {
         if (current_keyframe->valid_frames == 1) {
+            TimeCounter t1;
             int size = keyframes.size();
             int start = size < SLIDE_KEYFRAME_LEN ? 0 : size - SLIDE_KEYFRAME_LEN;
 
-            slideWindowEdge = generate_cloud(keyframes, start, size, FeatureType::Edge);
-            slideWindowSurf = generate_cloud(keyframes, start, size, FeatureType::Surf);
+            slideWindowEdge = MapGenerator::generate_cloud(keyframes, start, size, FeatureType::Edge);
+            slideWindowSurf = MapGenerator::generate_cloud(keyframes, start, size, FeatureType::Surf);
             downsampling(slideWindowEdge, *slideWindowEdge, FeatureType::Edge);
-            downsampling(slideWindowSurf, *slideWindowSurf, FeatureType::Edge);
+            downsampling(slideWindowSurf, *slideWindowSurf, FeatureType::Surf);
 
             sensor_msgs::PointCloud2Ptr cloud_msg(new sensor_msgs::PointCloud2());
             pcl::toROSMsg(*slideWindowEdge, *cloud_msg);
@@ -93,6 +87,7 @@ public:
             cloud_msg->header.stamp = cloud_in_time;
             cloud_msg->header.frame_id = "map";
             pub_sw_surf.publish(cloud_msg);
+            std::cout << "update slide windows: " << t1.count() << "ms" << std::endl;
         }
     }
 
@@ -299,30 +294,6 @@ public:
     }
 
 
-//    gtsam::Pose3 predict_pose() {
-//
-//        if (keyframes.size() == 1 && keyframes.front()->sub_frames.size() == 1) {
-//            return gtsam::Pose3::identity();
-//        }
-//
-//        auto& sub_frames = current_keyframe->sub_frames;
-//        if (sub_frames.empty()) {
-//            sub_frames = keyframes[keyframes.size() - 2]->sub_frames;
-//            if (sub_frames.size() > 1) {
-//                delta = sub_frames[sub_frames.size() - 2]->pose.inverse() * sub_frames.back()->pose;
-//                return pose_normalize(sub_frames.back()->pose * delta);
-//            } else {
-//                throw "sub frames size less than 2!";
-//            }
-//        } else if (sub_frames.size() == 1) {
-//            delta = keyframes[keyframes.size() - 2]->sub_frames.back()->pose.inverse() * sub_frames.back()->pose;
-//        } else {
-//            delta = sub_frames[sub_frames.size() - 2]->pose.inverse() * sub_frames.back()->pose;
-//        }
-//        return pose_normalize(sub_frames.back()->pose * delta);
-//
-//    }
-
     void getTransToSlideWindow(pcl::PointCloud<PointT>::Ptr currEdgeDS, pcl::PointCloud<PointT>::Ptr currSurfDS) {
 
         gtsam::Pose3 odom_prediction = pose_normalize(odom * delta);
@@ -334,11 +305,6 @@ public:
         pose_w_c = odom;
 
         const auto state_key = X(0);
-
-        std::cout << "currEdgeDS      size: " << currEdgeDS->size() << std::endl;
-        std::cout << "currSurfDS      size: " << currSurfDS->size() << std::endl;
-        std::cout << "slideWindowEdge size: " << slideWindowEdge->size() << std::endl;
-        std::cout << "slideWindowSurf size: " << slideWindowSurf->size() << std::endl;
 
         if (slideWindowEdge->size() > 10 && slideWindowSurf->size() > 50) {
 
@@ -410,7 +376,6 @@ public:
             loopDetectBuf.push(keyframes[lastIndex]);
             loop_mtx.unlock();
             current_keyframe->set_init(odom);
-//            savePCDandPose();
             addOdomFactor(lastIndex);
             factorGraphUpdate();
 
@@ -440,6 +405,7 @@ public:
 
         if (loop_found) {
             correctPose();
+            std::cout << "correctPose!!!!" << std::endl;
             loop_found = false;
             regenerate_map = true;
         }
@@ -511,140 +477,9 @@ public:
         pubOdomAndPath();
     }
 
-    bool gicp_matching(pcl::PointCloud<PointT>::Ptr cloud_to, pcl::PointCloud<PointT>::Ptr cloud_from, const gtsam::Pose3& pose_guess, gtsam::Pose3& pose) {
-
-        pcl::GeneralizedIterativeClosestPoint<PointT, PointT> gicp;
-        gicp.setTransformationEpsilon(1e-6);
-        gicp.setEuclideanFitnessEpsilon(1e-6);
-        gicp.setMaximumIterations(64);
-        gicp.setUseReciprocalCorrespondences(false);
-        gicp.setCorrespondenceRandomness(20);
-        gicp.setMaximumOptimizerIterations(20);
-
-        // Align clouds
-        gicp.setInputSource(cloud_from);
-        gicp.setInputTarget(cloud_to);
-
-        pcl::PointCloud<PointT>::Ptr unused_result(new pcl::PointCloud<PointT>());
-        gicp.align(*unused_result, pose_guess.matrix().cast<float>());
-
-        if (!gicp.hasConverged()) {
-            cout << "gicp fail, not converged" << endl;
-            return false;
-        }
-        cout << "fitness score: " << gicp.getFitnessScore() << endl;
-
-        if (gicp.getFitnessScore() > 0.8) {
-            return false;
-        }
-        pose = pose_normalize(gtsam::Pose3(gicp.getFinalTransformation().cast<double>().matrix()));
-        return true;
-    }
 
 
-    bool loopMacthing_ICP(pcl::PointCloud<PointT>::Ptr crop, pcl::PointCloud<PointT>::Ptr latest, const gtsam::Pose3& pose_guess, gtsam::Pose3& pose) {
 
-        pcl::GeneralizedIterativeClosestPoint<PointT, PointT> gicp;
-        gicp.setMaxCorrespondenceDistance(5);
-        gicp.setMaximumIterations(100);
-        gicp.setTransformationEpsilon(1e-6);
-        gicp.setEuclideanFitnessEpsilon(1e-6);
-
-        string filepath = "/home/ziv/mloam/" +std::to_string(save_count++) + "/";
-        _mkdir(filepath + "1.txt");
-        std::ofstream f(filepath+"init.txt");
-        f << pose_guess.matrix();
-        f.close();
-        pcl::io::savePCDFileASCII(filepath + "crop.pcd", *crop);
-        pcl::io::savePCDFileASCII(filepath + "keyframe.pcd", *latest);
-
-        // Align clouds
-        gicp.setInputSource(latest);
-        gicp.setInputTarget(crop);
-
-        pcl::PointCloud<PointT>::Ptr unused_result(new pcl::PointCloud<PointT>());
-        gicp.align(*unused_result, pose_guess.matrix().cast<float>());
-
-        if (!gicp.hasConverged()) {
-            cout << "gicp fail, not converged" << endl;
-            return false;
-        }
-        cout << "fitness score: " << gicp.getFitnessScore() << endl;
-
-        if (gicp.getFitnessScore() > 0.8) {
-            cout << "gicp fail, fitness score too large" << endl;
-            std::ofstream f(filepath+"fail.txt");
-            f << gicp.getFitnessScore() << endl;
-            f << gicp.getFinalTransformation().cast<double>().matrix();
-            f.close();
-            return false;
-        }
-
-        cout << "icp success" << endl;
-        std::ofstream f1(filepath+"success.txt");
-        f1 << gicp.getFitnessScore() << endl;
-        f1 << gicp.getFinalTransformation().cast<double>().matrix();
-        f1.close();
-        pose = pose_normalize(gtsam::Pose3(gicp.getFinalTransformation().cast<double>().matrix()));
-        return true;
-    }
-
-    void loop_detector(const Keyframe::Ptr& latestKeyframe, std::vector<LoopFactor>& loopFactors) {
-
-        int latest_index = latestKeyframe->index;
-
-        if (latest_index < LOOP_LATEST_KEYFRAME_SKIP + 1)
-            return;
-
-        if (last_loop_found_index > 0 && latest_index <= last_loop_found_index + LOOP_COOLDOWN_KEYFRAME_COUNT)
-            return;
-
-        // <frameCount, distance>
-        std::vector<pair<int, int>> candidates;
-        candidates.reserve(latest_index - LOOP_LATEST_KEYFRAME_SKIP);
-        for (int i = 0; i < latest_index - LOOP_LATEST_KEYFRAME_SKIP; i++) {
-            auto pose_between = latestKeyframe->pose.between(keyframes[i]->pose);
-            auto distance = pose_between.translation().norm();
-            // too far
-            if (distance > LOOP_CLOSE_DISTANCE)
-                continue;
-            candidates.emplace_back(i, distance);
-        }
-
-        if (candidates.empty())
-            return;
-
-        std::sort(candidates.begin(), candidates.end(), [](const auto& p1, const auto& p2) {
-            return p1.second < p2.second;
-        });
-
-        auto closestKeyIdx = candidates[0].first;
-        int start_crop = max(0, closestKeyIdx - LOOP_KEYFRAME_CROP_LEN);
-        int end_crop = min(latest_index - LOOP_LATEST_KEYFRAME_SKIP, closestKeyIdx + LOOP_KEYFRAME_CROP_LEN);
-
-        // crop submap to closestKeyIdx's pose frame
-        auto crop = generate_cloud(keyframes, start_crop, end_crop, FeatureType::Full);
-        pcl::transformPointCloud(*crop, *crop, keyframes[closestKeyIdx]->pose.inverse().matrix());
-        auto latest = generate_cloud(keyframes, latest_index - 1, latest_index + 1, FeatureType::Full);
-        pcl::transformPointCloud(*latest, *latest, latestKeyframe->pose.inverse().matrix());
-
-        gtsam::Pose3 pose_crop_latest_opti;
-
-        auto pose_crop_latest_coarse = keyframes[closestKeyIdx]->pose.between(latestKeyframe->pose);
-        bool can_match = gicp_matching(crop, latest, pose_crop_latest_coarse, pose_crop_latest_opti);
-
-        if (!can_match)
-            return;
-
-        loopFactors.emplace_back(new gtsam::BetweenFactor<gtsam::Pose3>(X(closestKeyIdx), X(latest_index), pose_crop_latest_opti, odometry_gaussian_model));
-        cout << "find loop: [" << latest_index << "] and [" << closestKeyIdx << "]\n";
-        cout << "pose coarse: \n" << pose_crop_latest_coarse.matrix() << endl;
-        cout << "pose after gicp "<< save_count - 1 << ": \n" << pose_crop_latest_opti.matrix() << endl;
-        pcl::io::savePCDFileASCII("/home/ziv/mloam/loop/crop.pcd", *crop);
-        pcl::io::savePCDFileASCII("/home/ziv/mloam/loop/latest.pcd", *latest);
-        last_loop_found_index = latest_index;
-
-    }
 
     void laser_odometry() {
 
@@ -681,6 +516,8 @@ public:
                 update(cloud_in_edge, cloud_in_surf, cloud_in_full);
 
                 t_laser_odometry.count();
+            } else if (loop_found) {
+                factorGraphUpdate();
             }
 
             //sleep 2 ms every time
@@ -702,7 +539,7 @@ public:
                 loopDetectBuf.pop();
                 loop_mtx.unlock();
 
-                loop_detector(latestFrame, loopFactors);
+                loopDetector.loop_detector(keyframes, latestFrame, loopFactors);
 
                 for (const auto& factor: loopFactors) {
                     poseGraph.add(factor);
@@ -848,6 +685,7 @@ private:
     ros::Time cloud_in_time;
 
     MapGenerator mapGenerator;
+    LoopDetector loopDetector;
 
     std::vector<Keyframe::Ptr> keyframes;
     Keyframe::Ptr current_keyframe;
@@ -889,12 +727,7 @@ private:
     ros::Publisher pub_sw_edge, pub_sw_surf;
     nav_msgs::Path path_odom, path_opti;
 
-
     const int SLIDE_KEYFRAME_LEN = 6;
-    const int LOOP_KEYFRAME_CROP_LEN = 10;
-    const int LOOP_LATEST_KEYFRAME_SKIP = 50;
-    const int LOOP_COOLDOWN_KEYFRAME_COUNT = 20;
-    const int LOOP_CLOSE_DISTANCE = 15;
 
     const double keyframeDistThreshold = 0.6;
     const double keyframeAngleThreshold = 0.1;
@@ -903,7 +736,6 @@ private:
     bool is_keyframe_next = true;
     double map_resolution = 0.2;
 
-    int last_loop_found_index = 0;
     bool loop_found = false;
     bool status_change = false;
     bool regenerate_map = false;

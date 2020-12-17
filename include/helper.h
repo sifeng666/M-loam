@@ -45,11 +45,43 @@
 #include <opencv2/opencv.hpp>
 #include <opencv2/core.hpp>
 
-#include "timer.h"
-
 using namespace std;
 
 using PointT = pcl::PointXYZI;
+using NormalT = pcl::Normal;
+
+static std::atomic<int> timerCount = 1;
+
+class TimeCounter {
+private:
+    using clock_type = std::chrono::time_point<std::chrono::system_clock, std::chrono::milliseconds>;
+    long long int startTime;
+public:
+    explicit TimeCounter() {
+        clock_type tp1 = std::chrono::time_point_cast<std::chrono::milliseconds>(std::chrono::system_clock::now());
+        startTime = tp1.time_since_epoch().count();
+    }
+    long long int count() {
+        return std::chrono::time_point_cast<std::chrono::milliseconds>(std::chrono::system_clock::now()).time_since_epoch().count() - startTime;
+    }
+};
+
+class Timer {
+private:
+    using clock_type = std::chrono::time_point<std::chrono::system_clock, std::chrono::milliseconds>;
+    long long int startTime;
+    std::string name;
+public:
+    explicit Timer(std::string _name) {
+        name = _name;
+        clock_type tp1 = std::chrono::time_point_cast<std::chrono::milliseconds>(std::chrono::system_clock::now());
+        startTime = tp1.time_since_epoch().count();
+    }
+    void count() {
+        clock_type tp2 = std::chrono::time_point_cast<std::chrono::milliseconds>(std::chrono::system_clock::now());
+        std::cout << "Timer_" << name << "_" << timerCount++ << " count: " << tp2.time_since_epoch().count() - startTime << "msec" << std::endl;
+    }
+};
 
 
 #endif //MLOAM_HELPER_H

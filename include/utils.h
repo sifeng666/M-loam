@@ -9,6 +9,7 @@
 #include <gtsam/geometry/Pose3.h>
 #include <gtsam/geometry/Rot3.h>
 
+extern const std::string filepath = "/home/ziv/mloam/";
 
 gtsam::Pose3 pose_normalize(const gtsam::Pose3& pose) {
     return gtsam::Pose3(pose.rotation().normalized(), pose.translation());
@@ -108,58 +109,5 @@ public:
     }
 };
 
-pcl::PointCloud<PointT>::Ptr generate_cloud(std::vector<Keyframe::Ptr>& keyframes, int begin, int end, FeatureType featureType) {
-
-    if (begin >= end) {
-        std::cerr << "generate_cloud warning: range err!!" << std::endl;
-        return nullptr;
-    }
-
-    size_t size;
-    if (featureType == FeatureType::Edge) {
-        size = keyframes[begin]->edgeFeatures->size() * (end - begin);
-    } else if (featureType == FeatureType::Surf) {
-        size = keyframes[begin]->surfFeatures->size() * (end - begin);
-    } else {
-        size = (keyframes[begin]->raw->size()) * (end - begin);
-    }
-
-    pcl::PointCloud<PointT>::Ptr cloud(new pcl::PointCloud<PointT>());
-    cloud->reserve(size);
-
-    for (int i = begin; i < end; i++) {
-        auto keyframe = keyframes[i];
-        Eigen::Matrix4f pose = keyframe->pose.matrix().cast<float>();
-
-        if (featureType == FeatureType::Edge) {
-            for(const auto& src_pt : keyframe->edgeFeatures->points) {
-                PointT dst_pt;
-                dst_pt.getVector4fMap() = pose * src_pt.getVector4fMap();
-                dst_pt.intensity = src_pt.intensity;
-                cloud->push_back(dst_pt);
-            }
-        }
-        else if (featureType == FeatureType::Surf) {
-            for(const auto& src_pt : keyframe->surfFeatures->points) {
-                PointT dst_pt;
-                dst_pt.getVector4fMap() = pose * src_pt.getVector4fMap();
-                dst_pt.intensity = src_pt.intensity;
-                cloud->push_back(dst_pt);
-            }
-        } else {
-            for(const auto& src_pt : keyframe->raw->points) {
-                PointT dst_pt;
-                dst_pt.getVector4fMap() = pose * src_pt.getVector4fMap();
-                dst_pt.intensity = src_pt.intensity;
-                cloud->push_back(dst_pt);
-            }
-        }
-    }
-
-    cloud->width = cloud->size();
-    cloud->height = 1;
-    cloud->is_dense = false;
-    return cloud;
-}
 
 #endif //MLOAM_UTILS_H
