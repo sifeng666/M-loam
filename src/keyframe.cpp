@@ -101,3 +101,19 @@ void Keyframe::add_frame() {
 //}
 
 
+std::vector<gtsam::Pose3> KeyframeVec::read_poses(size_t begin, size_t end) const{
+
+    if (begin >= end || end > keyframes.size()) {
+        std::cerr << "read_poses invalid range" << std::endl;
+    }
+
+    std::vector<gtsam::Pose3> poseVec;
+    poseVec.reserve(end - begin);
+
+    std::shared_lock<std::shared_mutex> sl(pose_mtx);
+    for (size_t i = begin; i < end; i++) {
+        poseVec.emplace_back(keyframes[i]->pose_world_curr);
+    }
+
+    return poseVec;
+}

@@ -24,16 +24,8 @@ void MapGenerator::insert(KeyframeVec::Ptr keyframeVec, size_t begin, size_t end
         map->reserve(keyframeVec->keyframes[begin]->raw->size() * (end - begin));
     }
 
-    std::vector<gtsam::Pose3> poseVec;
-    poseVec.reserve(end - begin);
-    // shared_lock
-    {
-        keyframeVec->pose_mtx.lock_shared();
-        for (size_t i = begin; i < end; i++) {
-            poseVec.push_back(keyframeVec->keyframes[i]->pose_world_curr);
-        }
-        keyframeVec->pose_mtx.unlock_shared();
-    }
+    // read lock
+    std::vector<gtsam::Pose3> poseVec = keyframeVec->read_poses(begin, end);
 
     for (size_t i = 0; i < poseVec.size(); i++) {
         Keyframe::Ptr keyframe = keyframeVec->keyframes[i + begin];
@@ -68,16 +60,8 @@ pcl::PointCloud<PointT>::Ptr MapGenerator::generate_cloud(KeyframeVec::Ptr keyfr
         size = (keyframeVec->keyframes[begin]->raw->size()) * (end - begin);
     }
 
-    std::vector<gtsam::Pose3> poseVec;
-    poseVec.reserve(end - begin);
-    // shared_lock
-    {
-        keyframeVec->pose_mtx.lock_shared();
-        for (size_t i = begin; i < end; i++) {
-            poseVec.push_back(keyframeVec->keyframes[i]->pose_world_curr);
-        }
-        keyframeVec->pose_mtx.unlock_shared();
-    }
+    // read lock
+    std::vector<gtsam::Pose3> poseVec = keyframeVec->read_poses(begin, end);
 
     pcl::PointCloud<PointT>::Ptr cloud(new pcl::PointCloud<PointT>());
     cloud->reserve(size);

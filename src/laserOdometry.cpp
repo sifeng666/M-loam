@@ -58,6 +58,7 @@ public:
     }
 
     void updateSlideWindows() {
+        // update only when new keyframe goes in with correct pose
         if (current_keyframe->valid_frames == 1) {
             size_t size = keyframeVec->keyframes.size();
             size_t start = size < SLIDE_KEYFRAME_LEN ? 0 : size - SLIDE_KEYFRAME_LEN;
@@ -111,16 +112,8 @@ public:
         path_opti.header.stamp = odometry_opti.header.stamp;
         path_opti.poses.clear();
 
-        std::vector<gtsam::Pose3> poseVec;
-        // shared_lock
-        {
-            keyframeVec->pose_mtx.lock_shared();
-            poseVec.reserve(keyframeVec->keyframes.size());
-            for (size_t i = 0; i < keyframeVec->keyframes.size(); i++) {
-                poseVec.push_back(keyframeVec->keyframes[i]->pose_world_curr);
-            }
-            keyframeVec->pose_mtx.unlock_shared();
-        }
+        // read lock
+        std::vector<gtsam::Pose3> poseVec = keyframeVec->read_poses(0, keyframeVec->keyframes.size());
 
         for (size_t i = 0; i < poseVec.size(); i++) {
             laserPose.header = odometry_opti.header;
@@ -291,12 +284,12 @@ public:
             return;
         }
 
+        // read lock
         gtsam::Pose3 from_pose, to_pose;
         {
-            keyframeVec->pose_mtx.lock_shared();
+            std::shared_lock<std::shared_mutex> sl(keyframeVec->pose_mtx);
             from_pose = fromFrame->pose_world_curr;
             to_pose = toFrame->pose_world_curr;
-            keyframeVec->pose_mtx.unlock_shared();
         }
         int correspondence = 0;
 
@@ -404,12 +397,9 @@ public:
 
     void addOdomFactor() {
         int index = current_keyframe->index;
-        gtsam::Pose3 last_pose;
-        {
-            keyframeVec->pose_mtx.lock_shared();
-            last_pose = keyframeVec->keyframes[index- 1]->pose_world_curr;
-            keyframeVec->pose_mtx.unlock_shared();
-        }
+        // read lock
+        gtsam::Pose3 last_pose = keyframeVec->read_poses(index- 1, index).front();
+
         BAGraph.emplace_shared<gtsam::BetweenFactor<gtsam::Pose3>>(X(index - 1), X(index),
                                                                    last_pose.between(current_keyframe->pose_world_curr),
                                                                    odometry_noise_model);
@@ -452,6 +442,7 @@ public:
 
     void updatePoses() {
         std::lock_guard<std::mutex> lg(poses_opti_mtx);
+        // write lock
         std::unique_lock<std::shared_mutex> ul(keyframeVec->pose_mtx);
 
         size_t k = poses_optimized.size();

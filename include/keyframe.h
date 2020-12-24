@@ -54,10 +54,13 @@ public:
 
 };
 
-struct KeyframeVec {
+class KeyframeVec {
+public:
     using Ptr = boost::shared_ptr<KeyframeVec>;
-    std::shared_mutex pose_mtx;
+public:
+    mutable std::shared_mutex pose_mtx;
     std::vector<Keyframe::Ptr> keyframes;
+    std::vector<gtsam::Pose3> read_poses(size_t begin, size_t end) const;
 };
 
 
