@@ -24,7 +24,7 @@ class LoopDetector {
 public:
     int last_loop_found_index = 0;
 public:
-    void loop_detector(const std::vector<Keyframe::Ptr>& keyframes, Keyframe::Ptr latestKeyframe, std::vector<LoopFactor>& loopFactors);
+    void loop_detector(KeyframeVec::Ptr keyframeVec, Keyframe::Ptr latestKeyframe, std::vector<LoopFactor>& loopFactors);
     bool gicp_matching(pcl::PointCloud<PointT>::Ptr cloud_to, pcl::PointCloud<PointT>::Ptr cloud_from, const gtsam::Pose3& pose_guess, gtsam::Pose3& pose);
 };
 

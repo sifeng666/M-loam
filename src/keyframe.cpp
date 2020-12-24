@@ -4,24 +4,24 @@
 
 #include "keyframe.h"
 
-Keyframe::Keyframe(int _index, PointCloudPtr EF, PointCloudPtr PF, PointCloudPtr RAW) {
-    index = _index;
-    pose = gtsam::Pose3::identity();
-    edgeFeatures = EF;
-    surfFeatures = PF;
-    raw = RAW;
+Keyframe::Keyframe(int index_, PointCloudPtr EF, PointCloudPtr PF, PointCloudPtr RAW) :
+    index(index_), edgeFeatures(EF), surfFeatures(PF), raw(RAW) {
+    pose_world_curr = gtsam::Pose3();
+    pose_last_curr = gtsam::Pose3();
 }
 
-Keyframe::~Keyframe() {}
-
-void Keyframe::set_init(gtsam::Pose3 pose_) {
-    pose = pose_;
-    init = true;
-    valid_frames++;
+void Keyframe::set_init(Keyframe::Ptr last_keyframe, gtsam::Pose3 pose_world_curr_) {
+    pose_world_curr = pose_world_curr_;
+    pose_last_curr = last_keyframe->pose_world_curr.between(pose_world_curr);
+    add_frame();
 }
 
 bool Keyframe::is_init() const {
-    return init;
+    return valid_frames > 0;
+}
+
+void Keyframe::add_frame() {
+    ++valid_frames;
 }
 
 //pcl::PointCloud<PointT>::Ptr Keyframe::generate_sub_map(FeatureType featureType) const {

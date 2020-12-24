@@ -14,14 +14,19 @@
 class MapGenerator {
 private:
     pcl::PointCloud<PointT>::Ptr map;
-    pcl::VoxelGrid<PointT> voxelGrid;
 public:
     MapGenerator();
+
     ~MapGenerator();
+
     void clear();
-    void insert(std::vector<Keyframe::Ptr>& keyframes, int begin, int end);
+
+    void insert(KeyframeVec::Ptr keyframeVec, size_t begin, size_t end);
+
     pcl::PointCloud<PointT>::Ptr get() const;
-    static pcl::PointCloud<PointT>::Ptr generate_cloud(const std::vector<Keyframe::Ptr>& keyframes, int begin, int end, FeatureType featureType);
+
+    static pcl::PointCloud<PointT>::Ptr generate_cloud(KeyframeVec::Ptr keyframeVec, size_t begin, size_t end, FeatureType featureType);
+
 };
 
 

@@ -6,9 +6,7 @@
 
 
 
-MapGenerator::MapGenerator() : map(new pcl::PointCloud<PointT>()) {
-    voxelGrid.setLeafSize(0.01f, 0.01f, 0.01f);
-}
+MapGenerator::MapGenerator() : map(new pcl::PointCloud<PointT>()) {}
 
 MapGenerator::~MapGenerator() {}
 
@@ -16,17 +14,30 @@ void MapGenerator::clear() {
     map->clear();
 }
 
-void MapGenerator::insert(std::vector<Keyframe::Ptr>& keyframes, int begin, int end) {
+void MapGenerator::insert(KeyframeVec::Ptr keyframeVec, size_t begin, size_t end) {
+
     if (begin >= end) {
         return;
     }
+
     if (map->empty()) {
-        map->reserve(keyframes[begin]->raw->size() * (end - begin));
+        map->reserve(keyframeVec->keyframes[begin]->raw->size() * (end - begin));
     }
 
-    for (int i = begin; i < end; i++) {
-        auto keyframe = keyframes[i];
-        Eigen::Matrix4f pose = keyframe->pose.matrix().cast<float>();
+    std::vector<gtsam::Pose3> poseVec;
+    poseVec.reserve(end - begin);
+    // shared_lock
+    {
+        keyframeVec->pose_mtx.lock_shared();
+        for (size_t i = begin; i < end; i++) {
+            poseVec.push_back(keyframeVec->keyframes[i]->pose_world_curr);
+        }
+        keyframeVec->pose_mtx.unlock_shared();
+    }
+
+    for (size_t i = 0; i < poseVec.size(); i++) {
+        Keyframe::Ptr keyframe = keyframeVec->keyframes[i + begin];
+        Eigen::Matrix4f pose = poseVec[i].matrix().cast<float>();
 
         for(const auto& src_pt : keyframe->raw->points) {
             PointT dst_pt;
@@ -34,8 +45,6 @@ void MapGenerator::insert(std::vector<Keyframe::Ptr>& keyframes, int begin, int 
             dst_pt.intensity = src_pt.intensity;
             map->push_back(dst_pt);
         }
-        voxelGrid.setInputCloud(map);
-        voxelGrid.filter(*map);
     }
 }
 
@@ -43,7 +52,8 @@ pcl::PointCloud<PointT>::Ptr MapGenerator::get() const {
     return map;
 }
 
-pcl::PointCloud<PointT>::Ptr MapGenerator::generate_cloud(const vector<Keyframe::Ptr> &keyframes, int begin, int end, FeatureType featureType) {
+pcl::PointCloud<PointT>::Ptr MapGenerator::generate_cloud(KeyframeVec::Ptr keyframeVec, size_t begin, size_t end, FeatureType featureType) {
+
     if (begin >= end) {
         std::cerr << "generate_cloud warning: range err!!" << std::endl;
         return nullptr;
@@ -51,19 +61,30 @@ pcl::PointCloud<PointT>::Ptr MapGenerator::generate_cloud(const vector<Keyframe:
 
     size_t size;
     if (featureType == FeatureType::Edge) {
-        size = keyframes[begin]->edgeFeatures->size() * (end - begin);
+        size = keyframeVec->keyframes[begin]->edgeFeatures->size() * (end - begin);
     } else if (featureType == FeatureType::Surf) {
-        size = keyframes[begin]->surfFeatures->size() * (end - begin);
+        size = keyframeVec->keyframes[begin]->surfFeatures->size() * (end - begin);
     } else {
-        size = (keyframes[begin]->raw->size()) * (end - begin);
+        size = (keyframeVec->keyframes[begin]->raw->size()) * (end - begin);
+    }
+
+    std::vector<gtsam::Pose3> poseVec;
+    poseVec.reserve(end - begin);
+    // shared_lock
+    {
+        keyframeVec->pose_mtx.lock_shared();
+        for (size_t i = begin; i < end; i++) {
+            poseVec.push_back(keyframeVec->keyframes[i]->pose_world_curr);
+        }
+        keyframeVec->pose_mtx.unlock_shared();
     }
 
     pcl::PointCloud<PointT>::Ptr cloud(new pcl::PointCloud<PointT>());
     cloud->reserve(size);
 
-    for (int i = begin; i < end; i++) {
-        auto keyframe = keyframes[i];
-        Eigen::Matrix4f pose = keyframe->pose.matrix().cast<float>();
+    for (size_t i = 0; i < poseVec.size(); i++) {
+        Keyframe::Ptr keyframe = keyframeVec->keyframes[i + begin];
+        Eigen::Matrix4f pose = poseVec[i].matrix().cast<float>();
 
         if (featureType == FeatureType::Edge) {
             for(const auto& src_pt : keyframe->edgeFeatures->points) {

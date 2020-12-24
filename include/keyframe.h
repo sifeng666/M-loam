@@ -9,6 +9,7 @@
 
 #include <gtsam/geometry/Rot3.h>
 #include <gtsam/geometry/Pose3.h>
+#include <gtsam/geometry/OrientedPlane3.h>
 #include <gtsam/slam/PriorFactor.h>
 #include <gtsam/slam/BetweenFactor.h>
 #include <gtsam/navigation/GPSFactor.h>
@@ -21,49 +22,15 @@
 #include <gtsam/inference/Symbol.h>
 #include <gtsam/nonlinear/ISAM2.h>
 
-
 using gtsam::symbol_shorthand::E; //  edge factor
 using gtsam::symbol_shorthand::P; // plane factor
 using gtsam::symbol_shorthand::X; // state
-
-struct EdgeFeatures {
-    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-    Eigen::Vector3d curr_point;
-    Eigen::Vector3d point_a;
-    Eigen::Vector3d point_b;
-
-    EdgeFeatures(Eigen::Vector3d p1, Eigen::Vector3d p2, Eigen::Vector3d p3)
-            : curr_point(std::move(p1)), point_a(std::move(p2)), point_b(std::move(p3)) {
-
-    }
-};
-
-struct PlaneFeatures {
-    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-    Eigen::Vector3d curr_point;
-    Eigen::Vector3d norm;
-    double negative_OA_dot_norm;
-
-    PlaneFeatures(Eigen::Vector3d p1, Eigen::Vector3d norm_, double nor)
-            : curr_point(std::move(p1)), norm(std::move(norm_)), negative_OA_dot_norm(nor) {
-
-    }
-};
 
 enum class FeatureType {
     Edge = 0,
     Surf = 1,
     Full = 2
 };
-
-//struct Frame {
-//    using Ptr = boost::shared_ptr<Frame>;
-//    gtsam::Pose3 pose;
-//    pcl::PointCloud<PointT>::Ptr edgeFeatures;
-//    pcl::PointCloud<PointT>::Ptr surfFeatures;
-//    Frame(const gtsam::Pose3& pose_, pcl::PointCloud<PointT>::Ptr edgeFeatures_, pcl::PointCloud<PointT>::Ptr surfFeatures_) :
-//            pose(pose_), edgeFeatures(edgeFeatures_), surfFeatures(surfFeatures_) {}
-//};
 
 class Keyframe {
 public:
@@ -72,29 +39,26 @@ public:
 public:
     int index;
     int valid_frames = 0;
-//    mutable std::shared_mutex sharedMutex;
-    gtsam::Pose3 pose;
+    gtsam::Pose3 pose_world_curr;
+    gtsam::Pose3 pose_last_curr;
+    std::vector<gtsam::OrientedPlane3> planes;
     // feature point cloud
     pcl::PointCloud<PointT>::Ptr edgeFeatures;
     pcl::PointCloud<PointT>::Ptr surfFeatures;
     pcl::PointCloud<PointT>::Ptr raw;
-//    // sub frames from current to next keyframe. [current, next)
-//    std::vector<Frame::Ptr> sub_frames;
-private:
-    bool init = false;
 public:
     Keyframe(int _index, PointCloudPtr EF, PointCloudPtr PF, PointCloudPtr RAW);
-    ~Keyframe();
-    void set_init(gtsam::Pose3 pose_);
+    void set_init(Keyframe::Ptr last_keyframe, gtsam::Pose3 pose_world_curr_);
     bool is_init() const;
-//    pcl::PointCloud<PointT>::Ptr generate_sub_map(FeatureType featureType) const;
-//    void insert(const gtsam::Pose3& pose_, PointCloudPtr EF, PointCloudPtr PF);
-//    gtsam::Pose3 pose() const;
-//    gtsam::Pose3& pose();
-//    void optimize(const gtsam::Pose3& next_pose);
+    void add_frame();
 
 };
 
+struct KeyframeVec {
+    using Ptr = boost::shared_ptr<KeyframeVec>;
+    std::shared_mutex pose_mtx;
+    std::vector<Keyframe::Ptr> keyframes;
+};
 
 
 #endif //MLOAM_FRAME_H

@@ -3,6 +3,7 @@
 #include <gtsam/geometry/Pose3.h>
 #include <gtsam/geometry/Point3.h>
 #include <gtsam/nonlinear/NonlinearFactor.h>
+#include <gtsam/geometry/OrientedPlane3.h>
 
 namespace gtsam
 {
@@ -101,6 +102,50 @@ public:
         return err;
     }
 };
+
+    class PlaneToPlaneFactor: public NoiseModelFactor2<Pose3, Pose3>
+    {
+    protected:
+
+        OrientedPlane3 this_plane;
+        OrientedPlane3 closest_plane;
+        typedef NoiseModelFactor2<Pose3, Pose3> Base;
+    public:
+
+        EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
+        /// Constructor
+        PlaneToPlaneFactor() {
+        }
+        virtual ~PlaneToPlaneFactor() {}
+
+
+        PlaneToPlaneFactor(
+            const Key& this_key, const OrientedPlane3& this_plane_,
+            const Key& closest_key, const OrientedPlane3& closest_plane_,
+            const SharedNoiseModel& pose_noise_model) :
+            Base(pose_noise_model, this_key, closest_key), this_plane(this_plane_), closest_plane(closest_plane_)
+        {}
+
+        Vector evaluateError(const Pose3 &pose1, const Pose3 &pose2,
+                             boost::optional<Matrix&> H1 = boost::none,
+                             boost::optional<Matrix&> H2 = boost::none) const override
+        {
+            Matrix36 H_r_pose1, H_r_pose2;
+
+            OrientedPlane3 p1 = this_plane.transform(pose1, boost::none, H1 ? &H_r_pose1 : nullptr);
+
+            OrientedPlane3 p2 = closest_plane.transform(pose2, boost::none, H2 ? &H_r_pose2 : nullptr);
+
+            Vector3 err = p1.errorVector(p2);
+
+            if (H1) *H1 =  H_r_pose1;
+
+            if (H2) *H2 = -H_r_pose2; //! negative
+
+            return err;
+        }
+    };
 
 
 }
