@@ -10,21 +10,23 @@
 #include "map_generator.h"
 #include <pclomp/gicp_omp.h>
 
-using LoopFactor = gtsam::NonlinearFactor::shared_ptr;
+using FactorPtr = gtsam::NonlinearFactor::shared_ptr;
 
 const int LOOP_KEYFRAME_CROP_LEN = 10;
 const int LOOP_LATEST_KEYFRAME_SKIP = 50;
-const int LOOP_COOLDOWN_KEYFRAME_COUNT = 15;
+const int LOOP_COOLDOWN_KEYFRAME_COUNT = 10;
 const int LOOP_CLOSE_DISTANCE = 15;
 extern const std::string filepath;
 
-static gtsam::SharedNoiseModel loop_closure_gaussian_model = gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(6) << 1e-3, 1e-3, 1e-3, 1e-2, 1e-2, 1e-1).finished());
+static gtsam::SharedNoiseModel loop_noise_model   = gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(6) << 1e-3, 1e-3, 1e-3, 1e-2, 1e-2, 1e-1).finished());
+static gtsam::SharedNoiseModel submap_noise_model = gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(6) << 1e-2, 1e-2, 1e-2, 3e-2, 3e-2, 2e-1).finished());
 
 class LoopDetector {
 public:
     int last_loop_found_index = 0;
 public:
-    void loop_detector(KeyframeVec::Ptr keyframeVec, Keyframe::Ptr latestKeyframe, std::vector<LoopFactor>& loopFactors);
+    void loop_detector(KeyframeVec::Ptr keyframeVec, Keyframe::Ptr latestKeyframe, std::vector<FactorPtr>& loopFactors);
+    void submap_finetune(KeyframeVec::Ptr keyframeVec, Keyframe::Ptr latestKeyframe, std::vector<FactorPtr>& loopFactors);
     bool gicp_matching(pcl::PointCloud<PointT>::Ptr cloud_to, pcl::PointCloud<PointT>::Ptr cloud_from, const gtsam::Pose3& pose_guess, gtsam::Pose3& pose);
 };
 

@@ -23,7 +23,7 @@ public:
 
     void insert(KeyframeVec::Ptr keyframeVec, size_t begin, size_t end);
 
-    pcl::PointCloud<PointT>::Ptr get() const;
+    pcl::PointCloud<PointT>::Ptr get(float) const;
 
     static pcl::PointCloud<PointT>::Ptr generate_cloud(KeyframeVec::Ptr keyframeVec, size_t begin, size_t end, FeatureType featureType);
 

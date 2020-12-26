@@ -13,6 +13,8 @@
 #include <pcl/features/normal_3d_omp.h>
 #include <pcl/features/normal_3d.h>
 
+static int plane_id = 0;
+
 class LaserOdometry {
 public:
 
@@ -62,21 +64,14 @@ public:
         if (current_keyframe->valid_frames == 1) {
             size_t size = keyframeVec->keyframes.size();
             size_t start = size < SLIDE_KEYFRAME_LEN ? 0 : size - SLIDE_KEYFRAME_LEN;
+            size_t start2 = size < SLIDE_PLANE_LEN ? 0 : size - SLIDE_PLANE_LEN;
 
             slideWindowEdge = MapGenerator::generate_cloud(keyframeVec, start, size, FeatureType::Edge);
             slideWindowSurf = MapGenerator::generate_cloud(keyframeVec, start, size, FeatureType::Surf);
+            slideWindowPlane = MapGenerator::generate_cloud(keyframeVec, start2, size, FeatureType::Plane);
             downsampling(slideWindowEdge, *slideWindowEdge, FeatureType::Edge);
             downsampling(slideWindowSurf, *slideWindowSurf, FeatureType::Surf);
-
-            sensor_msgs::PointCloud2Ptr cloud_msg(new sensor_msgs::PointCloud2());
-            pcl::toROSMsg(*slideWindowEdge, *cloud_msg);
-            cloud_msg->header.stamp = cloud_in_time;
-            cloud_msg->header.frame_id = "map";
-            pub_sw_edge.publish(cloud_msg);
-            pcl::toROSMsg(*slideWindowSurf, *cloud_msg);
-            cloud_msg->header.stamp = cloud_in_time;
-            cloud_msg->header.frame_id = "map";
-            pub_sw_surf.publish(cloud_msg);
+            downsampling(slideWindowPlane, *slideWindowPlane, FeatureType::Plane);
         }
     }
 
@@ -254,7 +249,7 @@ public:
                     // if OX * n > 0.2, then plane is not fit well
                     if (fabs(norm(0) * map_in->points[pointSearchInd[j]].x +
                              norm(1) * map_in->points[pointSearchInd[j]].y +
-                             norm(2) * map_in->points[pointSearchInd[j]].z + negative_OA_dot_norm) > 0.2) {
+                             norm(2) * map_in->points[pointSearchInd[j]].z + negative_OA_dot_norm) > 0.12) {
                         planeValid = false;
                         break;
                     }
@@ -277,74 +272,141 @@ public:
 
     }
 
-    void addPlaneToPlaneFactor(Keyframe::Ptr fromFrame, Keyframe::Ptr toFrame) {
+    int addSurfCostFactor2(
+            const pcl::PointCloud<PointT>::Ptr& pc_in,
+            const pcl::PointCloud<PointT>::Ptr& map_in,
+            const pcl::KdTreeFLANN<PointT>::Ptr& kdtreeSurf,
+            const gtsam::Pose3& odom,
+            gtsam::NonlinearFactorGraph& factors,
+            int state_key) {
 
-        if (!fromFrame->is_init() || !toFrame->is_init()) {
-            std::cerr << "from or to frame haven't init!" << std::endl;
-            return;
-        }
+        int surf_num=0;
+        PointT point_temp;
+        std::vector<int> pointSearchInd;
+        std::vector<float> pointSearchSqDis;
 
-        // read lock
-        gtsam::Pose3 from_pose, to_pose;
-        {
-            std::shared_lock<std::shared_mutex> sl(keyframeVec->pose_mtx);
-            from_pose = fromFrame->pose_world_curr;
-            to_pose = toFrame->pose_world_curr;
-        }
-        int correspondence = 0;
+        for (int i = 0; i < (int)pc_in->points.size(); i++) {
 
-        std::vector<gtsam::PlaneToPlaneFactor::shared_ptr> planePlaneFactors;
+            pointAssociate(&(pc_in->points[i]), &point_temp, odom);
+            kdtreeSurf->nearestKSearch(point_temp, 5, pointSearchInd, pointSearchSqDis);
 
-        for (size_t i = 0; i < fromFrame->planes.size(); i++) {
+            Eigen::Matrix<double, 5, 3> matA0;
+            Eigen::Matrix<double, 5, 1> matB0 = -1 * Eigen::Matrix<double, 5, 1>::Ones();
+            if (pointSearchSqDis[4] < 1.0) {
 
-            int best_j = -1;
-            double distanceThreshold = map_resolution;
-            double angleThreshold = 3.0;
-            auto this_plane = fromFrame->planes[i].transform(from_pose);
-            Eigen::Vector3d n1(this_plane.normal().unitVector());
+                for (int j = 0; j < 5; j++) {
+                    matA0(j, 0) = map_in->points[pointSearchInd[j]].x;
+                    matA0(j, 1) = map_in->points[pointSearchInd[j]].y;
+                    matA0(j, 2) = map_in->points[pointSearchInd[j]].z;
+                }
+                // find the norm of plane
+                Eigen::Vector3d norm = matA0.colPivHouseholderQr().solve(matB0);
+                double negative_OA_dot_norm = 1 / norm.norm();
+                norm.normalize();
 
-            for (size_t j = 0; j < toFrame->planes.size(); j++) {
-                auto other_plane = toFrame->planes[j].transform(to_pose);
-                Eigen::Vector3d n2(other_plane.normal().unitVector());
-                double angle = std::atan2(n1.cross(n2).norm(), n1.transpose() * n2) * 180 / M_PI;
-                double distance = std::abs(this_plane.distance() - other_plane.distance());
-
-                if (distance < distanceThreshold && (angle > -angleThreshold && angle < angleThreshold ||
-                                                     angle > 180 - angleThreshold &&
-                                                     angle < 180 + angleThreshold)) {
-                    distanceThreshold = distance;
-                    angleThreshold = angle;
-                    best_j = j;
+                /*
+                 * ne equation: nT p + d = 0;
+                 * nT p / d = -1; (matB0 is -1)
+                 * nT is norm, matA0 is p [x,3]
+                 * pT n / d = -1 => Ax = b
+                 * x = n / d => ||n|| = 1, d = ||x / n|| = 1 / ||x.norm()||, n = n.normailzed
+                */
+                bool planeValid = true;
+                for (int j = 0; j < 5; j++) {
+                    // if OX * n > 0.2, then plane is not fit well
+                    if (fabs(norm(0) * map_in->points[pointSearchInd[j]].x +
+                             norm(1) * map_in->points[pointSearchInd[j]].y +
+                             norm(2) * map_in->points[pointSearchInd[j]].z + negative_OA_dot_norm) > 0.2) {
+                        planeValid = false;
+                        break;
+                    }
+                }
+                Eigen::Vector3d curr_point(pc_in->points[i].x, pc_in->points[i].y, pc_in->points[i].z);
+                if (planeValid) {
+                    factors.emplace_shared<gtsam::PointToPlaneFactor>(
+                            X(state_key), curr_point, norm, negative_OA_dot_norm, surf_noise_model2);
+                    surf_num++;
                 }
             }
 
-            if (best_j != -1) {
-                std::cout << "find closest plane!" << std::endl;
-                std::cout << "current: " << n1.transpose() << " " << this_plane.distance() << std::endl;
-                auto other_plane = toFrame->planes[best_j].transform(to_pose);
-                Eigen::Vector3d n2(other_plane.normal().unitVector());
-                std::cout << "closest: " << n2.transpose() << " " << other_plane.distance() << std::endl;
-                planePlaneFactors.emplace_back(boost::make_shared<gtsam::PlaneToPlaneFactor>(X(fromFrame->index), fromFrame->planes[i],
-                                                                                             X(toFrame->index), toFrame->planes[best_j],
-                                                                                             plane_plane_noise_model));
-                correspondence++;
-
-            }
-
         }
 
-        if (correspondence >= 8) {
-            for (const auto& factor : planePlaneFactors) {
-                BAGraph.add(factor);
-            }
-            std::cerr << "add plane plane factor!" << std::endl;
-        } else {
-            std::cerr << "not enough plane plane factor!" << std::endl;
+        if (surf_num < 20) {
+            printf("not enough correct points\n");
         }
+
+        return surf_num;
 
     }
 
-    void getTransToSlideWindow(pcl::PointCloud<PointT>::Ptr currEdgeDS, pcl::PointCloud<PointT>::Ptr currSurfDS) {
+//    void addPlaneToPlaneFactor(Keyframe::Ptr fromFrame, Keyframe::Ptr toFrame) {
+//
+//        if (!fromFrame->is_init() || !toFrame->is_init()) {
+//            std::cerr << "from or to frame haven't init!" << std::endl;
+//            return;
+//        }
+//
+//        // read lock
+//        gtsam::Pose3 from_pose, to_pose;
+//        {
+//            std::shared_lock<std::shared_mutex> sl(keyframeVec->pose_mtx);
+//            from_pose = fromFrame->pose_world_curr;
+//            to_pose = toFrame->pose_world_curr;
+//        }
+//        int correspondence = 0;
+//
+//        std::vector<gtsam::PlaneToPlaneFactor::shared_ptr> planePlaneFactors;
+//
+//        for (size_t i = 0; i < fromFrame->planes.size(); i++) {
+//
+//            int best_j = -1;
+//            double distanceThreshold = map_resolution * 0.75;
+//            double angleThreshold = 2.0;
+//            auto this_plane = fromFrame->planes[i].transform(from_pose);
+//            Eigen::Vector3d n1(this_plane.normal().unitVector());
+//
+//            for (size_t j = 0; j < toFrame->planes.size(); j++) {
+//                auto other_plane = toFrame->planes[j].transform(to_pose);
+//                Eigen::Vector3d n2(other_plane.normal().unitVector());
+//                double angle = std::atan2(n1.cross(n2).norm(), n1.transpose() * n2) * 180 / M_PI;
+//                double distance = std::abs(this_plane.distance() - other_plane.distance());
+//
+//                if (distance < distanceThreshold && (angle > -angleThreshold && angle < angleThreshold ||
+//                                                     angle > 180 - angleThreshold &&
+//                                                     angle < 180 + angleThreshold)) {
+//                    distanceThreshold = distance;
+//                    angleThreshold = angle;
+//                    best_j = j;
+//                }
+//            }
+//
+//            if (best_j != -1) {
+//                std::cout << "find closest plane!" << std::endl;
+//                std::cout << "current: " << n1.transpose() << " " << this_plane.distance() << std::endl;
+//                auto other_plane = toFrame->planes[best_j].transform(to_pose);
+//                Eigen::Vector3d n2(other_plane.normal().unitVector());
+//                std::cout << "closest: " << n2.transpose() << " " << other_plane.distance() << std::endl;
+//                planePlaneFactors.emplace_back(boost::make_shared<gtsam::PlaneToPlaneFactor>(X(fromFrame->index), fromFrame->planes[i],
+//                                                                                             X(toFrame->index), toFrame->planes[best_j],
+//                                                                                             plane_plane_noise_model));
+//                correspondence++;
+//
+//            }
+//
+//        }
+//
+//        if (correspondence >= 8) {
+//            for (const auto& factor : planePlaneFactors) {
+//                BAGraph.add(factor);
+//            }
+//            std::cerr << "add plane plane factor!" << std::endl;
+//        } else {
+//            std::cerr << "not enough plane plane factor!" << std::endl;
+//        }
+//
+//    }
+
+    void getTransToSlideWindow(pcl::PointCloud<PointT>::Ptr currEdgeDS, pcl::PointCloud<PointT>::Ptr currSurfDS, pcl::PointCloud<PointT>::Ptr currPlane) {
 
         gtsam::Pose3 odom_prediction = pose_normalize(odom * delta);
 
@@ -360,6 +422,7 @@ public:
 
             kdtreeEdgeSW->setInputCloud(slideWindowEdge);
             kdtreeSurfSW->setInputCloud(slideWindowSurf);
+            kdtreePlaneSW->setInputCloud(slideWindowPlane);
 
             for (int opti_counter = 0; opti_counter < 3; opti_counter++) {
 
@@ -369,6 +432,7 @@ public:
 
                 addEdgeCostFactor(currEdgeDS, slideWindowEdge, kdtreeEdgeSW, pose_w_c, factors, 0);
                 addSurfCostFactor(currSurfDS, slideWindowSurf, kdtreeSurfSW, pose_w_c, factors, 0);
+//                addSurfCostFactor2(currSurfDS, slideWindowPlane, kdtreePlaneSW, pose_w_c, factors, 0);
 
                 // gtsam
                 gtsam::LevenbergMarquardtParams params;
@@ -406,15 +470,13 @@ public:
         BAEstimate.insert(X(index), current_keyframe->pose_world_curr);
     }
 
-    void handleRegistration(pcl::PointCloud<PointT>::Ptr currEdgeDS, pcl::PointCloud<PointT>::Ptr currSurfDS) {
-
-
+    void handleRegistration() {
 
         if (!current_keyframe->is_init()) {
             Keyframe::Ptr last_keyframe = keyframeVec->keyframes[current_keyframe->index - 1];
             // push to loopDetectBuf
             BA_mtx.lock();
-            BAOptiBuf.push(last_keyframe);
+            BAKeyframeBuf.push(last_keyframe);
             BA_mtx.unlock();
 
             /*** all  pose: [0, current]
@@ -441,21 +503,21 @@ public:
     }
 
     void updatePoses() {
-        std::lock_guard<std::mutex> lg(poses_opti_mtx);
         // write lock
         std::unique_lock<std::shared_mutex> ul(keyframeVec->pose_mtx);
 
-        size_t k = poses_optimized.size();
-        size_t current = current_keyframe->index;
-        // update pose from [0, k-1]
-        for (size_t i = 0; i < k; i++) {
-            keyframeVec->keyframes[i]->pose_world_curr = pose_normalize(poses_optimized[i]);
+        graph_mtx.lock();
+        isam->update(BAGraph, BAEstimate);
+        BAGraph.resize(0);
+        BAEstimate.clear();
+        isam->update();
+        graph_mtx.unlock();
+
+        isamOptimize = isam->calculateEstimate();
+
+        for (size_t i = 0; i < isamOptimize.size(); i++) {
+            keyframeVec->keyframes[i]->pose_world_curr = pose_normalize(isamOptimize.at<gtsam::Pose3>(X(i)));
         }
-        // recalculate pose from [k, current] using relative pose
-        for (size_t i = k; i <= current; i++) {
-            keyframeVec->keyframes[i]->pose_world_curr = pose_normalize(keyframeVec->keyframes[i - 1]->pose_world_curr * keyframeVec->keyframes[i]->pose_last_curr);
-        }
-        // no need to update relative pose from [0, current]
     }
 
     void init_extract_plane_params() {
@@ -470,15 +532,17 @@ public:
         regionGrowing.setCurvatureThreshold(0.1);
     }
 
-    void extract_planes() {
+    pcl::PointCloud<PointT>::Ptr extract_planes(pcl::PointCloud<PointT>::Ptr currSurf) {
         TimeCounter t1;
         pcl::PointCloud<NormalT>::Ptr cloud_normals(new pcl::PointCloud<NormalT>());
         std::vector<pcl::PointIndices> clusters;
-        ne.setInputCloud(current_keyframe->surfFeatures);
+        ne.setInputCloud(currSurf);
         ne.compute(*cloud_normals);
-        regionGrowing.setInputCloud(current_keyframe->surfFeatures);
+        regionGrowing.setInputCloud(currSurf);
         regionGrowing.setInputNormals(cloud_normals);
         regionGrowing.extract(clusters);
+
+        pcl::PointCloud<PointT>::Ptr planes(new pcl::PointCloud<PointT>());
 
         for (const auto& cluster : clusters) {
             size_t size = cluster.indices.size();
@@ -488,40 +552,39 @@ public:
 
             for (size_t j = 0; j < size; j++) {
                 int idx = cluster.indices[j];
-                matA0(j, 0) = current_keyframe->surfFeatures->points[idx].x;
-                matA0(j, 1) = current_keyframe->surfFeatures->points[idx].y;
-                matA0(j, 2) = current_keyframe->surfFeatures->points[idx].z;
+                matA0(j, 0) = currSurf->points[idx].x;
+                matA0(j, 1) = currSurf->points[idx].y;
+                matA0(j, 2) = currSurf->points[idx].z;
             }
             Eigen::Vector3d norm = matA0.colPivHouseholderQr().solve(matB0);
             double d = 1 / norm.norm();
             norm.normalize();
 
             bool planeValid = true;
-            int outliers_max = 3;
             for (size_t j = 0; j < size; j++) {
                 int idx = cluster.indices[j];
-                if (fabs(norm(0) * current_keyframe->surfFeatures->points[idx].x +
-                         norm(1) * current_keyframe->surfFeatures->points[idx].y +
-                         norm(2) * current_keyframe->surfFeatures->points[idx].z + d) > map_resolution) {
-                    outliers_max--;
-                }
-                if (outliers_max <= 0) {
+                if (fabs(norm(0) * currSurf->points[idx].x +
+                         norm(1) * currSurf->points[idx].y +
+                         norm(2) * currSurf->points[idx].z + d) > 0.25) {
                     planeValid = false;
                     break;
                 }
             }
 
             if (planeValid) {
-                current_keyframe->planes.push_back(gtsam::OrientedPlane3(gtsam::Unit3(norm), d));
+                for (size_t j = 0; j < size; j++) {
+//                    current_keyframe->planes->push_back(current_keyframe->surfFeatures->points[cluster.indices[j]]);
+                    planes->push_back(currSurf->points[cluster.indices[j]]);
+                }
             }
         }
-        std::cout << "extract plane: " << current_keyframe->planes.size() << " within " << t1.count() << "ms" << std::endl;
+        return planes;
+//        std::cout << "extract plane: " << current_keyframe->planes.size() << " within " << t1.count() << "ms" << std::endl;
     }
 
     void update_keyframe(pcl::PointCloud<PointT>::Ptr currEdge, pcl::PointCloud<PointT>::Ptr currSurf, pcl::PointCloud<PointT>::Ptr currFull) {
         current_keyframe = boost::make_shared<Keyframe>(keyframeVec->keyframes.size(), currEdge, currSurf, currFull->makeShared());
         keyframeVec->keyframes.emplace_back(current_keyframe);
-        extract_planes();
         is_keyframe_next = false;
     }
 
@@ -533,9 +596,12 @@ public:
         currEdgeDS = currEdge->makeShared();
         downsampling(currSurf, *currSurfDS, FeatureType::Surf);
 
+        auto currPlanes = extract_planes(currSurfDS);
+
         // if is keyframe, append to keyframes vector
         if (is_keyframe_next) {
             update_keyframe(currEdgeDS, currSurfDS, currFull);
+            current_keyframe->planes = currPlanes;
         }
 
         if (!is_init) {
@@ -547,9 +613,9 @@ public:
 
         updateSlideWindows();
         // update current odom to world
-        getTransToSlideWindow(currEdgeDS, currSurfDS);
+        getTransToSlideWindow(currEdgeDS, currSurfDS, currPlanes);
         // handle and opti odom
-        handleRegistration(currEdgeDS, currSurfDS);
+        handleRegistration();
         // pub path
         pubOdomAndPath();
 
@@ -598,17 +664,162 @@ public:
         }
     }
 
+//    pcl::PointCloud<PointT>::Ptr planeCollector(Keyframe::Ptr current_keyframe) {
+//
+//        pcl::PointCloud<PointT>::Ptr plane_sliding_windows(new pcl::PointCloud<PointT>());
+//        const int plane_track_sliding_window_len = 6;
+//
+//        int curr_idx = current_keyframe->index;
+//        int start = max(0, curr_idx - plane_track_sliding_window_len);
+//
+//        std::vector<gtsam::Pose3> poseVec = keyframeVec->read_poses(start, curr_idx);
+//
+//        std::cout << "start: " << start << " curr_idx: " << curr_idx << std::endl;
+//
+//        for (int i = start; i < curr_idx; i++) {
+//            for (const auto& plane : keyframeVec->keyframes[i]->planes) {
+//                auto temp_plane = plane->points->makeShared();
+//                pcl::transformPointCloud(*temp_plane, *temp_plane, poseVec[i - start].matrix());
+//                *plane_sliding_windows += *temp_plane;
+//            }
+//        }
+//
+//        std::cout << "plane_sliding_windows size" << plane_sliding_windows->size() << std::endl;
+//        return plane_sliding_windows;
+//    }
+//
+//    void initPlaneCollector(Keyframe::Ptr current_keyframe) {
+//        for (const auto& plane : current_keyframe->planes) {
+//            for (auto& point : plane->points->points) {
+//                point.intensity = plane_id;
+//            }
+////            plane2HostMap[plane_id] = current_keyframe->index;
+//            plane_id++;
+//        }
+//    }
+
+//    void addPointToPlaneFactor(Keyframe::Ptr current_keyframe) {
+//
+//        initPlaneCollector(current_keyframe);
+//        if (current_keyframe->index == 0)
+//            return;
+//        pcl::PointCloud<PointT>::Ptr plane_sliding_windows = planeCollector(current_keyframe);
+//
+//        std::cout << "plane_sliding_windows empty ? " << plane_sliding_windows->empty() << std::endl;
+//
+//        pcl::KdTreeFLANN<PointT> kdtree;
+//        kdtree.setInputCloud(plane_sliding_windows);
+//
+//        PointT point_temp;
+//        std::vector<int> pointSearchInd;
+//        std::vector<float> pointSearchSqDis;
+//
+//        gtsam::Pose3 pose_w_c;
+//        {
+//            keyframeVec->pose_mtx.lock_shared();
+//            pose_w_c = current_keyframe->pose_world_curr;
+//            keyframeVec->pose_mtx.unlock_shared();
+//        }
+//
+//        gtsam::NonlinearFactorGraph factors;
+//        gtsam::Values init_values;
+//        init_values.insert(X(current_keyframe->index), pose_w_c);
+//
+//        for (const auto& plane : current_keyframe->planes) {
+//
+//            size_t total_points = plane->points->size();
+//            unordered_map<int, int> m;
+//
+//            for (const auto& point : plane->points->points) {
+//                pointAssociate(&point, &point_temp, pose_w_c);
+//                kdtree.nearestKSearch(point_temp, 5, pointSearchInd, pointSearchSqDis);
+//
+//                Eigen::Matrix<double, 5, 3> matA0;
+//                Eigen::Matrix<double, 5, 1> matB0 = -1 * Eigen::Matrix<double, 5, 1>::Ones();
+//
+//                if (pointSearchSqDis[4] < 0.4) {
+//
+//                    bool samePlane = true;
+//                    for (int j = 1; j < 5; j++) {
+//                        if (plane_sliding_windows->points[pointSearchInd[j]].intensity != plane_sliding_windows->points[pointSearchInd[j - 1]].intensity) {
+//                            samePlane = false;
+//                            break;
+//                        }
+//                    }
+//                    if (!samePlane) {
+//                        continue;
+//                    }
+//                    for (int j = 0; j < 5; j++) {
+//                        matA0(j, 0) = plane_sliding_windows->points[pointSearchInd[j]].x;
+//                        matA0(j, 1) = plane_sliding_windows->points[pointSearchInd[j]].y;
+//                        matA0(j, 2) = plane_sliding_windows->points[pointSearchInd[j]].z;
+//                    }
+//                    // find the norm of plane
+//                    Eigen::Vector3d norm = matA0.colPivHouseholderQr().solve(matB0);
+//                    double d = 1 / norm.norm();
+//                    norm.normalize();
+//
+//                    bool planeValid = true;
+//                    for (int j = 0; j < 5; j++) {
+//                        // if OX * n > 0.2, then plane is not fit well
+//                        if (fabs(norm(0) * plane_sliding_windows->points[pointSearchInd[j]].x +
+//                                 norm(1) * plane_sliding_windows->points[pointSearchInd[j]].y +
+//                                 norm(2) * plane_sliding_windows->points[pointSearchInd[j]].z + d) > 0.2) {
+//                            planeValid = false;
+//                            break;
+//                        }
+//                    }
+//                    Eigen::Vector3d curr_point(point.x, point.y, point.z);
+//                    if (planeValid) {
+//                        int plane_id = int(plane_sliding_windows->points[pointSearchInd[0]].intensity);
+//                        factors.emplace_shared<gtsam::PointToPlaneFactor>(
+//                                X(current_keyframe->index), curr_point, norm, d, surf_noise_model);
+//                        m[plane_id]++;
+//                    }
+//
+//                }
+//            }
+//            for (const auto& p : m) {
+//                if (p.second >= total_points / 2) {
+//                    std::cout << "same plane!" << std::endl;
+//                    for (auto& point : plane->points->points) {
+//                        point.intensity = p.first;
+//                    }
+//                }
+//            }
+//        }
+//
+//        // gtsam
+//        gtsam::LevenbergMarquardtParams params;
+//        params.setLinearSolverType("MULTIFRONTAL_CHOLESKY");
+//        params.setRelativeErrorTol(1e-4);
+//        params.maxIterations = 6;
+//
+//        auto result = gtsam::LevenbergMarquardtOptimizer(factors, init_values, params).optimize();
+//
+//        pose_w_c = result.at<gtsam::Pose3>(X(current_keyframe->index));
+//
+//        BAGraph.emplace_shared<gtsam::BetweenFactor<gtsam::Pose3>>(X(0), X(current_keyframe->index), pose_w_c, odometry_noise_model);
+//    }
+
+//    void updateFactorGraph() {
+//
+//        std::lock_guard<std::Mmutex> lockGuard(graph_mtx);
+//
+//
+//
+//    }
+
     void BA_optimization() {
 
         while (ros::ok()) {
 
-            Timer t_ba("BA_optimization");
             std::vector<Keyframe::Ptr> keyframes_buf;
             BA_mtx.lock();
-            keyframes_buf.reserve(BAOptiBuf.size());
-            while (!BAOptiBuf.empty()) {
-                auto keyframe = BAOptiBuf.front();
-                BAOptiBuf.pop();
+            keyframes_buf.reserve(BAKeyframeBuf.size());
+            while (!BAKeyframeBuf.empty()) {
+                auto keyframe = BAKeyframeBuf.front();
+                BAKeyframeBuf.pop();
                 keyframes_buf.push_back(keyframe);
             }
             BA_mtx.unlock();
@@ -616,52 +827,38 @@ public:
             if (keyframes_buf.size() > 0) {
                 // todo use openmp
 //                for (const auto& this_keyframe : keyframes_buf) {
-//                    if (this_keyframe->index > 0) {
-//                        Keyframe::Ptr to_keyframe = keyframeVec->keyframes[this_keyframe->index - 1];
-//                        addPlaneToPlaneFactor(this_keyframe, to_keyframe);
-//                    }
+//                    addPointToPlaneFactor(this_keyframe);
 //                }
-                // todo use openmp
-                std::vector<LoopFactor> loopFactors;
+                std::vector<FactorPtr> factors;
                 for (const auto& keyframe : keyframes_buf) {
-                    loopDetector.loop_detector(keyframeVec, keyframe, loopFactors);
+                    loopDetector.submap_finetune(keyframeVec, keyframe, factors);
+                    loopDetector.loop_detector(keyframeVec, keyframe, factors);
                 }
-                for (const auto& factor: loopFactors) {
+
+                // todo use openmp
+                for (const auto& factor: factors) {
                     BAGraph.add(factor);
                 }
 
-                loop_found = (loopFactors.size() > 0);
+                status_change = (factors.size() > 0);
             }
 
             // isam update
+            graph_mtx.lock();
             isam->update(BAGraph, BAEstimate);
-            isam->update();
-
-            if (loop_found) {
-                isam->update();
-                isam->update();
-                isam->update();
-                loop_found = false;
-            }
-
             BAGraph.resize(0);
             BAEstimate.clear();
+            isam->update();
 
-            isamOptimize = isam->calculateEstimate();
-
-            // send to poses_optimized
-            {
-                std::lock_guard<std::mutex> lg(poses_opti_mtx);
-                poses_optimized.clear();
-                poses_optimized.reserve(isamOptimize.size());
-                for (size_t i = 0; i < isamOptimize.size(); i++) {
-                    poses_optimized.push_back(isamOptimize.at<gtsam::Pose3>(X(i)));
-                }
+            if (status_change) {
+                isam->update();
+                isam->update();
+                isam->update();
+                status_change = false;
             }
+            graph_mtx.unlock();
 
             regenerate_map = true;
-
-            t_ba.count();
 
             //sleep 10 ms every time
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -687,7 +884,7 @@ public:
                 mapGenerator.insert(keyframeVec, last_map_generate_index, size);
             }
 
-            auto globalMap = mapGenerator.get();
+            auto globalMap = mapGenerator.get(0.0f);
             if (!globalMap) {
                 std::cout << "empty global map!" << std::endl;
                 continue;
@@ -719,8 +916,10 @@ public:
     void allocateMem() {
         slideWindowEdge    = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
         slideWindowSurf    = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
+        slideWindowPlane    = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
         kdtreeEdgeSW       = pcl::KdTreeFLANN<PointT>::Ptr(new pcl::KdTreeFLANN<PointT>());
         kdtreeSurfSW       = pcl::KdTreeFLANN<PointT>::Ptr(new pcl::KdTreeFLANN<PointT>());
+        kdtreePlaneSW       = pcl::KdTreeFLANN<PointT>::Ptr(new pcl::KdTreeFLANN<PointT>());
     }
 
     void initROSHandler() {
@@ -742,6 +941,8 @@ public:
 
     void initParam() {
 
+        ne.setNumberOfThreads(std::thread::hardware_concurrency());
+
         keyframeVec = boost::make_shared<KeyframeVec>();
         keyframeVec->keyframes.reserve(200);
 
@@ -758,17 +959,13 @@ public:
 
         edge_noise_model = gtsam::noiseModel::Robust::Create(gtsam::noiseModel::mEstimator::Huber::Create(0.58), edge_gaussian_model);
         surf_noise_model = gtsam::noiseModel::Robust::Create(gtsam::noiseModel::mEstimator::Huber::Create(0.02), surf_gaussian_model);
+        surf_noise_model2 = gtsam::noiseModel::Robust::Create(gtsam::noiseModel::mEstimator::Huber::Create(0.001), surf_gaussian_model);
 
         prior_gaussian_model = gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(6) << 1e-6, 1e-6, 1e-6, 1e-6, 1e-6, 1e-6).finished());
         odometry_gaussian_model = gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(6) << 1e-3, 1e-3, 1e-3, 1e-2, 1e-2, 1e-1).finished());
 
-
-
-//        prior_noise_model = gtsam::noiseModel::Robust::Create(gtsam::noiseModel::mEstimator::Huber::Create(1.345), prior_gaussian_model);
-//        odometry_noise_model = gtsam::noiseModel::Robust::Create(gtsam::noiseModel::mEstimator::Huber::Create(1.345), odometry_gaussian_model);
         prior_noise_model = prior_gaussian_model;
         odometry_noise_model = odometry_gaussian_model;
-        plane_plane_noise_model = gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(3) << 1e-1, 1e-1, 1e-1).finished());
 
         gtsam::ISAM2Params isam2Params;
         isam2Params.relinearizeThreshold = 0.1;
@@ -818,10 +1015,10 @@ private:
     double map_resolution = 0.4;
 
     // status
-    bool status_change = false;
     bool regenerate_map = false;
 
     // gtsam
+    std::mutex graph_mtx;
     gtsam::NonlinearFactorGraph BAGraph;
     gtsam::Values BAEstimate;
     std::shared_ptr<gtsam::ISAM2> isam;
@@ -833,7 +1030,7 @@ private:
     // gaussian model
     gtsam::SharedNoiseModel edge_gaussian_model, surf_gaussian_model, prior_gaussian_model, odometry_gaussian_model;
     // noise model
-    gtsam::SharedNoiseModel edge_noise_model, surf_noise_model, prior_noise_model, odometry_noise_model, plane_plane_noise_model;
+    gtsam::SharedNoiseModel edge_noise_model, surf_noise_model, prior_noise_model, odometry_noise_model, plane_plane_noise_model, surf_noise_model2;
 
     /*********************************************************************
    ** Laser Odometry
@@ -849,10 +1046,13 @@ private:
 
     // frame-to-slidewindow
     const int SLIDE_KEYFRAME_LEN = 6;
+    const int SLIDE_PLANE_LEN = 10;
     pcl::PointCloud<PointT>::Ptr slideWindowEdge;
     pcl::PointCloud<PointT>::Ptr slideWindowSurf;
+    pcl::PointCloud<PointT>::Ptr slideWindowPlane;
     pcl::KdTreeFLANN<PointT>::Ptr kdtreeEdgeSW;
     pcl::KdTreeFLANN<PointT>::Ptr kdtreeSurfSW;
+    pcl::KdTreeFLANN<PointT>::Ptr kdtreePlaneSW;
 
     // downsample filter
     pcl::VoxelGrid<PointT> downSizeFilterEdge;
@@ -879,8 +1079,8 @@ private:
    ** backend BA
    *********************************************************************/
     std::mutex BA_mtx;
-    std::queue<Keyframe::Ptr> BAOptiBuf;
-    bool loop_found = false;
+    std::queue<Keyframe::Ptr> BAKeyframeBuf;
+    bool status_change = false;
 
     /*********************************************************************
    ** Map Generator

@@ -40,8 +40,15 @@ void MapGenerator::insert(KeyframeVec::Ptr keyframeVec, size_t begin, size_t end
     }
 }
 
-pcl::PointCloud<PointT>::Ptr MapGenerator::get() const {
-    return map;
+pcl::PointCloud<PointT>::Ptr MapGenerator::get(float resolution = 0.0f) const {
+    if (resolution == 0)
+        return map;
+    pcl::VoxelGrid<PointT> f;
+    f.setLeafSize(resolution, resolution, resolution);
+    f.setInputCloud(map);
+    pcl::PointCloud<PointT>::Ptr map1(new pcl::PointCloud<PointT>());
+    f.filter(*map1);
+    return map1;
 }
 
 pcl::PointCloud<PointT>::Ptr MapGenerator::generate_cloud(KeyframeVec::Ptr keyframeVec, size_t begin, size_t end, FeatureType featureType) {
@@ -56,6 +63,8 @@ pcl::PointCloud<PointT>::Ptr MapGenerator::generate_cloud(KeyframeVec::Ptr keyfr
         size = keyframeVec->keyframes[begin]->edgeFeatures->size() * (end - begin);
     } else if (featureType == FeatureType::Surf) {
         size = keyframeVec->keyframes[begin]->surfFeatures->size() * (end - begin);
+    } else if (featureType == FeatureType::Plane){
+        size = keyframeVec->keyframes[begin]->planes->size() * (end - begin);
     } else {
         size = (keyframeVec->keyframes[begin]->raw->size()) * (end - begin);
     }
@@ -80,6 +89,13 @@ pcl::PointCloud<PointT>::Ptr MapGenerator::generate_cloud(KeyframeVec::Ptr keyfr
         }
         else if (featureType == FeatureType::Surf) {
             for(const auto& src_pt : keyframe->surfFeatures->points) {
+                PointT dst_pt;
+                dst_pt.getVector4fMap() = pose * src_pt.getVector4fMap();
+                dst_pt.intensity = src_pt.intensity;
+                cloud->push_back(dst_pt);
+            }
+        } else if (featureType == FeatureType::Plane) {
+            for(const auto& src_pt : keyframe->planes->points) {
                 PointT dst_pt;
                 dst_pt.getVector4fMap() = pose * src_pt.getVector4fMap();
                 dst_pt.intensity = src_pt.intensity;
