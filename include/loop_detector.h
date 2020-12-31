@@ -14,7 +14,7 @@ using FactorPtr = gtsam::NonlinearFactor::shared_ptr;
 
 const int LOOP_KEYFRAME_CROP_LEN = 10;
 const int LOOP_LATEST_KEYFRAME_SKIP = 50;
-const int LOOP_COOLDOWN_KEYFRAME_COUNT = 10;
+const int LOOP_COOLDOWN_KEYFRAME_COUNT = 15;
 const int LOOP_CLOSE_DISTANCE = 15;
 extern const std::string filepath;
 

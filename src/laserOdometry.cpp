@@ -432,7 +432,7 @@ public:
 
                 addEdgeCostFactor(currEdgeDS, slideWindowEdge, kdtreeEdgeSW, pose_w_c, factors, 0);
                 addSurfCostFactor(currSurfDS, slideWindowSurf, kdtreeSurfSW, pose_w_c, factors, 0);
-                addSurfCostFactor2(currSurfDS, slideWindowPlane, kdtreePlaneSW, pose_w_c, factors, 0);
+//                addSurfCostFactor2(currPlane, slideWindowSurf, kdtreeSurfSW, pose_w_c, factors, 0);
 
                 // gtsam
                 gtsam::LevenbergMarquardtParams params;
@@ -831,7 +831,7 @@ public:
 //                }
                 std::vector<FactorPtr> factors;
                 for (const auto& keyframe : keyframes_buf) {
-                    loopDetector.submap_finetune(keyframeVec, keyframe, factors);
+//                    loopDetector.submap_finetune(keyframeVec, keyframe, factors);
                     loopDetector.loop_detector(keyframeVec, keyframe, factors);
                 }
 
