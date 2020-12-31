@@ -139,9 +139,9 @@ public:
 
             Vector3 err = p1.errorVector(p2);
 
-            if (H1) *H1 =  H_r_pose1;
+            if (H1) *H1 = H_r_pose1;
 
-            if (H2) *H2 = -H_r_pose2; //! negative
+            if (H2) *H2 = H_r_pose2; //! negative
 
             return err;
         }
