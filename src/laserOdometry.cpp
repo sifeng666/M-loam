@@ -432,7 +432,7 @@ public:
 
                 addEdgeCostFactor(currEdgeDS, slideWindowEdge, kdtreeEdgeSW, pose_w_c, factors, 0);
                 addSurfCostFactor(currSurfDS, slideWindowSurf, kdtreeSurfSW, pose_w_c, factors, 0);
-//                addSurfCostFactor2(currSurfDS, slideWindowPlane, kdtreePlaneSW, pose_w_c, factors, 0);
+                addSurfCostFactor2(currSurfDS, slideWindowPlane, kdtreePlaneSW, pose_w_c, factors, 0);
 
                 // gtsam
                 gtsam::LevenbergMarquardtParams params;
