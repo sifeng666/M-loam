@@ -61,7 +61,7 @@ catkin_package(
 add_executable(laserProcessing src/laserProcessing.cpp)
 target_link_libraries(laserProcessing ${catkin_LIBRARIES} ${PCL_LIBRARIES})
 
-add_executable(laserOdometry src/laserOdometry.cpp src/keyframe.cpp src/map_generator.cpp src/loop_detector.cpp)
+add_executable(laserOdometry src/laserOdometry.cpp src/keyframe.cpp src/map_generator.cpp src/loop_detector.cpp src/lidar.cpp)
 target_link_libraries(laserOdometry ${catkin_LIBRARIES} ${PCL_LIBRARIES} gtsam ndt_omp)
 
 add_executable(kittiHelper src/kittiHelper.cpp)

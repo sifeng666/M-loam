@@ -4,9 +4,9 @@
 
 #include "keyframe.h"
 
-Keyframe::Keyframe(int index_, PointCloudPtr EF, PointCloudPtr PF, PointCloudPtr RAW) :
-    index(index_), edgeFeatures(EF), surfFeatures(PF), raw(RAW), planes(new pcl::PointCloud<PointT>()) {
-    pose_world_curr = gtsam::Pose3();\
+Keyframe::Keyframe(int index_, const ros::Time& time, PointCloudPtr EF, PointCloudPtr PF, PointCloudPtr RAW) :
+    index(index_), cloud_in_time(time), edgeFeatures(EF), surfFeatures(PF), raw(RAW), planes(new pcl::PointCloud<PointT>()) {
+    pose_world_curr = gtsam::Pose3();
 }
 
 void Keyframe::set_init(Keyframe::Ptr last_keyframe, gtsam::Pose3 pose_world_curr_) {

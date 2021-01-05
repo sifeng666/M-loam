@@ -28,19 +28,28 @@ public:
 
     void initROSHandler() {
 
-        subLaserCloud = nh.subscribe<sensor_msgs::PointCloud2>("/velodyne_points", 100, &LaserProcessing::pointCloudHandler, this);
+        subLaserCloud0 = nh.subscribe<sensor_msgs::PointCloud2>("/left/velodyne_points", 100, &LaserProcessing::pointCloudHandler0, this);
 
-        pubLaserCloudFiltered = nh.advertise<sensor_msgs::PointCloud2>("/velodyne_points_2", 100);
+        pubEdgePoints0 = nh.advertise<sensor_msgs::PointCloud2>("/left/laser_cloud_edge", 100);
 
-        pubEdgePoints = nh.advertise<sensor_msgs::PointCloud2>("/laser_cloud_edge", 100);
+        pubSurfPoints0 = nh.advertise<sensor_msgs::PointCloud2>("/left/laser_cloud_surf", 100);
 
-        pubSurfPoints = nh.advertise<sensor_msgs::PointCloud2>("/laser_cloud_surf", 100);
+        subLaserCloud1 = nh.subscribe<sensor_msgs::PointCloud2>("/right/velodyne_points", 100, &LaserProcessing::pointCloudHandler1, this);
+
+        pubEdgePoints1 = nh.advertise<sensor_msgs::PointCloud2>("/right/laser_cloud_edge", 100);
+
+        pubSurfPoints1 = nh.advertise<sensor_msgs::PointCloud2>("/right/laser_cloud_surf", 100);
 
     }
 
-    void pointCloudHandler(const sensor_msgs::PointCloud2ConstPtr &pointCloudMsg) {
-        std::lock_guard lg(mtx);
-        pointCloudBuf.push(pointCloudMsg);
+    void pointCloudHandler0(const sensor_msgs::PointCloud2ConstPtr &pointCloudMsg) {
+        std::lock_guard lg(mtx0);
+        pointCloudBuf0.push(pointCloudMsg);
+    }
+
+    void pointCloudHandler1(const sensor_msgs::PointCloud2ConstPtr &pointCloudMsg) {
+        std::lock_guard lg(mtx1);
+        pointCloudBuf1.push(pointCloudMsg);
     }
 
     void featureExtractionFromSector(const pcl::PointCloud<PointT>::Ptr& cloud_in, std::vector<IndexVal>& cloudCurvature, pcl::PointCloud<PointT>::Ptr& cloud_out_edge, pcl::PointCloud<PointT>::Ptr& cloud_out_surf) {
@@ -232,43 +241,59 @@ public:
 
         while (ros::ok()) {
 
-            if (!pointCloudBuf.empty()) {
+            if (!pointCloudBuf0.empty()) {
 
                 pcl::PointCloud<PointT>::Ptr cloud_in(new pcl::PointCloud<PointT>());
                 pcl::PointCloud<PointT>::Ptr cloud_edge(new pcl::PointCloud<PointT>());
                 pcl::PointCloud<PointT>::Ptr cloud_surf(new pcl::PointCloud<PointT>());
 
-                mtx.lock();
-                pcl::fromROSMsg(*pointCloudBuf.front(), *cloud_in);
-                ros::Time cloud_in_time = (pointCloudBuf.front())->header.stamp;
-                pointCloudBuf.pop();
-                mtx.unlock();
+                mtx0.lock();
+                pcl::fromROSMsg(*pointCloudBuf0.front(), *cloud_in);
+                ros::Time cloud_in_time = (pointCloudBuf0.front())->header.stamp;
+                pointCloudBuf0.pop();
+                mtx0.unlock();
 
-
-//                Timer feat_extra("featureExtraction");
                 featureExtraction(cloud_in, cloud_edge, cloud_surf);
-//                feat_extra.count();
-
-                sensor_msgs::PointCloud2 laserCloudFilteredMsg;
-                pcl::PointCloud<PointT>::Ptr cloud_filtered(new pcl::PointCloud<PointT>());
-                *cloud_filtered += *cloud_edge;
-                *cloud_filtered += *cloud_surf;
-                pcl::toROSMsg(*cloud_filtered, laserCloudFilteredMsg);
-                laserCloudFilteredMsg.header.stamp = cloud_in_time;
-                laserCloudFilteredMsg.header.frame_id = "base_link";
-                pubLaserCloudFiltered.publish(laserCloudFilteredMsg);
 
                 sensor_msgs::PointCloud2 edgePointsMsg;
                 pcl::toROSMsg(*cloud_edge, edgePointsMsg);
                 edgePointsMsg.header.stamp = cloud_in_time;
-                edgePointsMsg.header.frame_id = "base_link";
-                pubEdgePoints.publish(edgePointsMsg);
+                edgePointsMsg.header.frame_id = "frame_0";
+                pubEdgePoints0.publish(edgePointsMsg);
 
                 sensor_msgs::PointCloud2 surfPointsMsg;
                 pcl::toROSMsg(*cloud_surf, surfPointsMsg);
                 surfPointsMsg.header.stamp = cloud_in_time;
-                surfPointsMsg.header.frame_id = "base_link";
-                pubSurfPoints.publish(surfPointsMsg);
+                surfPointsMsg.header.frame_id = "frame_0";
+                pubSurfPoints0.publish(surfPointsMsg);
+
+            }
+
+            if (!pointCloudBuf1.empty()) {
+
+                pcl::PointCloud<PointT>::Ptr cloud_in(new pcl::PointCloud<PointT>());
+                pcl::PointCloud<PointT>::Ptr cloud_edge(new pcl::PointCloud<PointT>());
+                pcl::PointCloud<PointT>::Ptr cloud_surf(new pcl::PointCloud<PointT>());
+
+                mtx1.lock();
+                pcl::fromROSMsg(*pointCloudBuf1.front(), *cloud_in);
+                ros::Time cloud_in_time = (pointCloudBuf1.front())->header.stamp;
+                pointCloudBuf1.pop();
+                mtx1.unlock();
+
+                featureExtraction(cloud_in, cloud_edge, cloud_surf);
+
+                sensor_msgs::PointCloud2 edgePointsMsg;
+                pcl::toROSMsg(*cloud_edge, edgePointsMsg);
+                edgePointsMsg.header.stamp = cloud_in_time;
+                edgePointsMsg.header.frame_id = "frame_1";
+                pubEdgePoints1.publish(edgePointsMsg);
+
+                sensor_msgs::PointCloud2 surfPointsMsg;
+                pcl::toROSMsg(*cloud_surf, surfPointsMsg);
+                surfPointsMsg.header.stamp = cloud_in_time;
+                surfPointsMsg.header.frame_id = "frame_1";
+                pubSurfPoints1.publish(surfPointsMsg);
 
             }
             //sleep 2 ms every time
@@ -288,13 +313,18 @@ private:
 
     ros::NodeHandle nh;
 
-    std::mutex mtx;
-    std::queue<sensor_msgs::PointCloud2ConstPtr> pointCloudBuf;
+    std::mutex mtx0;
+    std::mutex mtx1;
+    std::queue<sensor_msgs::PointCloud2ConstPtr> pointCloudBuf0;
+    std::queue<sensor_msgs::PointCloud2ConstPtr> pointCloudBuf1;
 
-    ros::Subscriber subLaserCloud;
-    ros::Publisher pubEdgePoints;
-    ros::Publisher pubSurfPoints;
-    ros::Publisher pubLaserCloudFiltered;
+    ros::Subscriber subLaserCloud0;
+    ros::Publisher  pubEdgePoints0;
+    ros::Publisher  pubSurfPoints0;
+
+    ros::Subscriber subLaserCloud1;
+    ros::Publisher  pubEdgePoints1;
+    ros::Publisher  pubSurfPoints1;
 
     int scan_line;
     double vertical_angle, scan_period, max_dis, min_dis;
