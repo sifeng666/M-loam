@@ -146,7 +146,7 @@ int LidarSensor::addSurfCostFactor(const pcl::PointCloud<PointT>::Ptr &pc_in, co
                 // if OX * n > 0.2, then plane is not fit well
                 if (fabs(norm(0) * map_in->points[pointSearchInd[j]].x +
                          norm(1) * map_in->points[pointSearchInd[j]].y +
-                         norm(2) * map_in->points[pointSearchInd[j]].z + negative_OA_dot_norm) > 0.12) {
+                         norm(2) * map_in->points[pointSearchInd[j]].z + negative_OA_dot_norm) > 0.2) {
                     planeValid = false;
                     break;
                 }
@@ -190,10 +190,10 @@ bool LidarSensor::nextFrameToBeKeyframe() {
     q_delta.normalize();
     Eigen::Vector3d eulerAngle = q_delta.toRotationMatrix().eulerAngles(2, 1, 0);
 
-    bool isKeyframe = min(abs(eulerAngle.x()), abs(abs(eulerAngle.x()) - M_PI)) > keyframeAngleThreshold ||
-                      min(abs(eulerAngle.y()), abs(abs(eulerAngle.y()) - M_PI)) > keyframeAngleThreshold ||
-                      min(abs(eulerAngle.z()), abs(abs(eulerAngle.z()) - M_PI)) > keyframeAngleThreshold ||
-                      T_delta.translation().norm() > keyframeDistThreshold;
+    bool isKeyframe = min(abs(eulerAngle.x()), abs(abs(eulerAngle.x()) - M_PI)) > KEYFRAME_ANGLE_THRES ||
+                      min(abs(eulerAngle.y()), abs(abs(eulerAngle.y()) - M_PI)) > KEYFRAME_ANGLE_THRES ||
+                      min(abs(eulerAngle.z()), abs(abs(eulerAngle.z()) - M_PI)) > KEYFRAME_ANGLE_THRES ||
+                      T_delta.translation().norm() > KEYFRAME_DIST_THRES;
     return isKeyframe;
 }
 
@@ -247,12 +247,11 @@ void LidarSensor::updatePoses() {
     {
         std::lock_guard<std::mutex> lg(graph_mtx);
         isam->update(BAGraph, BAEstimate);
+        isam->update();
         BAGraph.resize(0);
         BAEstimate.clear();
-        isam->update();
+        isamOptimize = isam->calculateEstimate();
     }
-
-    isamOptimize = isam->calculateEstimate();
 
     for (size_t i = 0; i < isamOptimize.size(); i++) {
         keyframeVec->keyframes[i]->pose_world_curr = pose_normalize(isamOptimize.at<gtsam::Pose3>(X(i)));
@@ -260,8 +259,6 @@ void LidarSensor::updatePoses() {
 }
 
 void LidarSensor::initParam() {
-
-    const double map_resolution = 0.4;
 
     cloud_in_edge.reset(new pcl::PointCloud<PointT>());
     cloud_in_surf.reset(new pcl::PointCloud<PointT>());
@@ -277,11 +274,11 @@ void LidarSensor::initParam() {
     keyframeVec = boost::make_shared<KeyframeVec>();
     keyframeVec->keyframes.reserve(200);
 
-    downSizeFilterEdge.setLeafSize(map_resolution / 2, map_resolution / 2, map_resolution /2 );
+    downSizeFilterEdge.setLeafSize(map_resolution / 2, map_resolution / 2, map_resolution / 2);
     downSizeFilterSurf.setLeafSize(map_resolution, map_resolution, map_resolution);
     downSizeFilterNor.setLeafSize(0.1, 0.1, 0.1);
 
-    pose_w_c = odom = delta = gtsam::Pose3();
+    pose_w_c = odom = delta = gtsam::Pose3::identity();
 
     edge_gaussian_model = gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(3) << 0.2, 0.2, 0.2).finished());
     surf_gaussian_model = gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(1) << 0.2).finished());
@@ -437,7 +434,13 @@ gtsam::Pose3 LidarSensor::update(pcl::PointCloud<PointT>::Ptr currEdge, pcl::Poi
     return odom;
 }
 
-LidarSensor::LidarSensor(const std::string &lidar_name_) : lidar_name(lidar_name_) {
+LidarSensor::LidarSensor() {
+
+    map_resolution       = nh.param<double>("map_resolution", 0.2);
+    KEYFRAME_DIST_THRES  = nh.param<double>("keyframe_dist_threshold", 0.6);
+    KEYFRAME_ANGLE_THRES = nh.param<double>("keyframe_angle_threshold", 0.1);
+    SUBMAP_LEN           = nh.param<int>("submap_len", 6);
+
     initParam();
 }
 
@@ -485,16 +488,15 @@ void LidarSensor::BA_optimization() {
         // isam update
         graph_mtx.lock();
         isam->update(BAGraph, BAEstimate);
-        BAGraph.resize(0);
-        BAEstimate.clear();
         isam->update();
 
         if (status_change) {
             isam->update();
             isam->update();
-            isam->update();
             status_change = false;
         }
+        BAGraph.resize(0);
+        BAEstimate.clear();
         graph_mtx.unlock();
 
         //sleep 10 ms every time
@@ -504,4 +506,14 @@ void LidarSensor::BA_optimization() {
 
 std::string LidarSensor::get_lidar_name() const {
     return lidar_name;
+}
+
+void LidarSensor::setName(const string &lidar_name_) {
+    lidar_name = lidar_name_;
+}
+
+void LidarSensor::setResolution(double map_resolution_) {
+    map_resolution = map_resolution_;
+    downSizeFilterEdge.setLeafSize(map_resolution / 2, map_resolution / 2, map_resolution / 2);
+    downSizeFilterSurf.setLeafSize(map_resolution, map_resolution, map_resolution);
 }

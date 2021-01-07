@@ -28,13 +28,13 @@ public:
 
     void initROSHandler() {
 
-        subLaserCloud0 = nh.subscribe<sensor_msgs::PointCloud2>("/left/velodyne_points", 100, &LaserProcessing::pointCloudHandler0, this);
+        subLaserCloud0 = nh.subscribe<sensor_msgs::PointCloud2>("/lidar_blue_pointcloud", 100, &LaserProcessing::pointCloudHandler0, this);
 
         pubEdgePoints0 = nh.advertise<sensor_msgs::PointCloud2>("/left/laser_cloud_edge", 100);
 
         pubSurfPoints0 = nh.advertise<sensor_msgs::PointCloud2>("/left/laser_cloud_surf", 100);
 
-        subLaserCloud1 = nh.subscribe<sensor_msgs::PointCloud2>("/right/velodyne_points", 100, &LaserProcessing::pointCloudHandler1, this);
+        subLaserCloud1 = nh.subscribe<sensor_msgs::PointCloud2>("/lidar_red_pointcloud", 100, &LaserProcessing::pointCloudHandler1, this);
 
         pubEdgePoints1 = nh.advertise<sensor_msgs::PointCloud2>("/right/laser_cloud_edge", 100);
 
@@ -258,13 +258,13 @@ public:
                 sensor_msgs::PointCloud2 edgePointsMsg;
                 pcl::toROSMsg(*cloud_edge, edgePointsMsg);
                 edgePointsMsg.header.stamp = cloud_in_time;
-                edgePointsMsg.header.frame_id = "frame_0";
+                edgePointsMsg.header.frame_id = "frame0";
                 pubEdgePoints0.publish(edgePointsMsg);
 
                 sensor_msgs::PointCloud2 surfPointsMsg;
                 pcl::toROSMsg(*cloud_surf, surfPointsMsg);
                 surfPointsMsg.header.stamp = cloud_in_time;
-                surfPointsMsg.header.frame_id = "frame_0";
+                surfPointsMsg.header.frame_id = "frame0";
                 pubSurfPoints0.publish(surfPointsMsg);
 
             }
@@ -286,13 +286,13 @@ public:
                 sensor_msgs::PointCloud2 edgePointsMsg;
                 pcl::toROSMsg(*cloud_edge, edgePointsMsg);
                 edgePointsMsg.header.stamp = cloud_in_time;
-                edgePointsMsg.header.frame_id = "frame_1";
+                edgePointsMsg.header.frame_id = "frame1";
                 pubEdgePoints1.publish(edgePointsMsg);
 
                 sensor_msgs::PointCloud2 surfPointsMsg;
                 pcl::toROSMsg(*cloud_surf, surfPointsMsg);
                 surfPointsMsg.header.stamp = cloud_in_time;
-                surfPointsMsg.header.frame_id = "frame_1";
+                surfPointsMsg.header.frame_id = "frame1";
                 pubSurfPoints1.publish(surfPointsMsg);
 
             }

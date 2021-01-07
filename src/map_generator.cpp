@@ -29,13 +29,10 @@ void MapGenerator::insert(KeyframeVec::Ptr keyframeVec, size_t begin, size_t end
 
     for (size_t i = 0; i < poseVec.size(); i++) {
         Keyframe::Ptr keyframe = keyframeVec->keyframes[i + begin];
-        Eigen::Matrix4f pose = poseVec[i].matrix().cast<float>();
+        Eigen::Affine3f pose(Eigen::Matrix4f(poseVec[i].matrix().cast<float>()));
 
         for(const auto& src_pt : keyframe->raw->points) {
-            PointT dst_pt;
-            dst_pt.getVector4fMap() = pose * src_pt.getVector4fMap();
-            dst_pt.intensity = src_pt.intensity;
-            map->push_back(dst_pt);
+            map->emplace_back(pcl::transformPoint(src_pt, pose));
         }
     }
 }
@@ -77,42 +74,28 @@ pcl::PointCloud<PointT>::Ptr MapGenerator::generate_cloud(KeyframeVec::Ptr keyfr
 
     for (size_t i = 0; i < poseVec.size(); i++) {
         Keyframe::Ptr keyframe = keyframeVec->keyframes[i + begin];
-        Eigen::Matrix4f pose = poseVec[i].matrix().cast<float>();
+        Eigen::Affine3f pose(Eigen::Matrix4f(poseVec[i].matrix().cast<float>()));
 
         if (featureType == FeatureType::Edge) {
             for(const auto& src_pt : keyframe->edgeFeatures->points) {
-                PointT dst_pt;
-                dst_pt.getVector4fMap() = pose * src_pt.getVector4fMap();
-                dst_pt.intensity = src_pt.intensity;
-                cloud->push_back(dst_pt);
+                cloud->emplace_back(pcl::transformPoint(src_pt, pose));
             }
         }
         else if (featureType == FeatureType::Surf) {
             for(const auto& src_pt : keyframe->surfFeatures->points) {
-                PointT dst_pt;
-                dst_pt.getVector4fMap() = pose * src_pt.getVector4fMap();
-                dst_pt.intensity = src_pt.intensity;
-                cloud->push_back(dst_pt);
+                cloud->emplace_back(pcl::transformPoint(src_pt, pose));
             }
         } else if (featureType == FeatureType::Plane) {
             for(const auto& src_pt : keyframe->planes->points) {
-                PointT dst_pt;
-                dst_pt.getVector4fMap() = pose * src_pt.getVector4fMap();
-                dst_pt.intensity = src_pt.intensity;
-                cloud->push_back(dst_pt);
+                cloud->emplace_back(pcl::transformPoint(src_pt, pose));
             }
         } else {
             for(const auto& src_pt : keyframe->raw->points) {
-                PointT dst_pt;
-                dst_pt.getVector4fMap() = pose * src_pt.getVector4fMap();
-                dst_pt.intensity = src_pt.intensity;
-                cloud->push_back(dst_pt);
+                cloud->emplace_back(pcl::transformPoint(src_pt, pose));
             }
         }
     }
 
-    cloud->width = cloud->size();
-    cloud->height = 1;
     cloud->is_dense = false;
     return cloud;
 }

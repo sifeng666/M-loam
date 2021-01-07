@@ -32,8 +32,10 @@ public:
 class LidarSensor {
 public:
 
-    explicit LidarSensor(const std::string& lidar_name_);
+    explicit LidarSensor();
     virtual ~LidarSensor();
+    void setName(const std::string& lidar_name);
+    void setResolution(double map_resolution);
 
     void pointAssociate(PointT const *const pi, PointT *const po, const gtsam::Pose3& odom);
     void downsampling(const pcl::PointCloud<PointT>::Ptr& input, pcl::PointCloud<PointT>& output, FeatureType featureType);
@@ -78,11 +80,13 @@ private:
     std::string lidar_name;
 
     KeyframeVec::Ptr keyframeVec;
-
     LoopDetector loopDetector;
 
-    const double keyframeDistThreshold = 0.6;
-    const double keyframeAngleThreshold = 0.1;
+    double map_resolution;
+    double KEYFRAME_DIST_THRES;
+    double KEYFRAME_ANGLE_THRES;
+    int SUBMAP_LEN;
+
     bool is_keyframe_next = true;
 
     // gtsam
@@ -110,8 +114,6 @@ private:
     bool is_init = false;
 
     // frame-to-submap
-    const int SUBMAP_LEN = 6;
-    const int SUBMAP_LEN_PLANE = 6;
 
     pcl::PointCloud<PointT>::Ptr submapEdge;
     pcl::PointCloud<PointT>::Ptr submapSurf;

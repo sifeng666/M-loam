@@ -105,6 +105,10 @@ std::vector<gtsam::Pose3> KeyframeVec::read_poses(size_t begin, size_t end) cons
         std::cerr << "read_poses invalid range" << std::endl;
     }
 
+    if (!keyframes[end - 1]->is_init()) {
+        end--;
+    }
+
     std::vector<gtsam::Pose3> poseVec;
     poseVec.reserve(end - begin);
 
@@ -120,6 +124,11 @@ gtsam::Pose3 KeyframeVec::read_pose(size_t index) const {
     if (index > keyframes.size()) {
         std::cerr << "read_pose invalid range" << std::endl;
     }
+    if(!keyframes[index]->is_init()) {
+        std::cerr << "pose not init!" << std::endl;
+        return gtsam::Pose3();
+    }
+
     std::shared_lock<std::shared_mutex> sl(pose_mtx);
     return keyframes[index]->pose_world_curr;
 }

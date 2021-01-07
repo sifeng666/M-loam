@@ -80,7 +80,7 @@ public:
 
             size_t size = keyframeVec_0->keyframes.size();
 
-            if (size > 0) {
+            if (size > 0 && keyframeVec_0->keyframes[size - 1]->is_init()) {
 
 //                if (regenerate_map) {
                     mapGenerator.clear();
@@ -90,7 +90,7 @@ public:
 //                    mapGenerator.insert(keyframeVec, last_map_generate_index, size);
 //                }
 
-                auto globalMap = mapGenerator.get(0.0f);
+                auto globalMap = mapGenerator.get(save_map_resolution);
                 if (!globalMap) {
                     std::cout << "empty global map!" << std::endl;
                     continue;
@@ -205,17 +205,20 @@ public:
     }
 
 
-    LaserOdometry() : lidarSensor0("Lidar 0"), lidarSensor1("Lidar 1")
-    {
+    LaserOdometry() {
+
+        save_map_resolution = nh.param<double>("save_map_resolution", 0.1);
+
+        lidarSensor0.setName("Lidar0");
+        lidarSensor1.setName("Lidar1");
+
+        int n_sensor = 2;
         keyframeVec_0 = lidarSensor0.get_keyframeVec();
         keyframeVec_1 = lidarSensor1.get_keyframeVec();
 
-        sub_laser_cloud_edge0 = nh.subscribe<sensor_msgs::PointCloud2>("/left/laser_cloud_edge",  100, &LidarMsgReader::pointCloudEdgeHandler, &lidarMsgReader_0);
-        sub_laser_cloud_surf0 = nh.subscribe<sensor_msgs::PointCloud2>("/left/laser_cloud_surf",  100, &LidarMsgReader::pointCloudSurfHandler, &lidarMsgReader_0);
-        sub_laser_cloud_edge1 = nh.subscribe<sensor_msgs::PointCloud2>("/right/laser_cloud_edge", 100, &LidarMsgReader::pointCloudEdgeHandler, &lidarMsgReader_1);
-        sub_laser_cloud_surf1 = nh.subscribe<sensor_msgs::PointCloud2>("/right/laser_cloud_surf", 100, &LidarMsgReader::pointCloudSurfHandler, &lidarMsgReader_1);
-
-        int n_sensor = 2;
+        sub_laser_cloud.resize(n_sensor);
+        sub_laser_cloud_edge.resize(n_sensor);
+        sub_laser_cloud_surf.resize(n_sensor);
         pub_path_odom.resize(n_sensor);
         pub_path_opti.resize(n_sensor);
         pub_map.resize(n_sensor);
@@ -223,6 +226,11 @@ public:
         pub_curr_surf.resize(n_sensor);
         path_odom.resize(n_sensor);
         path_opti.resize(n_sensor);
+
+        sub_laser_cloud_edge[0] = nh.subscribe<sensor_msgs::PointCloud2>("/left/laser_cloud_edge",  100, &LidarMsgReader::pointCloudEdgeHandler, &lidarMsgReader_0);
+        sub_laser_cloud_surf[0] = nh.subscribe<sensor_msgs::PointCloud2>("/left/laser_cloud_surf",  100, &LidarMsgReader::pointCloudSurfHandler, &lidarMsgReader_0);
+        sub_laser_cloud_edge[1] = nh.subscribe<sensor_msgs::PointCloud2>("/right/laser_cloud_edge", 100, &LidarMsgReader::pointCloudEdgeHandler, &lidarMsgReader_1);
+        sub_laser_cloud_surf[1] = nh.subscribe<sensor_msgs::PointCloud2>("/right/laser_cloud_surf", 100, &LidarMsgReader::pointCloudSurfHandler, &lidarMsgReader_1);
 
         pub_path_odom[0] = nh.advertise<nav_msgs::Path>("/left/path_odom", 100);
         pub_path_opti[0] = nh.advertise<nav_msgs::Path>("/left/path_opti", 100);
@@ -249,13 +257,14 @@ private:
     ros::NodeHandle nh;
     MapGenerator mapGenerator;
 
+    double save_map_resolution;
+
     LidarMsgReader lidarMsgReader_0, lidarMsgReader_1;
     KeyframeVec::Ptr keyframeVec_0, keyframeVec_1;
     ros::Time time_0, time_1;
 
     // ros msg
-    ros::Subscriber sub_laser_cloud0, sub_laser_cloud_edge0, sub_laser_cloud_surf0;
-    ros::Subscriber sub_laser_cloud1, sub_laser_cloud_edge1, sub_laser_cloud_surf1;
+    std::vector<ros::Subscriber> sub_laser_cloud, sub_laser_cloud_edge, sub_laser_cloud_surf;
     std::vector<ros::Publisher> pub_path_odom, pub_path_opti, pub_map, pub_curr_edge, pub_curr_surf;
     std::vector<nav_msgs::Path> path_odom, path_opti;
 
@@ -282,9 +291,9 @@ int main(int argc, char **argv) {
     LaserOdometry laserOdometry;
 
     std::thread laser_odometry_thread_0{&LaserOdometry::laser_odometry_base, &laserOdometry};
-    std::thread laser_odometry_thread_1{&LaserOdometry::laser_odometry_auxiliary, &laserOdometry};
+//    std::thread laser_odometry_thread_1{&LaserOdometry::laser_odometry_auxiliary, &laserOdometry};
     std::thread backend_ba_optimization_0{&LidarSensor::BA_optimization, &laserOdometry.lidarSensor0};
-    std::thread backend_ba_optimization_1{&LidarSensor::BA_optimization, &laserOdometry.lidarSensor1};
+//    std::thread backend_ba_optimization_1{&LidarSensor::BA_optimization, &laserOdometry.lidarSensor1};
 
     std::thread global_map_publisher{&LaserOdometry::pub_global_map, &laserOdometry};
 
