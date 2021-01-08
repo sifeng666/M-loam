@@ -2,3 +2,4 @@ cmake-build-*
 *.bag
 .idea/
 odometry/
+test/
