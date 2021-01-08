@@ -205,7 +205,7 @@ void LidarSensor::initOdomFactor() {
 void LidarSensor::addOdomFactor() {
     int index = current_keyframe->index;
     // read lock
-    gtsam::Pose3 last_pose = keyframeVec->read_poses(index- 1, index).front();
+    gtsam::Pose3 last_pose = keyframeVec->read_pose(index- 1);
 
     BAGraph.emplace_shared<gtsam::BetweenFactor<gtsam::Pose3>>(X(index - 1), X(index),
                                                                last_pose.between(current_keyframe->pose_world_curr),
