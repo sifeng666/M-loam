@@ -11,10 +11,6 @@
 
 extern const std::string filepath = "/home/ziv/mloam/";
 
-gtsam::Pose3 pose_normalize(const gtsam::Pose3& pose) {
-    return gtsam::Pose3(pose.rotation().normalized(), pose.translation());
-}
-
 
 void _mkdir(const std::string& filename) {
     boost::filesystem::path save_path(filename);
