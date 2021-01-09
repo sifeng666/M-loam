@@ -15,8 +15,6 @@ class PointToEdgeFactor: public NoiseModelFactor1<Pose3>
 {
 protected:
 
-    Key pose_key_;
-
     Point3 p_s_;
     Point3 p_a_;
     Point3 p_b_;
@@ -37,8 +35,7 @@ public:
 
     PointToEdgeFactor(
         const Key& pose_key, const Point3& p_s, const Point3& p_a, const Point3& p_b,
-        const SharedNoiseModel& pose_noise_model) : Base(pose_noise_model, pose_key),
-        pose_key_(pose_key), p_s_(p_s), p_a_(p_a), p_b_(p_b)
+        const SharedNoiseModel& pose_noise_model) : Base(pose_noise_model, pose_key), p_s_(p_s), p_a_(p_a), p_b_(p_b)
     {
         Point3 re = p_a_ - p_b_;
         p_a_minus_p_b_norm = re.norm();
@@ -63,8 +60,6 @@ class PointToPlaneFactor: public NoiseModelFactor1<Pose3>
 {
 protected:
 
-    Key pose_key_;
-
     Point3 p_s_;
 
     Vector3 plane_unit_norm_;
@@ -86,7 +81,7 @@ public:
             const Key& pose_key, const Point3& p_s,
             const Vector3& plane_unit_norm, const double& negative_OA_dot_norm,
             const SharedNoiseModel& pose_noise_model) :
-            Base(pose_noise_model, pose_key),  pose_key_(pose_key), p_s_(p_s), plane_unit_norm_(plane_unit_norm),
+            Base(pose_noise_model, pose_key), p_s_(p_s), plane_unit_norm_(plane_unit_norm),
             negative_OA_dot_norm_(negative_OA_dot_norm)
     {}
 

@@ -48,6 +48,7 @@ public:
     int valid_frames = 0;
     ros::Time cloud_in_time;
     gtsam::Pose3 pose_world_curr;
+    gtsam::Pose3 pose_last_curr;
     // feature point cloud
     pcl::PointCloud<PointT>::Ptr edgeFeatures;
     pcl::PointCloud<PointT>::Ptr surfFeatures;

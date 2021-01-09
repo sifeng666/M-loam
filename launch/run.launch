@@ -1,14 +1,18 @@
 <launch>
     
     <param name="/use_sim_time" value="ture"/>
-    <node pkg="rosbag" type="play" name="playbag" args="--clock -r 3 /home/ziv/sunshine_dateset/building-002.bag /rslidar_points:=/lidar_blue_pointcloud"/>
+    <node pkg="rosbag" type="play" name="playbag" args="--clock -r 0.2 /home/ziv/sunshine_dateset/SR01.bag"/>
 
     <param name="scan_line" type="int" value="16" />
     <param name="map_resolution" type="double" value="0.4" />
     <param name="submap_len" type="int" value="6" />
-    <param name="keyframe_dist_threshold" type="double" value="1" />
+    <param name="keyframe_dist_threshold" type="double" value="0.6" />
     <param name="keyframe_angle_threshold" type="double" value="0.1" />
     <param name="save_map_resolution" type="double" value="0.1" />
+    <param name="gicp_fitness_socre" type="double" value="0.3" />
+    <param name="need_loop" type="bool" value="false" />
+    <param name="loop_keyframe_crop_len" type="int" value="6" />
+    <param name="loop_close_distance" type="int" value="5" />
 
     <node pkg="mloam" type="laserProcessing" name="laserProcessing" output="screen" />
 

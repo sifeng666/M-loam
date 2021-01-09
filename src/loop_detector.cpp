@@ -8,13 +8,13 @@ void LoopDetector::loop_detector(KeyframeVec::Ptr keyframeVec, Keyframe::Ptr lat
 
     int latest_index = latestKeyframe->index;
 
-    if (latest_index < LOOP_LATEST_KEYFRAME_SKIP + 1)
+    if (latest_index < LOOP_KEYFRAME_SKIP + 1)
         return;
 
-    if (last_loop_found_index > 0 && latest_index <= last_loop_found_index + LOOP_COOLDOWN_KEYFRAME_COUNT)
+    if (last_loop_found_index > 0 && latest_index <= last_loop_found_index + LOOP_KEYFRAME_COOLDOWN)
         return;
 
-    size_t buffer_size = latest_index - LOOP_LATEST_KEYFRAME_SKIP;
+    size_t buffer_size = latest_index - LOOP_KEYFRAME_SKIP;
     // <frameCount, distance>
     std::vector<pair<int, int>> candidates;
     candidates.reserve(buffer_size);
@@ -44,7 +44,7 @@ void LoopDetector::loop_detector(KeyframeVec::Ptr keyframeVec, Keyframe::Ptr lat
     for (int i = 0; i < min(2, int(candidates.size())); i++) {
         int closestKeyIdx = candidates[i].first;
         int start_crop = max(0, closestKeyIdx - LOOP_KEYFRAME_CROP_LEN);
-        int end_crop   = min(latest_index - LOOP_LATEST_KEYFRAME_SKIP, closestKeyIdx + LOOP_KEYFRAME_CROP_LEN);
+        int end_crop   = min(latest_index - LOOP_KEYFRAME_SKIP, closestKeyIdx + LOOP_KEYFRAME_CROP_LEN);
 
         // crop submap to closestKeyIdx's pose frame
         auto crop = MapGenerator::generate_cloud(keyframeVec, start_crop, end_crop, FeatureType::Full);
@@ -97,7 +97,7 @@ bool LoopDetector::gicp_matching(pcl::PointCloud<PointT>::Ptr cloud_to, pcl::Poi
     }
     cout << "fitness score: " << gicp.getFitnessScore() << endl;
 
-    if (gicp.getFitnessScore() > 0.5) {
+    if (gicp.getFitnessScore() > 3) {
         return false;
     }
     pose = gtsam::Pose3(gicp.getFinalTransformation().cast<double>().matrix());
@@ -137,5 +137,13 @@ void LoopDetector::submap_finetune(KeyframeVec::Ptr keyframeVec, Keyframe::Ptr l
 
     std::cout << "add submap_finetune factor!" << std::endl;
 
+}
+
+LoopDetector::LoopDetector() {
+    LOOP_KEYFRAME_CROP_LEN = nh.param<int>("loop_keyframe_crop_len", 10);
+    LOOP_KEYFRAME_SKIP     = nh.param<int>("loop_keyframe_skip", 50);
+    LOOP_KEYFRAME_COOLDOWN = nh.param<int>("loop_keyframe_cooldown", 10);
+    LOOP_CLOSE_DISTANCE    = nh.param<int>("loop_close_distance", 15);
+    FITNESS_SCORE          = nh.param<double>("gcip_fitness_socre", 0.8);
 }
 
