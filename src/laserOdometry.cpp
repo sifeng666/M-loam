@@ -32,7 +32,7 @@ public:
 
 public:
     LidarInfo(int i_) : i(i_) {
-        T_0_i = gtsam::Pose3(gtsam::Rot3(), gtsam::Point3(10 * i, 20 * i, 10 * i));
+        T_0_i = gtsam::Pose3(gtsam::Rot3(), gtsam::Point3(0, 20 * i, 0));
         if (i == 0) is_base = true;
     }
 };
@@ -43,8 +43,7 @@ public:
     void pubRawOdom(LidarInfo::Ptr lidarInfo) {
         std::string child_frame_id = "frame" + std::to_string(lidarInfo->i);
         std::string frame_id = "map" + std::to_string(lidarInfo->i);
-        gtsam::Pose3 odom;
-
+        gtsam::Pose3 odom = lidarInfo->odom;
         ros::Time cloud_in_time = lidarInfo->ros_time;
         auto odometry_odom = poseToNavOdometry(cloud_in_time, odom, frame_id, child_frame_id);
 
@@ -145,11 +144,11 @@ public:
                 // save map 0
                 {
                     if (lidarInfo0->last_map_generate_index == size) {
-                        save_latency_0++;
+                        lidarInfo0->save_latency++;
                     } else {
-                        save_latency_0 = 0;
+                        lidarInfo0->save_latency = 0;
                     }
-                    if (save_latency_0 == 20) {
+                    if (lidarInfo0->save_latency == 20) {
                         pcl::io::savePCDFileASCII("/home/ziv/mloam/global_map_0.pcd", *map);
                         cout << "saved map_0!" << endl;
                     }
@@ -177,11 +176,11 @@ public:
                 // save map 1
                 {
                     if (lidarInfo1->last_map_generate_index == size) {
-                        save_latency_1++;
+                        lidarInfo1->save_latency++;
                     } else {
-                        save_latency_1 = 0;
+                        lidarInfo1->save_latency = 0;
                     }
-                    if (save_latency_1 == 20) {
+                    if (lidarInfo1->save_latency == 20) {
                         pcl::io::savePCDFileASCII("/home/ziv/mloam/global_map_1.pcd", *map);
                         cout << "saved map_1!" << endl;
                     }
