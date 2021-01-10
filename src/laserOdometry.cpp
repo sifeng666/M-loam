@@ -149,7 +149,7 @@ public:
                         lidarInfo0->save_latency = 0;
                     }
                     if (lidarInfo0->save_latency == 20) {
-                        pcl::io::savePCDFileASCII(filepath + "global_map_0.pcd", *map);
+                        pcl::io::savePCDFileASCII(file_save_path + "global_map_0.pcd", *map);
                         cout << "saved map_0!" << endl;
                     }
 
@@ -180,7 +180,7 @@ public:
                         lidarInfo1->save_latency = 0;
                     }
                     if (lidarInfo1->save_latency == 20) {
-                        pcl::io::savePCDFileASCII(filepath + "global_map_1.pcd", *map);
+                        pcl::io::savePCDFileASCII(file_save_path + "global_map_1.pcd", *map);
                         cout << "saved map_1!" << endl;
                     }
 
@@ -322,6 +322,7 @@ public:
     LaserOdometry() {
 
         save_map_resolution = nh.param<double>("save_map_resolution", 0.1);
+        file_save_path = nh.param<std::string>("file_save_path", "");
 
         lidarSensor0.setName("Lidar0");
         lidarSensor1.setName("Lidar1");
@@ -366,11 +367,11 @@ private:
    *********************************************************************/
     ros::NodeHandle nh;
 
-    double save_map_resolution;
-
     LidarInfo::Ptr lidarInfo0;
     LidarInfo::Ptr lidarInfo1;
 
+    double save_map_resolution;
+    std::string file_save_path;
 
     /*********************************************************************
    ** GTSAM Optimizer

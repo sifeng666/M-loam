@@ -9,8 +9,6 @@
 #include <gtsam/geometry/Pose3.h>
 #include <gtsam/geometry/Rot3.h>
 
-extern const std::string filepath = "/home/ziv/mloam/";
-
 
 void _mkdir(const std::string& filename) {
     boost::filesystem::path save_path(filename);
