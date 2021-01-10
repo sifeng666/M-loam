@@ -3,6 +3,8 @@
     <param name="/use_sim_time" value="ture"/>
     <node pkg="rosbag" type="play" name="playbag" args="--clock -r 0.5 /home/ziv/sunshine_dateset/SR01.bag"/>
 
+    <param name="file_save_path" type="string" value="/home/ziv/mloam/" />
+
     <param name="scan_line" type="int" value="16" />
     <param name="map_resolution" type="double" value="0.4" />
     <param name="submap_len" type="int" value="6" />
