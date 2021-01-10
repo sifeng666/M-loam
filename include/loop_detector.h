@@ -12,8 +12,6 @@
 
 using FactorPtr = gtsam::NonlinearFactor::shared_ptr;
 
-extern const std::string filepath;
-
 static gtsam::SharedNoiseModel loop_noise_model   = gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(6) << 1e-3, 1e-3, 1e-3, 5e-3, 5e-3, 5e-2).finished());
 static gtsam::SharedNoiseModel submap_noise_model = gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(6) << 1e-2, 1e-2, 1e-2, 3e-2, 3e-2, 2e-1).finished());
 

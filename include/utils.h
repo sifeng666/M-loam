@@ -28,6 +28,16 @@ string pose_to_str(const gtsam::Pose3& pose) {
     return string(ret);
 }
 
+void write_pose(std::ofstream& f, const Eigen::Quaterniond& q, const Eigen::Vector3d& t, bool isKeyframe) {
+    if (!f.is_open()) return;
+    char ret[100];
+    if (!isKeyframe)
+        sprintf(ret, "%f %f %f %f %f %f %f\n", q.x(), q.y(), q.z(), q.w(), t.x(), t.y(), t.z());
+    else
+        sprintf(ret, "%f %f %f %f %f %f %f [keyframe]\n", q.x(), q.y(), q.z(), q.w(), t.x(), t.y(), t.z());
+    f << ret;
+}
+
 
 nav_msgs::Odometry poseToNavOdometry(
         const ros::Time& stamp,
@@ -70,40 +80,6 @@ geometry_msgs::TransformStamped navOdomToTransformStamped(const nav_msgs::Odomet
     return odom_trans;
 
 }
-
-class PoseWriter {
-private:
-    std::ofstream f;
-public:
-    explicit PoseWriter(const std::string& _name)
-            : f("/home/ziv/catkin_ziv/src/M-loam/odometry/" + _name)
-    { }
-
-    void write(const Eigen::Quaterniond& q, const Eigen::Vector3d& t, bool isKeyframe) {
-        if (!f.is_open()) return;
-        char ret[100];
-        if (!isKeyframe)
-            sprintf(ret, "%f %f %f %f %f %f %f\n", q.x(), q.y(), q.z(), q.w(), t.x(), t.y(), t.z());
-        else
-            sprintf(ret, "%f %f %f %f %f %f %f [keyframe]\n", q.x(), q.y(), q.z(), q.w(), t.x(), t.y(), t.z());
-        f << ret;
-    }
-
-    void write(const Eigen::Isometry3d& mat, bool isKeyframe) {
-        Eigen::Quaterniond q(mat.rotation().matrix());
-        Eigen::Vector3d t(mat.translation());
-        write(q, t, isKeyframe);
-    }
-
-    void write(const gtsam::Pose3& p3, bool isKeyframe) {
-        Eigen::Isometry3d mat(p3.matrix());
-        write(mat, isKeyframe);
-    }
-
-    void close() {
-        f.close();
-    }
-};
 
 
 #endif //MLOAM_UTILS_H

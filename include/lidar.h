@@ -141,13 +141,10 @@ private:
     bool is_init = false;
 
     // frame-to-submap
-
     pcl::PointCloud<PointT>::Ptr submapEdge;
     pcl::PointCloud<PointT>::Ptr submapSurf;
-    // pcl::PointCloud<PointT>::Ptr submapPlane;
     pcl::KdTreeFLANN<PointT>::Ptr kdtreeEdgeSubmap;
     pcl::KdTreeFLANN<PointT>::Ptr kdtreeSurfSubmap;
-    // pcl::KdTreeFLANN<PointT>::Ptr kdtreePlaneSubmap;
 
     // downsample filter
     pcl::VoxelGrid<PointT> downSizeFilterEdge;

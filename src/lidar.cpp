@@ -176,14 +176,11 @@ void LidarSensor::updateSubmap() {
     if (current_keyframe->valid_frames == 1) {
         size_t size = keyframeVec->keyframes.size();
         size_t start = size < SUBMAP_LEN ? 0 : size - SUBMAP_LEN;
-//        size_t start2 = size < SUBMAP_LEN_PLANE ? 0 : size - SUBMAP_LEN_PLANE;
 
         submapEdge = MapGenerator::generate_cloud(keyframeVec, start, size, FeatureType::Edge);
         submapSurf = MapGenerator::generate_cloud(keyframeVec, start, size, FeatureType::Surf);
-//        slideWindowPlane = MapGenerator::generate_cloud(keyframeVec, start2, size, FeatureType::Plane);
         downsampling(submapEdge, *submapEdge, FeatureType::Edge);
         downsampling(submapSurf, *submapSurf, FeatureType::Surf);
-//        downsampling(slideWindowPlane, *slideWindowPlane, FeatureType::Plane);
     }
 }
 
@@ -219,20 +216,16 @@ void LidarSensor::addOdomFactor() {
 void LidarSensor::handleRegistration() {
 
     if (!current_keyframe->is_init()) {
+
         Keyframe::Ptr last_keyframe = keyframeVec->keyframes[current_keyframe->index - 1];
+
         // push to loopDetectBuf
         BA_mtx.lock();
         BAKeyframeBuf.push(last_keyframe);
         BA_mtx.unlock();
 
-        /*** all  pose: [0, current]
-             *** opti pose: [0, k-1]
-             *** not  opti: [k, current] */
+        current_keyframe->set_init(odom);
 
-        // update raw odom of KF_current and relative pose to KF_last
-        current_keyframe->set_init(last_keyframe, odom);
-
-        // update pose from 0 to current
         updatePoses();
 
         addOdomFactor();
@@ -266,7 +259,6 @@ void LidarSensor::updatePoses() {
 
     isamOptimize = isam->calculateEstimate();
 
-//    std::lock_guard<std::mutex> lg(poses_opti_mtx);
 //    // write lock
     std::unique_lock<std::shared_mutex> ul(keyframeVec->pose_mtx);
 
@@ -274,18 +266,6 @@ void LidarSensor::updatePoses() {
         keyframeVec->keyframes[i]->pose_world_curr = isamOptimize.at<gtsam::Pose3>(X(i));
     }
 
-//
-//    size_t k = poses_optimized.size();
-//    size_t current = current_keyframe->index;
-//    // update pose from [0, k-1]
-//    for (size_t i = 0; i < k; i++) {
-//        keyframeVec->keyframes[i]->pose_world_curr = pose_normalize(poses_optimized[i]);
-//    }
-//    // recalculate pose from [k, current] using relative pose
-//    for (size_t i = k; i <= current; i++) {
-//        keyframeVec->keyframes[i]->pose_world_curr = pose_normalize(keyframeVec->keyframes[i - 1]->pose_world_curr * keyframeVec->keyframes[i]->pose_last_curr);
-//    }
-//    // no need to update relative pose from [0, current]
 }
 
 void LidarSensor::initParam() {
@@ -322,55 +302,53 @@ void LidarSensor::initParam() {
     isam = std::make_shared<gtsam::ISAM2>(isam2Params);
 }
 
-pcl::PointCloud<PointT>::Ptr LidarSensor::extract_planes(pcl::PointCloud<PointT>::Ptr currSurf) {
-    TimeCounter t1;
-    pcl::PointCloud<NormalT>::Ptr cloud_normals(new pcl::PointCloud<NormalT>());
-    std::vector<pcl::PointIndices> clusters;
-    ne.setInputCloud(currSurf);
-    ne.compute(*cloud_normals);
-    regionGrowing.setInputCloud(currSurf);
-    regionGrowing.setInputNormals(cloud_normals);
-    regionGrowing.extract(clusters);
-
-    pcl::PointCloud<PointT>::Ptr planes(new pcl::PointCloud<PointT>());
-
-    for (const auto& cluster : clusters) {
-        size_t size = cluster.indices.size();
-        Eigen::MatrixXd matA0(size, 3), matB0(size, 1);
-        matB0.setOnes();
-        matB0 = -1 * matB0;
-
-        for (size_t j = 0; j < size; j++) {
-            int idx = cluster.indices[j];
-            matA0(j, 0) = currSurf->points[idx].x;
-            matA0(j, 1) = currSurf->points[idx].y;
-            matA0(j, 2) = currSurf->points[idx].z;
-        }
-        Eigen::Vector3d norm = matA0.colPivHouseholderQr().solve(matB0);
-        double d = 1 / norm.norm();
-        norm.normalize();
-
-        bool planeValid = true;
-        for (size_t j = 0; j < size; j++) {
-            int idx = cluster.indices[j];
-            if (fabs(norm(0) * currSurf->points[idx].x +
-                     norm(1) * currSurf->points[idx].y +
-                     norm(2) * currSurf->points[idx].z + d) > 0.25) {
-                planeValid = false;
-                break;
-            }
-        }
-
-        if (planeValid) {
-            for (size_t j = 0; j < size; j++) {
-//                    current_keyframe->planes->push_back(current_keyframe->surfFeatures->points[cluster.indices[j]]);
-                planes->push_back(currSurf->points[cluster.indices[j]]);
-            }
-        }
-    }
-    return planes;
-//        std::cout << "extract plane: " << current_keyframe->planes.size() << " within " << t1.count() << "ms" << std::endl;
-}
+//pcl::PointCloud<PointT>::Ptr LidarSensor::extract_planes(pcl::PointCloud<PointT>::Ptr currSurf) {
+//    TimeCounter t1;
+//    pcl::PointCloud<NormalT>::Ptr cloud_normals(new pcl::PointCloud<NormalT>());
+//    std::vector<pcl::PointIndices> clusters;
+//    ne.setInputCloud(currSurf);
+//    ne.compute(*cloud_normals);
+//    regionGrowing.setInputCloud(currSurf);
+//    regionGrowing.setInputNormals(cloud_normals);
+//    regionGrowing.extract(clusters);
+//
+//    pcl::PointCloud<PointT>::Ptr planes(new pcl::PointCloud<PointT>());
+//
+//    for (const auto& cluster : clusters) {
+//        size_t size = cluster.indices.size();
+//        Eigen::MatrixXd matA0(size, 3), matB0(size, 1);
+//        matB0.setOnes();
+//        matB0 = -1 * matB0;
+//
+//        for (size_t j = 0; j < size; j++) {
+//            int idx = cluster.indices[j];
+//            matA0(j, 0) = currSurf->points[idx].x;
+//            matA0(j, 1) = currSurf->points[idx].y;
+//            matA0(j, 2) = currSurf->points[idx].z;
+//        }
+//        Eigen::Vector3d norm = matA0.colPivHouseholderQr().solve(matB0);
+//        double d = 1 / norm.norm();
+//        norm.normalize();
+//
+//        bool planeValid = true;
+//        for (size_t j = 0; j < size; j++) {
+//            int idx = cluster.indices[j];
+//            if (fabs(norm(0) * currSurf->points[idx].x +
+//                     norm(1) * currSurf->points[idx].y +
+//                     norm(2) * currSurf->points[idx].z + d) > 0.25) {
+//                planeValid = false;
+//                break;
+//            }
+//        }
+//
+//        if (planeValid) {
+//            for (size_t j = 0; j < size; j++) {
+//                planes->push_back(currSurf->points[cluster.indices[j]]);
+//            }
+//        }
+//    }
+//    return planes;
+//}
 
 void LidarSensor::update_keyframe(const ros::Time& cloud_in_time,
                                   pcl::PointCloud<PointT>::Ptr currEdge,
@@ -398,22 +376,14 @@ void LidarSensor::getTransToSubmap(pcl::PointCloud<PointT>::Ptr currEdge, pcl::P
 
         kdtreeEdgeSubmap->setInputCloud(submapEdge);
         kdtreeSurfSubmap->setInputCloud(submapSurf);
-//        kdtreePlaneSW->setInputCloud(slideWindowPlane);
-
-//        std::cout << lidar_name << " size: " << "submap: " << submapEdge->size() << " " << submapSurf->size() << "curr: " << currEdge->size() << " " << currSurf->size() << std::endl;
 
         for (int opti_counter = 0; opti_counter < 3; opti_counter++) {
 
             gtsam::NonlinearFactorGraph factors;
             gtsam::Values init_values;
             init_values.insert(state_key, pose_w_c);
-//            TimeCounter tc; auto t1 = tc.count();
-//            std::cout << "opti_counter " << opti_counter << ": ";
             addEdgeCostFactor(currEdge, submapEdge, kdtreeEdgeSubmap, pose_w_c, factors);
-//            std::cout << "addEdgeCostFactor: " << tc.count() - t1 << "ms, "; t1 = tc.count();
             addSurfCostFactor(currSurf, submapSurf, kdtreeSurfSubmap, pose_w_c, factors);
-//            std::cout << "addSurfCostFactor: " << tc.count() - t1 << "ms, "; t1 = tc.count();
-//                addSurfCostFactor2(currPlane, slideWindowSurf, kdtreeSurfSW, pose_w_c, factors, 0);
 
             // gtsam
             gtsam::LevenbergMarquardtParams params;
@@ -434,7 +404,6 @@ void LidarSensor::getTransToSubmap(pcl::PointCloud<PointT>::Ptr currEdge, pcl::P
     odom = pose_w_c;
     delta = pose_normalize(last_odom.inverse() * odom);
 
-//    std::cout << lidar_name << "odom: \n" << odom.matrix() << std::endl;
 }
 
 gtsam::Pose3 LidarSensor::update(const ros::Time cloud_in_time,
@@ -454,16 +423,16 @@ gtsam::Pose3 LidarSensor::update(const ros::Time cloud_in_time,
     }
 
     if (!is_init) {
-        current_keyframe->set_init(current_keyframe, gtsam::Pose3());
+        current_keyframe->set_init(gtsam::Pose3());
         initOdomFactor();
         is_init = true;
         return gtsam::Pose3();
     }
 
     updateSubmap();
-    // update current odom to world
+
     getTransToSubmap(currEdge, currSurf);
-    // handle and opti odom
+
     handleRegistration();
 
     return odom;
@@ -523,37 +492,8 @@ void LidarSensor::BA_optimization() {
             status->status_change = (factors.size() > 0);
         }
 
-//        // isam update
-//        isam->update(BAGraph, BAEstimate);
-//        isam->update();
-//
-//        if (status_change) {
-//            isam->update();
-//            isam->update();
-//            isam->update();
-//            status_change = false;
-//        }
-//
-//        BAGraph.resize(0);
-//        BAEstimate.clear();
-//
-//        isamOptimize = isam->calculateEstimate();
-
-//        // send to poses_optimized
-//        {
-//            std::lock_guard<std::mutex> lg(poses_opti_mtx);
-//            poses_optimized.clear();
-//            poses_optimized.reserve(isamOptimize.size());
-//            for (size_t i = 0; i < isamOptimize.size(); i++) {
-//                poses_optimized.push_back(isamOptimize.at<gtsam::Pose3>(X(i)));
-//            }
-//            poses_opti_update = true;
-//        }
-
-
-
         //sleep 400 ms every time
-        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        std::this_thread::sleep_for(std::chrono::milliseconds(400));
     }
 }
 

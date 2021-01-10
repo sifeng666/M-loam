@@ -48,7 +48,6 @@ public:
     int valid_frames = 0;
     ros::Time cloud_in_time;
     gtsam::Pose3 pose_world_curr;
-    gtsam::Pose3 pose_last_curr;
     // feature point cloud
     pcl::PointCloud<PointT>::Ptr edgeFeatures;
     pcl::PointCloud<PointT>::Ptr surfFeatures;
@@ -56,7 +55,7 @@ public:
     pcl::PointCloud<PointT>::Ptr planes;
 public:
     Keyframe(int _index, const ros::Time& time, PointCloudPtr EF, PointCloudPtr PF, PointCloudPtr RAW);
-    void set_init(Keyframe::Ptr last_keyframe, gtsam::Pose3 pose_world_curr_);
+    void set_init(gtsam::Pose3 pose_world_curr_);
     bool is_init() const;
     void add_frame();
 };

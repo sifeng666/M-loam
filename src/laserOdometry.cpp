@@ -149,7 +149,7 @@ public:
                         lidarInfo0->save_latency = 0;
                     }
                     if (lidarInfo0->save_latency == 20) {
-                        pcl::io::savePCDFileASCII("/home/ziv/mloam/global_map_0.pcd", *map);
+                        pcl::io::savePCDFileASCII(filepath + "global_map_0.pcd", *map);
                         cout << "saved map_0!" << endl;
                     }
 
@@ -165,8 +165,7 @@ public:
                 if (size < 0 || map == nullptr) {
                     continue;
                 }
-                // transform to T_0_1
-//                pcl::transformPointCloud(*map, *map, lidarInfo1->T_0_i.matrix());
+
                 sensor_msgs::PointCloud2Ptr cloud_msg(new sensor_msgs::PointCloud2());
                 pcl::toROSMsg(*map, *cloud_msg);
                 cloud_msg->header.stamp = lidarInfo1->ros_time;
@@ -181,7 +180,7 @@ public:
                         lidarInfo1->save_latency = 0;
                     }
                     if (lidarInfo1->save_latency == 20) {
-                        pcl::io::savePCDFileASCII("/home/ziv/mloam/global_map_1.pcd", *map);
+                        pcl::io::savePCDFileASCII(filepath + "global_map_1.pcd", *map);
                         cout << "saved map_1!" << endl;
                     }
 
