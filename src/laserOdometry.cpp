@@ -10,17 +10,20 @@ class LidarInfo {
 public:
     using Ptr = boost::shared_ptr<LidarInfo>;
 public:
-    int i;
-    LidarMsgReader reader;
-    gtsam::Pose3 odom;
-    ros::Time ros_time;
-    KeyframeVec::Ptr keyframeVec;
-    LidarStatus::Ptr status;
-    MapGenerator mapGenerator;
-    int last_map_generate_index = 0;
-    gtsam::Pose3 T_0_i; // extrinsic param from L_i to L_base(L_0)
-    bool is_base = false;
-    tf::TransformBroadcaster brMapToFrame;
+    int i;                                      // Lidar i_th
+    LidarMsgReader reader;                      // read ros lidar pointcloud msg
+    gtsam::Pose3 odom;                          // latest odom of this lidar, not save history
+    ros::Time ros_time;                         // latest ros timestamp of this lidar, not save history
+    KeyframeVec::Ptr keyframeVec;               // including all history keyframes, optimized
+    LidarStatus::Ptr status;                    // lidar status, communication of lidar.cpp and this cpp
+    MapGenerator mapGenerator;                  // generate global map of this lidar
+    tf::TransformBroadcaster brMapToFrame;      // tf broadcaster, from map_i to frame_i
+
+    gtsam::Pose3 T_0_i;                         // extrinsic param from L_i to L_base(L_0)
+    bool is_base = false;                       // if i == 0, then is_base = true
+
+    int last_map_generate_index = 0;            // last index of map generator has generated
+    int save_latency = 0;                       // if this index == last index, then save_latency++, if save_latency == TARGET, then save global map to local files
 
     // ros msg
     ros::Subscriber sub_laser_cloud, sub_laser_cloud_edge, sub_laser_cloud_surf, sub_laser_cloud_less_edge, sub_laser_cloud_less_surf;
@@ -367,9 +370,9 @@ private:
 
     double save_map_resolution;
 
-    LidarInfo::Ptr lidarInfo0, lidarInfo1;
+    LidarInfo::Ptr lidarInfo0;
+    LidarInfo::Ptr lidarInfo1;
 
-    int save_latency_0 = 0, save_latency_1 = 0;
 
     /*********************************************************************
    ** GTSAM Optimizer

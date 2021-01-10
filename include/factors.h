@@ -136,17 +136,11 @@ public:
 
         if (H1) *H1 = H_r_pose1;
 
-<<<<<<< HEAD
-            if (H1) *H1 = H_r_pose1;
-
-            if (H2) *H2 = H_r_pose2; //! negative
-=======
         if (H2) *H2 = H_r_pose2;
 
         return err;
     }
 };
->>>>>>> lidar_h
 
 //class PointToPlaneFactor2: public NoiseModelFactor2<Pose3, Pose3>
 //{
