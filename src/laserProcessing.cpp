@@ -28,23 +28,41 @@ public:
 
     void initROSHandler() {
 
-        subLaserCloud = nh.subscribe<sensor_msgs::PointCloud2>("/velodyne_points", 100, &LaserProcessing::pointCloudHandler, this);
+        // lidar 0
+        subLaserCloud0 = nh.subscribe<sensor_msgs::PointCloud2>("/left/velodyne_points", 100, &LaserProcessing::pointCloudHandler0, this);
 
-        pubLaserCloudFiltered = nh.advertise<sensor_msgs::PointCloud2>("/velodyne_points_2", 100);
+        pubEdgePoints0 = nh.advertise<sensor_msgs::PointCloud2>("/left/laser_cloud_edge", 100);
+        pubSurfPoints0 = nh.advertise<sensor_msgs::PointCloud2>("/left/laser_cloud_surf", 100);
+        pubLessEdgePoints0 = nh.advertise<sensor_msgs::PointCloud2>("/left/laser_cloud_less_edge", 100);
+        pubLessSurfPoints0 = nh.advertise<sensor_msgs::PointCloud2>("/left/laser_cloud_less_surf", 100);
 
-        pubEdgePoints = nh.advertise<sensor_msgs::PointCloud2>("/laser_cloud_edge", 100);
+        // lidar 1
+        subLaserCloud1 = nh.subscribe<sensor_msgs::PointCloud2>("/right/velodyne_points", 100, &LaserProcessing::pointCloudHandler1, this);
 
-        pubSurfPoints = nh.advertise<sensor_msgs::PointCloud2>("/laser_cloud_surf", 100);
+        pubEdgePoints1 = nh.advertise<sensor_msgs::PointCloud2>("/right/laser_cloud_edge", 100);
+        pubSurfPoints1 = nh.advertise<sensor_msgs::PointCloud2>("/right/laser_cloud_surf", 100);
+        pubLessEdgePoints1 = nh.advertise<sensor_msgs::PointCloud2>("/right/laser_cloud_less_edge", 100);
+        pubLessSurfPoints1 = nh.advertise<sensor_msgs::PointCloud2>("/right/laser_cloud_less_surf", 100);
 
     }
 
-    void pointCloudHandler(const sensor_msgs::PointCloud2ConstPtr &pointCloudMsg) {
-        std::lock_guard lg(mtx);
-        pointCloudBuf.push(pointCloudMsg);
+    void pointCloudHandler0(const sensor_msgs::PointCloud2ConstPtr &pointCloudMsg) {
+        std::lock_guard lg(mtx0);
+        pointCloudBuf0.push(pointCloudMsg);
     }
 
-    void featureExtractionFromSector(const pcl::PointCloud<PointT>::Ptr& cloud_in, std::vector<IndexVal>& cloudCurvature, pcl::PointCloud<PointT>::Ptr& cloud_out_edge, pcl::PointCloud<PointT>::Ptr& cloud_out_surf) {
+    void pointCloudHandler1(const sensor_msgs::PointCloud2ConstPtr &pointCloudMsg) {
+        std::lock_guard lg(mtx1);
+        pointCloudBuf1.push(pointCloudMsg);
+    }
 
+    void featureExtractionFromSector(const pcl::PointCloud<PointT>::Ptr& cloud_in,
+                                     std::vector<IndexVal>& cloudCurvature,
+                                     pcl::PointCloud<PointT>::Ptr& cloud_out_edge,
+                                     pcl::PointCloud<PointT>::Ptr& cloud_out_surf,
+                                     pcl::PointCloud<PointT>::Ptr& cloud_out_less_edge,
+                                     pcl::PointCloud<PointT>::Ptr& cloud_out_less_surf)
+    {
         std::sort(cloudCurvature.begin(), cloudCurvature.end(), [](const IndexVal& a, const IndexVal& b) {
             return a.second < b.second;
         });
@@ -52,7 +70,6 @@ public:
 
         int largestPickedNum = 0;
         std::vector<int> picked_points;
-        int point_info_count =0;
         for (int i = cloudCurvature.size()-1; i >= 0; i--) {
             int ind = cloudCurvature[i].first;
             if (std::find(picked_points.begin(), picked_points.end(), ind) == picked_points.end()) {
@@ -63,9 +80,12 @@ public:
                 largestPickedNum++;
                 picked_points.push_back(ind);
 
-                if (largestPickedNum <= 20) {
+                if (largestPickedNum <= 2) {
                     cloud_out_edge->push_back(cloud_in->points[ind]);
-                    point_info_count++;
+                    cloud_out_less_edge->push_back(cloud_in->points[ind]);
+                }
+                else if (largestPickedNum <= 20) {
+                    cloud_out_less_edge->push_back(cloud_in->points[ind]);
                 } else {
                     break;
                 }
@@ -93,62 +113,63 @@ public:
         }
 
         //find flat points
-        // point_info_count =0;
-        // int smallestPickedNum = 0;
+         int smallestPickedNum = 0;
 
-        // for (int i = 0; i <= (int)cloudCurvature.size()-1; i++)
-        // {
-        //     int ind = cloudCurvature[i].id;
+         for (int i = 0; i <= (int)cloudCurvature.size()-1; i++) {
+             int ind = cloudCurvature[i].first;
 
-        //     if( std::find(picked_points.begin(), picked_points.end(), ind)==picked_points.end()){
-        //         if(cloudCurvature[i].value > 0.1){
-        //             //ROS_WARN("extracted feature not qualified, please check lidar");
-        //             break;
-        //         }
-        //         smallestPickedNum++;
-        //         picked_points.push_back(ind);
+             if( std::find(picked_points.begin(), picked_points.end(), ind)==picked_points.end()){
+                 if(cloudCurvature[i].second > 0.1){
+                     break;
+                 }
+                 smallestPickedNum++;
+                 picked_points.push_back(ind);
 
-        //         if(smallestPickedNum <= 4){
-        //             //find all points
-        //             pc_surf_flat->push_back(pc_in->points[ind]);
-        //             pc_surf_lessFlat->push_back(pc_in->points[ind]);
-        //             point_info_count++;
-        //         }
-        //         else{
-        //             break;
-        //         }
+                 if(smallestPickedNum <= 4){
+                     //find all points
+                     cloud_out_surf->push_back(cloud_in->points[ind]);
+                     cloud_out_less_surf->push_back(cloud_in->points[ind]);
+                 }
+                 else{
+                     break;
+                 }
 
-        //         for(int k=1;k<=5;k++){
-        //             double diffX = pc_in->points[ind + k].x - pc_in->points[ind + k - 1].x;
-        //             double diffY = pc_in->points[ind + k].y - pc_in->points[ind + k - 1].y;
-        //             double diffZ = pc_in->points[ind + k].z - pc_in->points[ind + k - 1].z;
-        //             if (diffX * diffX + diffY * diffY + diffZ * diffZ > 0.05){
-        //                 break;
-        //             }
-        //             picked_points.push_back(ind+k);
-        //         }
-        //         for(int k=-1;k>=-5;k--){
-        //             double diffX = pc_in->points[ind + k].x - pc_in->points[ind + k + 1].x;
-        //             double diffY = pc_in->points[ind + k].y - pc_in->points[ind + k + 1].y;
-        //             double diffZ = pc_in->points[ind + k].z - pc_in->points[ind + k + 1].z;
-        //             if (diffX * diffX + diffY * diffY + diffZ * diffZ > 0.05){
-        //                 break;
-        //             }
-        //             picked_points.push_back(ind+k);
-        //         }
+                 for(int k=1;k<=5;k++){
+                     double diffX = cloud_in->points[ind + k].x - cloud_in->points[ind + k - 1].x;
+                     double diffY = cloud_in->points[ind + k].y - cloud_in->points[ind + k - 1].y;
+                     double diffZ = cloud_in->points[ind + k].z - cloud_in->points[ind + k - 1].z;
+                     if (diffX * diffX + diffY * diffY + diffZ * diffZ > 0.05){
+                         break;
+                     }
+                     picked_points.push_back(ind+k);
+                 }
+                 for(int k=-1;k>=-5;k--){
+                     double diffX = cloud_in->points[ind + k].x - cloud_in->points[ind + k + 1].x;
+                     double diffY = cloud_in->points[ind + k].y - cloud_in->points[ind + k + 1].y;
+                     double diffZ = cloud_in->points[ind + k].z - cloud_in->points[ind + k + 1].z;
+                     if (diffX * diffX + diffY * diffY + diffZ * diffZ > 0.05){
+                         break;
+                     }
+                     picked_points.push_back(ind+k);
+                 }
 
-        //     }
-        // }
+             }
+         }
 
         for (int i = 0; i <= (int)cloudCurvature.size()-1; i++) {
             int ind = cloudCurvature[i].first;
             if(std::find(picked_points.begin(), picked_points.end(), ind) == picked_points.end()) {
-                cloud_out_surf->push_back(cloud_in->points[ind]);
+                cloud_out_less_surf->push_back(cloud_in->points[ind]);
             }
         }
     }
 
-    void featureExtraction(const pcl::PointCloud<PointT>::Ptr& cloud_in, pcl::PointCloud<PointT>::Ptr& cloud_out_edge, pcl::PointCloud<PointT>::Ptr& cloud_out_surf) {
+    void featureExtraction(const pcl::PointCloud<PointT>::Ptr& cloud_in,
+                           pcl::PointCloud<PointT>::Ptr& cloud_out_edge,
+                           pcl::PointCloud<PointT>::Ptr& cloud_out_surf,
+                           pcl::PointCloud<PointT>::Ptr& cloud_out_less_edge,
+                           pcl::PointCloud<PointT>::Ptr& cloud_out_less_surf)
+    {
         std::vector<int> indices;
         pcl::removeNaNFromPointCloud(*cloud_in, indices);
 
@@ -221,7 +242,7 @@ public:
                 }
                 std::vector<IndexVal> subCloudCurvature(cloudCurvature.begin()+sector_start, cloudCurvature.begin()+sector_end);
 
-                featureExtractionFromSector(laserCloudScans[i], subCloudCurvature, cloud_out_edge, cloud_out_surf);
+                featureExtractionFromSector(laserCloudScans[i], subCloudCurvature, cloud_out_edge, cloud_out_surf, cloud_out_less_edge, cloud_out_less_surf);
 
             }
 
@@ -232,43 +253,87 @@ public:
 
         while (ros::ok()) {
 
-            if (!pointCloudBuf.empty()) {
+            if (!pointCloudBuf0.empty()) {
 
                 pcl::PointCloud<PointT>::Ptr cloud_in(new pcl::PointCloud<PointT>());
                 pcl::PointCloud<PointT>::Ptr cloud_edge(new pcl::PointCloud<PointT>());
                 pcl::PointCloud<PointT>::Ptr cloud_surf(new pcl::PointCloud<PointT>());
+                pcl::PointCloud<PointT>::Ptr cloud_less_edge(new pcl::PointCloud<PointT>());
+                pcl::PointCloud<PointT>::Ptr cloud_less_surf(new pcl::PointCloud<PointT>());
 
-                mtx.lock();
-                pcl::fromROSMsg(*pointCloudBuf.front(), *cloud_in);
-                ros::Time cloud_in_time = (pointCloudBuf.front())->header.stamp;
-                pointCloudBuf.pop();
-                mtx.unlock();
+                mtx0.lock();
+                pcl::fromROSMsg(*pointCloudBuf0.front(), *cloud_in);
+                ros::Time cloud_in_time = (pointCloudBuf0.front())->header.stamp;
+                pointCloudBuf0.pop();
+                mtx0.unlock();
 
-
-//                Timer feat_extra("featureExtraction");
-                featureExtraction(cloud_in, cloud_edge, cloud_surf);
-//                feat_extra.count();
-
-                sensor_msgs::PointCloud2 laserCloudFilteredMsg;
-                pcl::PointCloud<PointT>::Ptr cloud_filtered(new pcl::PointCloud<PointT>());
-                *cloud_filtered += *cloud_edge;
-                *cloud_filtered += *cloud_surf;
-                pcl::toROSMsg(*cloud_filtered, laserCloudFilteredMsg);
-                laserCloudFilteredMsg.header.stamp = cloud_in_time;
-                laserCloudFilteredMsg.header.frame_id = "base_link";
-                pubLaserCloudFiltered.publish(laserCloudFilteredMsg);
+                featureExtraction(cloud_in, cloud_edge, cloud_surf, cloud_less_edge, cloud_less_surf);
 
                 sensor_msgs::PointCloud2 edgePointsMsg;
                 pcl::toROSMsg(*cloud_edge, edgePointsMsg);
                 edgePointsMsg.header.stamp = cloud_in_time;
-                edgePointsMsg.header.frame_id = "base_link";
-                pubEdgePoints.publish(edgePointsMsg);
+                edgePointsMsg.header.frame_id = "frame0";
+                pubEdgePoints0.publish(edgePointsMsg);
 
                 sensor_msgs::PointCloud2 surfPointsMsg;
                 pcl::toROSMsg(*cloud_surf, surfPointsMsg);
                 surfPointsMsg.header.stamp = cloud_in_time;
-                surfPointsMsg.header.frame_id = "base_link";
-                pubSurfPoints.publish(surfPointsMsg);
+                surfPointsMsg.header.frame_id = "frame0";
+                pubSurfPoints0.publish(surfPointsMsg);
+
+                sensor_msgs::PointCloud2 edgeLessPointsMsg;
+                pcl::toROSMsg(*cloud_less_edge, edgeLessPointsMsg);
+                edgeLessPointsMsg.header.stamp = cloud_in_time;
+                edgeLessPointsMsg.header.frame_id = "frame0";
+                pubLessEdgePoints0.publish(edgeLessPointsMsg);
+
+                sensor_msgs::PointCloud2 surfLessPointsMsg;
+                pcl::toROSMsg(*cloud_less_surf, surfLessPointsMsg);
+                surfLessPointsMsg.header.stamp = cloud_in_time;
+                surfLessPointsMsg.header.frame_id = "frame0";
+                pubLessSurfPoints0.publish(surfLessPointsMsg);
+
+            }
+
+            if (!pointCloudBuf1.empty()) {
+
+                pcl::PointCloud<PointT>::Ptr cloud_in(new pcl::PointCloud<PointT>());
+                pcl::PointCloud<PointT>::Ptr cloud_edge(new pcl::PointCloud<PointT>());
+                pcl::PointCloud<PointT>::Ptr cloud_surf(new pcl::PointCloud<PointT>());
+                pcl::PointCloud<PointT>::Ptr cloud_less_edge(new pcl::PointCloud<PointT>());
+                pcl::PointCloud<PointT>::Ptr cloud_less_surf(new pcl::PointCloud<PointT>());
+
+                mtx1.lock();
+                pcl::fromROSMsg(*pointCloudBuf1.front(), *cloud_in);
+                ros::Time cloud_in_time = (pointCloudBuf1.front())->header.stamp;
+                pointCloudBuf1.pop();
+                mtx1.unlock();
+
+                featureExtraction(cloud_in, cloud_edge, cloud_surf, cloud_less_edge, cloud_less_surf);
+
+                sensor_msgs::PointCloud2 edgePointsMsg;
+                pcl::toROSMsg(*cloud_edge, edgePointsMsg);
+                edgePointsMsg.header.stamp = cloud_in_time;
+                edgePointsMsg.header.frame_id = "frame1";
+                pubEdgePoints1.publish(edgePointsMsg);
+
+                sensor_msgs::PointCloud2 surfPointsMsg;
+                pcl::toROSMsg(*cloud_surf, surfPointsMsg);
+                surfPointsMsg.header.stamp = cloud_in_time;
+                surfPointsMsg.header.frame_id = "frame1";
+                pubSurfPoints1.publish(surfPointsMsg);
+
+                sensor_msgs::PointCloud2 edgeLessPointsMsg;
+                pcl::toROSMsg(*cloud_less_edge, edgeLessPointsMsg);
+                edgeLessPointsMsg.header.stamp = cloud_in_time;
+                edgeLessPointsMsg.header.frame_id = "frame1";
+                pubLessEdgePoints1.publish(edgeLessPointsMsg);
+
+                sensor_msgs::PointCloud2 surfLessPointsMsg;
+                pcl::toROSMsg(*cloud_less_surf, surfLessPointsMsg);
+                surfLessPointsMsg.header.stamp = cloud_in_time;
+                surfLessPointsMsg.header.frame_id = "frame1";
+                pubLessSurfPoints1.publish(surfLessPointsMsg);
 
             }
             //sleep 2 ms every time
@@ -288,13 +353,22 @@ private:
 
     ros::NodeHandle nh;
 
-    std::mutex mtx;
-    std::queue<sensor_msgs::PointCloud2ConstPtr> pointCloudBuf;
+    std::mutex mtx0;
+    std::mutex mtx1;
+    std::queue<sensor_msgs::PointCloud2ConstPtr> pointCloudBuf0;
+    std::queue<sensor_msgs::PointCloud2ConstPtr> pointCloudBuf1;
 
-    ros::Subscriber subLaserCloud;
-    ros::Publisher pubEdgePoints;
-    ros::Publisher pubSurfPoints;
-    ros::Publisher pubLaserCloudFiltered;
+    ros::Subscriber subLaserCloud0;
+    ros::Publisher  pubEdgePoints0;
+    ros::Publisher  pubSurfPoints0;
+    ros::Publisher  pubLessEdgePoints0;
+    ros::Publisher  pubLessSurfPoints0;
+
+    ros::Subscriber subLaserCloud1;
+    ros::Publisher  pubEdgePoints1;
+    ros::Publisher  pubSurfPoints1;
+    ros::Publisher  pubLessEdgePoints1;
+    ros::Publisher  pubLessSurfPoints1;
 
     int scan_line;
     double vertical_angle, scan_period, max_dis, min_dis;

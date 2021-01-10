@@ -10,6 +10,7 @@
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/point_types.h>
 #include <pcl/point_cloud.h>
+#include <pcl/common/transforms.h>
 
 class MapGenerator {
 private:
@@ -23,7 +24,7 @@ public:
 
     void insert(KeyframeVec::Ptr keyframeVec, size_t begin, size_t end);
 
-    pcl::PointCloud<PointT>::Ptr get() const;
+    pcl::PointCloud<PointT>::Ptr get(float) const;
 
     static pcl::PointCloud<PointT>::Ptr generate_cloud(KeyframeVec::Ptr keyframeVec, size_t begin, size_t end, FeatureType featureType);
 

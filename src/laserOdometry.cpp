@@ -3,120 +3,77 @@
 //
 
 #include "helper.h"
-#include "keyframe.h"
+#include "lidar.h"
 #include "utils.h"
-#include "map_generator.h"
-#include "factors.h"
-#include "loop_detector.h"
 
-#include <pcl/segmentation/region_growing.h>
-#include <pcl/features/normal_3d_omp.h>
-#include <pcl/features/normal_3d.h>
+class LidarInfo {
+public:
+    using Ptr = boost::shared_ptr<LidarInfo>;
+public:
+    int i;                                      // Lidar i_th
+    LidarMsgReader reader;                      // read ros lidar pointcloud msg
+    gtsam::Pose3 odom;                          // latest odom of this lidar, not save history
+    ros::Time ros_time;                         // latest ros timestamp of this lidar, not save history
+    KeyframeVec::Ptr keyframeVec;               // including all history keyframes, optimized
+    LidarStatus::Ptr status;                    // lidar status, communication of lidar.cpp and this cpp
+    MapGenerator mapGenerator;                  // generate global map of this lidar
+    tf::TransformBroadcaster brMapToFrame;      // tf broadcaster, from map_i to frame_i
+
+    gtsam::Pose3 T_0_i;                         // extrinsic param from L_i to L_base(L_0)
+    bool is_base = false;                       // if i == 0, then is_base = true
+
+    int last_map_generate_index = 0;            // last index of map generator has generated
+    int save_latency = 0;                       // if this index == last index, then save_latency++, if save_latency == TARGET, then save global map to local files
+
+    // ros msg
+    ros::Subscriber sub_laser_cloud, sub_laser_cloud_edge, sub_laser_cloud_surf, sub_laser_cloud_less_edge, sub_laser_cloud_less_surf;
+    ros::Publisher pub_path_odom, pub_path_opti, pub_map, pub_curr_edge, pub_curr_surf;
+    nav_msgs::Path path_odom, path_opti;
+
+public:
+    LidarInfo(int i_) : i(i_) {
+        T_0_i = gtsam::Pose3(gtsam::Rot3(), gtsam::Point3(0, 20 * i, 0));
+        if (i == 0) is_base = true;
+    }
+};
 
 class LaserOdometry {
 public:
 
-    void pointCloudFullHandler(const sensor_msgs::PointCloud2ConstPtr &pointCloudMsg) {
-        std::lock_guard lg(pcd_msg_mtx);
-        pointCloudFullBuf.push(pointCloudMsg);
-    }
+    void pubRawOdom(LidarInfo::Ptr lidarInfo) {
+        std::string child_frame_id = "frame" + std::to_string(lidarInfo->i);
+        std::string frame_id = "map" + std::to_string(lidarInfo->i);
+        gtsam::Pose3 odom = lidarInfo->odom;
+        ros::Time cloud_in_time = lidarInfo->ros_time;
+        auto odometry_odom = poseToNavOdometry(cloud_in_time, odom, frame_id, child_frame_id);
 
-    void pointCloudSurfHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg) {
-        std::lock_guard lg(pcd_msg_mtx);
-        pointCloudSurfBuf.push(laserCloudMsg);
-    }
-
-    void pointCloudEdgeHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg) {
-        std::lock_guard lg(pcd_msg_mtx);
-        pointCloudEdgeBuf.push(laserCloudMsg);
-    }
-
-    void pointAssociate(PointT const *const pi, PointT *const po, const gtsam::Pose3& odom) {
-        Eigen::Vector3d point_curr(pi->x, pi->y, pi->z);
-        Eigen::Vector3d point_w = odom.rotation() * point_curr + odom.translation();
-        po->x = point_w.x();
-        po->y = point_w.y();
-        po->z = point_w.z();
-        po->intensity = pi->intensity;
-    }
-
-    void downsampling(const pcl::PointCloud<PointT>::Ptr& input, pcl::PointCloud<PointT>& output, FeatureType featureType) {
-        if (input == nullptr) {
-            cout << "input is nullptr!" << endl;
-            return;
-        }
-        if (featureType == FeatureType::Edge) {
-            downSizeFilterEdge.setInputCloud(input);
-            downSizeFilterEdge.filter(output);
-        } else if (featureType == FeatureType::Surf) {
-            downSizeFilterSurf.setInputCloud(input);
-            downSizeFilterSurf.filter(output);
-        } else {
-            downSizeFilterNor.setInputCloud(input);
-            downSizeFilterNor.filter(output);
-        }
-    }
-
-    void updateSlideWindows() {
-        // update only when new keyframe goes in with correct pose
-        if (current_keyframe->valid_frames == 1) {
-            size_t size = keyframeVec->keyframes.size();
-            size_t start = size < SLIDE_KEYFRAME_LEN ? 0 : size - SLIDE_KEYFRAME_LEN;
-
-            slideWindowEdge = MapGenerator::generate_cloud(keyframeVec, start, size, FeatureType::Edge);
-            slideWindowSurf = MapGenerator::generate_cloud(keyframeVec, start, size, FeatureType::Surf);
-            downsampling(slideWindowEdge, *slideWindowEdge, FeatureType::Edge);
-            downsampling(slideWindowSurf, *slideWindowSurf, FeatureType::Surf);
-
-            sensor_msgs::PointCloud2Ptr cloud_msg(new sensor_msgs::PointCloud2());
-            pcl::toROSMsg(*slideWindowEdge, *cloud_msg);
-            cloud_msg->header.stamp = cloud_in_time;
-            cloud_msg->header.frame_id = "map";
-            pub_sw_edge.publish(cloud_msg);
-            pcl::toROSMsg(*slideWindowSurf, *cloud_msg);
-            cloud_msg->header.stamp = cloud_in_time;
-            cloud_msg->header.frame_id = "map";
-            pub_sw_surf.publish(cloud_msg);
-        }
-    }
-
-    bool nextFrameToBeKeyframe() {
-        Eigen::Isometry3d T_delta((current_keyframe->pose_world_curr.inverse() * odom).matrix());
-        Eigen::Quaterniond q_delta(T_delta.rotation().matrix());
-        q_delta.normalize();
-        Eigen::Vector3d eulerAngle = q_delta.toRotationMatrix().eulerAngles(2, 1, 0);
-
-        bool isKeyframe = min(abs(eulerAngle.x()), abs(abs(eulerAngle.x()) - M_PI)) > keyframeAngleThreshold ||
-                          min(abs(eulerAngle.y()), abs(abs(eulerAngle.y()) - M_PI)) > keyframeAngleThreshold ||
-                          min(abs(eulerAngle.z()), abs(abs(eulerAngle.z()) - M_PI)) > keyframeAngleThreshold ||
-                          T_delta.translation().norm() > keyframeDistThreshold;
-        return isKeyframe;
-    }
-
-    void pubOdomAndPath() {
-
-        auto odometry_odom = poseToNavOdometry(cloud_in_time, odom, "map", "base_link");
-        auto odometry_opti = poseToNavOdometry(cloud_in_time, odom, "map", "base_link");
-
-        static tf::TransformBroadcaster br;
         tf::Transform transform;
         transform.setOrigin( tf::Vector3(odom.translation().x(), odom.translation().y(), odom.translation().z()) );
         Eigen::Quaterniond q_current(odom.rotation().matrix());
-        tf::Quaternion q(q_current.x(),q_current.y(),q_current.z(),q_current.w());
+        tf::Quaternion q(q_current.x(), q_current.y(), q_current.z(), q_current.w());
         transform.setRotation(q);
-        br.sendTransform(tf::StampedTransform(transform, cloud_in_time, "map", "base_link"));
+        lidarInfo->brMapToFrame.sendTransform(tf::StampedTransform(transform, cloud_in_time, frame_id, child_frame_id));
 
         geometry_msgs::PoseStamped laserPose;
-        laserPose.header = odometry_opti.header;
-        laserPose.pose = odometry_opti.pose.pose;
-        path_opti.header.stamp = odometry_opti.header.stamp;
-        path_opti.poses.clear();
+        laserPose.header = odometry_odom.header;
+        laserPose.pose = odometry_odom.pose.pose;
+        lidarInfo->path_odom.header.stamp = odometry_odom.header.stamp;
+        lidarInfo->path_odom.poses.push_back(laserPose);
+        lidarInfo->path_odom.header.frame_id = frame_id;
+        lidarInfo->pub_path_odom.publish(lidarInfo->path_odom);
+    }
 
+
+    void pubOptiOdom(LidarInfo::Ptr lidarInfo) {
+        geometry_msgs::PoseStamped laserPose;
+        KeyframeVec::Ptr keyframeVec = lidarInfo->keyframeVec;
+        std::string frame_id = "map" + std::to_string(lidarInfo->i);
         // read lock
         std::vector<gtsam::Pose3> poseVec = keyframeVec->read_poses(0, keyframeVec->keyframes.size());
-
+        lidarInfo->path_opti.poses.clear();
         for (size_t i = 0; i < poseVec.size(); i++) {
-            laserPose.header = odometry_opti.header;
+
+            laserPose.header.frame_id = frame_id;
             Eigen::Quaterniond q(poseVec[i].rotation().matrix());
             laserPose.pose.orientation.x    = q.x();
             laserPose.pose.orientation.y    = q.y();
@@ -125,472 +82,173 @@ public:
             laserPose.pose.position.x       = poseVec[i].translation().x();
             laserPose.pose.position.y       = poseVec[i].translation().y();
             laserPose.pose.position.z       = poseVec[i].translation().z();
-            path_opti.poses.push_back(laserPose);
+            lidarInfo->path_opti.poses.push_back(laserPose);
         }
-        path_opti.header.frame_id = "map";
-        pub_path_opti.publish(path_opti);
+        lidarInfo->path_opti.header.frame_id = frame_id;
+        lidarInfo->pub_path_opti.publish(lidarInfo->path_opti);
+    }
 
-        laserPose.header = odometry_odom.header;
-        laserPose.pose = odometry_odom.pose.pose;
-        path_odom.header.stamp = odometry_odom.header.stamp;
-        path_odom.poses.push_back(laserPose);
-        path_odom.header.frame_id = "map";
-        pub_path_odom.publish(path_odom);
 
+    void pubRawPointCloud(LidarInfo::Ptr lidarInfo, pcl::PointCloud<PointT>::Ptr cloud_in_edge, pcl::PointCloud<PointT>::Ptr cloud_in_surf) {
+        std::string child_frame_id = "frame" + std::to_string(lidarInfo->i);
+        ros::Time cloud_in_time = lidarInfo->ros_time;
         sensor_msgs::PointCloud2Ptr edge_msg(new sensor_msgs::PointCloud2());
         sensor_msgs::PointCloud2Ptr surf_msg(new sensor_msgs::PointCloud2());
         pcl::toROSMsg(*cloud_in_edge, *edge_msg);
         pcl::toROSMsg(*cloud_in_surf, *surf_msg);
         edge_msg->header.stamp = cloud_in_time;
-        edge_msg->header.frame_id = "base_link";
+        edge_msg->header.frame_id = child_frame_id;
         surf_msg->header.stamp = cloud_in_time;
-        surf_msg->header.frame_id = "base_link";
-        pub_curr_edge.publish(edge_msg);
-        pub_curr_surf.publish(surf_msg);
-
+        surf_msg->header.frame_id = child_frame_id;
+        lidarInfo->pub_curr_edge.publish(edge_msg);
+        lidarInfo->pub_curr_surf.publish(surf_msg);
     }
 
-    int addEdgeCostFactor(
-        const pcl::PointCloud<PointT>::Ptr& pc_in,
-        const pcl::PointCloud<PointT>::Ptr& map_in,
-        const pcl::KdTreeFLANN<PointT>::Ptr& kdtreeEdge,
-        const gtsam::Pose3& odom,
-        gtsam::NonlinearFactorGraph& factors,
-        int state_key) {
 
-        int corner_num = 0;
-        PointT point_temp;
-        std::vector<int> pointSearchInd;
-        std::vector<float> pointSearchSqDis;
-
-        for (int i = 0; i < (int) pc_in->points.size(); i++) {
-
-            pointAssociate(&(pc_in->points[i]), &point_temp, odom);
-            kdtreeEdge->nearestKSearch(point_temp, 5, pointSearchInd, pointSearchSqDis);
-
-            if (pointSearchSqDis[4] < 1.0) {
-                std::vector<Eigen::Vector3d> nearCorners;
-                Eigen::Vector3d center(0, 0, 0);
-                for (int j = 0; j < 5; j++) {
-                    Eigen::Vector3d tmp(map_in->points[pointSearchInd[j]].x,
-                                        map_in->points[pointSearchInd[j]].y,
-                                        map_in->points[pointSearchInd[j]].z);
-                    center = center + tmp;
-                    nearCorners.push_back(tmp);
-                }
-                center = center / 5.0;
-
-                Eigen::Matrix3d covMat = Eigen::Matrix3d::Zero();
-                for (int j = 0; j < 5; j++) {
-                    Eigen::Matrix<double, 3, 1> tmpZeroMean = nearCorners[j] - center;
-                    covMat = covMat + tmpZeroMean * tmpZeroMean.transpose();
-                }
-
-                Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> saes(covMat);
-
-                Eigen::Vector3d unit_direction = saes.eigenvectors().col(2);
-                Eigen::Vector3d curr_point(pc_in->points[i].x, pc_in->points[i].y, pc_in->points[i].z);
-                if (saes.eigenvalues()[2] > 3 * saes.eigenvalues()[1]) {
-                    Eigen::Vector3d point_on_line = center;
-                    Eigen::Vector3d point_a, point_b;
-                    point_a = 0.1 * unit_direction + point_on_line;
-                    point_b = -0.1 * unit_direction + point_on_line;
-
-                    factors.emplace_shared<gtsam::PointToEdgeFactor>(
-                            X(state_key), curr_point, point_a, point_b, edge_noise_model);
-                    corner_num++;
-                }
-            }
+    int gen_map(LidarInfo::Ptr lidarInfo, pcl::PointCloud<PointT>::Ptr& map) {
+        KeyframeVec::Ptr keyframeVec = lidarInfo->keyframeVec;
+        if (!keyframeVec) {
+            map = nullptr;
+            return -1;
         }
-
-        if (corner_num < 20) {
-            printf("not enough correct points\n");
+        int size = int(keyframeVec->keyframes.size());
+        if (size > 0 && keyframeVec->keyframes[size - 1]->is_init()) {
+            lidarInfo->mapGenerator.clear();
+            lidarInfo->mapGenerator.insert(keyframeVec, 0, size);
+            map = lidarInfo->mapGenerator.get(save_map_resolution);
+            return size;
         }
-        return corner_num;
-
+        map = nullptr;
+        return -1;
     }
 
-    int addSurfCostFactor(
-        const pcl::PointCloud<PointT>::Ptr& pc_in,
-        const pcl::PointCloud<PointT>::Ptr& map_in,
-        const pcl::KdTreeFLANN<PointT>::Ptr& kdtreeSurf,
-        const gtsam::Pose3& odom,
-        gtsam::NonlinearFactorGraph& factors,
-        int state_key) {
 
-        int surf_num=0;
-        PointT point_temp;
-        std::vector<int> pointSearchInd;
-        std::vector<float> pointSearchSqDis;
-
-        for (int i = 0; i < (int)pc_in->points.size(); i++) {
-
-            pointAssociate(&(pc_in->points[i]), &point_temp, odom);
-            kdtreeSurf->nearestKSearch(point_temp, 5, pointSearchInd, pointSearchSqDis);
-
-            Eigen::Matrix<double, 5, 3> matA0;
-            Eigen::Matrix<double, 5, 1> matB0 = -1 * Eigen::Matrix<double, 5, 1>::Ones();
-            if (pointSearchSqDis[4] < 1.0) {
-
-                for (int j = 0; j < 5; j++) {
-                    matA0(j, 0) = map_in->points[pointSearchInd[j]].x;
-                    matA0(j, 1) = map_in->points[pointSearchInd[j]].y;
-                    matA0(j, 2) = map_in->points[pointSearchInd[j]].z;
-                }
-                // find the norm of plane
-                Eigen::Vector3d norm = matA0.colPivHouseholderQr().solve(matB0);
-                double negative_OA_dot_norm = 1 / norm.norm();
-                norm.normalize();
-
-                /*
-                 * ne equation: nT p + d = 0;
-                 * nT p / d = -1; (matB0 is -1)
-                 * nT is norm, matA0 is p [x,3]
-                 * pT n / d = -1 => Ax = b
-                 * x = n / d => ||n|| = 1, d = ||x / n|| = 1 / ||x.norm()||, n = n.normailzed
-                */
-                bool planeValid = true;
-                for (int j = 0; j < 5; j++) {
-                    // if OX * n > 0.2, then plane is not fit well
-                    if (fabs(norm(0) * map_in->points[pointSearchInd[j]].x +
-                             norm(1) * map_in->points[pointSearchInd[j]].y +
-                             norm(2) * map_in->points[pointSearchInd[j]].z + negative_OA_dot_norm) > 0.2) {
-                        planeValid = false;
-                        break;
-                    }
-                }
-                Eigen::Vector3d curr_point(pc_in->points[i].x, pc_in->points[i].y, pc_in->points[i].z);
-                if (planeValid) {
-                    factors.emplace_shared<gtsam::PointToPlaneFactor>(
-                            X(state_key), curr_point, norm, negative_OA_dot_norm, surf_noise_model);
-                    surf_num++;
-                }
-            }
-
-        }
-
-        if (surf_num < 20) {
-            printf("not enough correct points\n");
-        }
-
-        return surf_num;
-
-    }
-
-    void addPlaneToPlaneFactor(Keyframe::Ptr fromFrame, Keyframe::Ptr toFrame) {
-
-        if (!fromFrame->is_init() || !toFrame->is_init()) {
-            std::cerr << "from or to frame haven't init!" << std::endl;
-            return;
-        }
-
-        // read lock
-        gtsam::Pose3 from_pose, to_pose;
-        {
-            std::shared_lock<std::shared_mutex> sl(keyframeVec->pose_mtx);
-            from_pose = fromFrame->pose_world_curr;
-            to_pose = toFrame->pose_world_curr;
-        }
-        int correspondence = 0;
-
-        std::vector<gtsam::PlaneToPlaneFactor::shared_ptr> planePlaneFactors;
-
-        for (size_t i = 0; i < fromFrame->planes.size(); i++) {
-
-            int best_j = -1;
-            double distanceThreshold = map_resolution;
-            double angleThreshold = 3.0;
-            auto this_plane = fromFrame->planes[i].transform(from_pose);
-            Eigen::Vector3d n1(this_plane.normal().unitVector());
-
-            for (size_t j = 0; j < toFrame->planes.size(); j++) {
-                auto other_plane = toFrame->planes[j].transform(to_pose);
-                Eigen::Vector3d n2(other_plane.normal().unitVector());
-                double angle = std::atan2(n1.cross(n2).norm(), n1.transpose() * n2) * 180 / M_PI;
-                double distance = std::abs(this_plane.distance() - other_plane.distance());
-
-                if (distance < distanceThreshold && (angle > -angleThreshold && angle < angleThreshold ||
-                                                     angle > 180 - angleThreshold &&
-                                                     angle < 180 + angleThreshold)) {
-                    distanceThreshold = distance;
-                    angleThreshold = angle;
-                    best_j = j;
-                }
-            }
-
-            if (best_j != -1) {
-                std::cout << "find closest plane!" << std::endl;
-                std::cout << "current: " << n1.transpose() << " " << this_plane.distance() << std::endl;
-                auto other_plane = toFrame->planes[best_j].transform(to_pose);
-                Eigen::Vector3d n2(other_plane.normal().unitVector());
-                std::cout << "closest: " << n2.transpose() << " " << other_plane.distance() << std::endl;
-                planePlaneFactors.emplace_back(boost::make_shared<gtsam::PlaneToPlaneFactor>(X(fromFrame->index), fromFrame->planes[i],
-                                                                                             X(toFrame->index), toFrame->planes[best_j],
-                                                                                             plane_plane_noise_model));
-                correspondence++;
-
-            }
-
-        }
-
-        if (correspondence >= 8) {
-            for (const auto& factor : planePlaneFactors) {
-                BAGraph.add(factor);
-            }
-            std::cerr << "add plane plane factor!" << std::endl;
-        } else {
-            std::cerr << "not enough plane plane factor!" << std::endl;
-        }
-
-    }
-
-    void getTransToSlideWindow(pcl::PointCloud<PointT>::Ptr currEdgeDS, pcl::PointCloud<PointT>::Ptr currSurfDS) {
-
-        gtsam::Pose3 odom_prediction = pose_normalize(odom * delta);
-
-        last_odom = odom;
-        odom = odom_prediction;
-
-        // 'pose_w_c' to be optimize
-        pose_w_c = odom;
-
-        const auto state_key = X(0);
-
-        if (slideWindowEdge->size() > 10 && slideWindowSurf->size() > 50) {
-
-            kdtreeEdgeSW->setInputCloud(slideWindowEdge);
-            kdtreeSurfSW->setInputCloud(slideWindowSurf);
-
-            for (int opti_counter = 0; opti_counter < 3; opti_counter++) {
-
-                gtsam::NonlinearFactorGraph factors;
-                gtsam::Values init_values;
-                init_values.insert(state_key, pose_w_c);
-
-                addEdgeCostFactor(currEdgeDS, slideWindowEdge, kdtreeEdgeSW, pose_w_c, factors, 0);
-                addSurfCostFactor(currSurfDS, slideWindowSurf, kdtreeSurfSW, pose_w_c, factors, 0);
-
-                // gtsam
-                gtsam::LevenbergMarquardtParams params;
-                params.setLinearSolverType("MULTIFRONTAL_CHOLESKY");
-                params.setRelativeErrorTol(1e-4);
-                params.maxIterations = 6;
-
-                auto result = gtsam::LevenbergMarquardtOptimizer(factors, init_values, params).optimize();
-
-                pose_w_c = result.at<gtsam::Pose3>(state_key);
-
-            }
-
-        } else {
-            printf("not enough points in submap to associate, error\n");
-        }
-
-        odom = pose_w_c;
-        delta = pose_normalize(last_odom.inverse() * odom);
-    }
-
-    void initOdomFactor() {
-        BAGraph.emplace_shared<gtsam::PriorFactor<gtsam::Pose3>>(X(0), gtsam::Pose3(), prior_noise_model);
-        BAEstimate.insert(X(0), gtsam::Pose3());
-    }
-
-    void addOdomFactor() {
-        int index = current_keyframe->index;
-        // read lock
-        gtsam::Pose3 last_pose = keyframeVec->read_poses(index- 1, index).front();
-
-        BAGraph.emplace_shared<gtsam::BetweenFactor<gtsam::Pose3>>(X(index - 1), X(index),
-                                                                   last_pose.between(current_keyframe->pose_world_curr),
-                                                                   odometry_noise_model);
-        BAEstimate.insert(X(index), current_keyframe->pose_world_curr);
-    }
-
-    void handleRegistration(pcl::PointCloud<PointT>::Ptr currEdgeDS, pcl::PointCloud<PointT>::Ptr currSurfDS) {
-
-
-
-        if (!current_keyframe->is_init()) {
-            Keyframe::Ptr last_keyframe = keyframeVec->keyframes[current_keyframe->index - 1];
-            // push to loopDetectBuf
-            BA_mtx.lock();
-            BAOptiBuf.push(last_keyframe);
-            BA_mtx.unlock();
-
-            /*** all  pose: [0, current]
-             *** opti pose: [0, k-1]
-             *** not  opti: [k, current] */
-
-            // update raw odom of KF_current and relative pose to KF_last
-            current_keyframe->set_init(last_keyframe, odom);
-
-            // update pose from 0 to current
-            updatePoses();
-
-            addOdomFactor();
-
-            odom = current_keyframe->pose_world_curr;
-
-        } else {
-
-            is_keyframe_next = nextFrameToBeKeyframe();
-
-            current_keyframe->add_frame();
-
-        }
-    }
-
-    void updatePoses() {
-        std::lock_guard<std::mutex> lg(poses_opti_mtx);
-        // write lock
-        std::unique_lock<std::shared_mutex> ul(keyframeVec->pose_mtx);
-
-        size_t k = poses_optimized.size();
-        size_t current = current_keyframe->index;
-        // update pose from [0, k-1]
-        for (size_t i = 0; i < k; i++) {
-            keyframeVec->keyframes[i]->pose_world_curr = pose_normalize(poses_optimized[i]);
-        }
-        // recalculate pose from [k, current] using relative pose
-        for (size_t i = k; i <= current; i++) {
-            keyframeVec->keyframes[i]->pose_world_curr = pose_normalize(keyframeVec->keyframes[i - 1]->pose_world_curr * keyframeVec->keyframes[i]->pose_last_curr);
-        }
-        // no need to update relative pose from [0, current]
-    }
-
-    void init_extract_plane_params() {
-        searchKdtree = pcl::search::KdTree<PointT>::Ptr(new pcl::search::KdTree<PointT>());
-        ne.setSearchMethod(searchKdtree);
-        ne.setKSearch(20);
-        regionGrowing.setMinClusterSize(20);
-        regionGrowing.setMaxClusterSize(50000);
-        regionGrowing.setSearchMethod(searchKdtree);
-        regionGrowing.setResidualThreshold(map_resolution);
-        regionGrowing.setSmoothnessThreshold(3 / 180.0 * M_PI);
-        regionGrowing.setCurvatureThreshold(0.1);
-    }
-
-    void extract_planes() {
-        TimeCounter t1;
-        pcl::PointCloud<NormalT>::Ptr cloud_normals(new pcl::PointCloud<NormalT>());
-        std::vector<pcl::PointIndices> clusters;
-        ne.setInputCloud(current_keyframe->surfFeatures);
-        ne.compute(*cloud_normals);
-        regionGrowing.setInputCloud(current_keyframe->surfFeatures);
-        regionGrowing.setInputNormals(cloud_normals);
-        regionGrowing.extract(clusters);
-
-        for (const auto& cluster : clusters) {
-            size_t size = cluster.indices.size();
-            Eigen::MatrixXd matA0(size, 3), matB0(size, 1);
-            matB0.setOnes();
-            matB0 = -1 * matB0;
-
-            for (size_t j = 0; j < size; j++) {
-                int idx = cluster.indices[j];
-                matA0(j, 0) = current_keyframe->surfFeatures->points[idx].x;
-                matA0(j, 1) = current_keyframe->surfFeatures->points[idx].y;
-                matA0(j, 2) = current_keyframe->surfFeatures->points[idx].z;
-            }
-            Eigen::Vector3d norm = matA0.colPivHouseholderQr().solve(matB0);
-            double d = 1 / norm.norm();
-            norm.normalize();
-
-            bool planeValid = true;
-            int outliers_max = 3;
-            for (size_t j = 0; j < size; j++) {
-                int idx = cluster.indices[j];
-                if (fabs(norm(0) * current_keyframe->surfFeatures->points[idx].x +
-                         norm(1) * current_keyframe->surfFeatures->points[idx].y +
-                         norm(2) * current_keyframe->surfFeatures->points[idx].z + d) > map_resolution) {
-                    outliers_max--;
-                }
-                if (outliers_max <= 0) {
-                    planeValid = false;
-                    break;
-                }
-            }
-
-            if (planeValid) {
-                current_keyframe->planes.push_back(gtsam::OrientedPlane3(gtsam::Unit3(norm), d));
-            }
-        }
-        std::cout << "extract plane: " << current_keyframe->planes.size() << " within " << t1.count() << "ms" << std::endl;
-    }
-
-    void update_keyframe(pcl::PointCloud<PointT>::Ptr currEdge, pcl::PointCloud<PointT>::Ptr currSurf, pcl::PointCloud<PointT>::Ptr currFull) {
-        current_keyframe = boost::make_shared<Keyframe>(keyframeVec->keyframes.size(), currEdge, currSurf, currFull->makeShared());
-        keyframeVec->keyframes.emplace_back(current_keyframe);
-        extract_planes();
-        is_keyframe_next = false;
-    }
-
-    void update(pcl::PointCloud<PointT>::Ptr currEdge, pcl::PointCloud<PointT>::Ptr currSurf, pcl::PointCloud<PointT>::Ptr currFull) {
-
-        pcl::PointCloud<PointT>::Ptr currEdgeDS(new pcl::PointCloud<PointT>());
-        pcl::PointCloud<PointT>::Ptr currSurfDS(new pcl::PointCloud<PointT>());
-
-        currEdgeDS = currEdge->makeShared();
-        downsampling(currSurf, *currSurfDS, FeatureType::Surf);
-
-        // if is keyframe, append to keyframes vector
-        if (is_keyframe_next) {
-            update_keyframe(currEdgeDS, currSurfDS, currFull);
-        }
-
-        if (!is_init) {
-            current_keyframe->set_init(current_keyframe, gtsam::Pose3());
-            initOdomFactor();
-            is_init = true;
-            return;
-        }
-
-        updateSlideWindows();
-        // update current odom to world
-        getTransToSlideWindow(currEdgeDS, currSurfDS);
-        // handle and opti odom
-        handleRegistration(currEdgeDS, currSurfDS);
-        // pub path
-        pubOdomAndPath();
-
-    }
-
-    void laser_odometry() {
-
-        cloud_in_edge.reset(new pcl::PointCloud<PointT>());
-        cloud_in_surf.reset(new pcl::PointCloud<PointT>());
-        cloud_in_full.reset(new pcl::PointCloud<PointT>());
+    void pub_global_map() {
 
         while (ros::ok()) {
 
-            if (!pointCloudFullBuf.empty() && !pointCloudEdgeBuf.empty() && !pointCloudSurfBuf.empty()) {
+            // deal with map 0
+            {
+                std::string frame_id = "map0";
+                pcl::PointCloud<PointT>::Ptr map;
+                int size = gen_map(lidarInfo0, map);
+                if (size < 0 || map == nullptr) {
+                    continue;
+                }
+                sensor_msgs::PointCloud2Ptr cloud_msg(new sensor_msgs::PointCloud2());
+                pcl::toROSMsg(*map, *cloud_msg);
+                cloud_msg->header.stamp = lidarInfo0->ros_time;
+                cloud_msg->header.frame_id = frame_id;
+                lidarInfo0->pub_map.publish(cloud_msg);
 
-                Timer t_laser_odometry("laser_odometry");
+                // save map 0
+                {
+                    if (lidarInfo0->last_map_generate_index == size) {
+                        lidarInfo0->save_latency++;
+                    } else {
+                        lidarInfo0->save_latency = 0;
+                    }
+                    if (lidarInfo0->save_latency == 20) {
+                        pcl::io::savePCDFileASCII(filepath + "global_map_0.pcd", *map);
+                        cout << "saved map_0!" << endl;
+                    }
 
-                pcd_msg_mtx.lock();
+                    lidarInfo0->last_map_generate_index = size;
+                }
+            }
 
-                if (pointCloudFullBuf.front()->header.stamp.toSec() != pointCloudEdgeBuf.front()->header.stamp.toSec() ||
-                    pointCloudFullBuf.front()->header.stamp.toSec() != pointCloudSurfBuf.front()->header.stamp.toSec()) {
+            // deal with map 1
+            {
+                std::string frame_id = "map1";
+                pcl::PointCloud<PointT>::Ptr map;
+                int size = gen_map(lidarInfo1, map);
+                if (size < 0 || map == nullptr) {
+                    continue;
+                }
+
+                sensor_msgs::PointCloud2Ptr cloud_msg(new sensor_msgs::PointCloud2());
+                pcl::toROSMsg(*map, *cloud_msg);
+                cloud_msg->header.stamp = lidarInfo1->ros_time;
+                cloud_msg->header.frame_id = frame_id;
+                lidarInfo1->pub_map.publish(cloud_msg);
+
+                // save map 1
+                {
+                    if (lidarInfo1->last_map_generate_index == size) {
+                        lidarInfo1->save_latency++;
+                    } else {
+                        lidarInfo1->save_latency = 0;
+                    }
+                    if (lidarInfo1->save_latency == 20) {
+                        pcl::io::savePCDFileASCII(filepath + "global_map_1.pcd", *map);
+                        cout << "saved map_1!" << endl;
+                    }
+
+                    lidarInfo1->last_map_generate_index = size;
+                }
+            }
+
+
+            //sleep 200 ms every time
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        }
+
+    }
+
+    void laser_odometry_base() {
+
+        while (ros::ok()) {
+
+            if ( !lidarInfo0->reader.pointCloudEdgeBuf.empty() &&
+                 !lidarInfo0->reader.pointCloudSurfBuf.empty() &&
+                 !lidarInfo0->reader.pointCloudLessEdgeBuf.empty() &&
+                 !lidarInfo0->reader.pointCloudLessSurfBuf.empty() ) {
+
+                Timer t_laser_odometry("laser_odometry: " + lidarSensor0.get_lidar_name());
+
+                lidarInfo0->reader.lock();
+
+                if ( lidarInfo0->reader.pointCloudEdgeBuf.front()->header.stamp.toSec() != lidarInfo0->reader.pointCloudSurfBuf.front()->header.stamp.toSec() ) {
                     printf("unsync messeage!");
                     ROS_BREAK();
                 }
 
-                pcl::fromROSMsg(*pointCloudEdgeBuf.front(), *cloud_in_edge);
-                pcl::fromROSMsg(*pointCloudSurfBuf.front(), *cloud_in_surf);
-                pcl::fromROSMsg(*pointCloudFullBuf.front(), *cloud_in_full);
+                pcl::PointCloud<PointT>::Ptr cloud_in_edge(new pcl::PointCloud<PointT>());
+                pcl::PointCloud<PointT>::Ptr cloud_in_surf(new pcl::PointCloud<PointT>());
+                pcl::PointCloud<PointT>::Ptr cloud_in_less_edge(new pcl::PointCloud<PointT>());
+                pcl::PointCloud<PointT>::Ptr cloud_in_less_surf(new pcl::PointCloud<PointT>());
 
-                cloud_in_time = pointCloudFullBuf.front()->header.stamp;
+                pcl::fromROSMsg(*lidarInfo0->reader.pointCloudEdgeBuf.front(), *cloud_in_edge);
+                pcl::fromROSMsg(*lidarInfo0->reader.pointCloudSurfBuf.front(), *cloud_in_surf);
+                pcl::fromROSMsg(*lidarInfo0->reader.pointCloudLessEdgeBuf.front(), *cloud_in_less_edge);
+                pcl::fromROSMsg(*lidarInfo0->reader.pointCloudLessSurfBuf.front(), *cloud_in_less_surf);
 
-                pointCloudEdgeBuf.pop();
-                pointCloudSurfBuf.pop();
-                pointCloudFullBuf.pop();
+                lidarInfo0->ros_time = lidarInfo0->reader.pointCloudEdgeBuf.front()->header.stamp;
 
-                pcd_msg_mtx.unlock();
+                lidarInfo0->reader.pointCloudEdgeBuf.pop();
+                lidarInfo0->reader.pointCloudSurfBuf.pop();
+                lidarInfo0->reader.pointCloudLessEdgeBuf.pop();
+                lidarInfo0->reader.pointCloudLessSurfBuf.pop();
 
-                update(cloud_in_edge, cloud_in_surf, cloud_in_full);
+                lidarInfo0->reader.unlock();
+
+                lidarInfo0->odom = lidarSensor0.update(lidarInfo0->ros_time, cloud_in_edge, cloud_in_surf, cloud_in_less_edge, cloud_in_less_surf);
+                pubRawOdom(lidarInfo0);
+                pubOptiOdom(lidarInfo0);
+                pubRawPointCloud(lidarInfo0, cloud_in_less_edge, cloud_in_less_surf);
+
+                static tf::TransformBroadcaster br0;
+                tf::Transform transform;
+                transform.setOrigin( tf::Vector3(0, 0, 0) );
+                tf::Quaternion q(tf::Quaternion::getIdentity());
+                transform.setRotation(q);
+                br0.sendTransform(tf::StampedTransform(transform, lidarInfo0->ros_time, "map", "map0"));
 
                 t_laser_odometry.count();
 
+            } else if (lidarInfo0->status->status_change) {
+                lidarSensor0.updatePoses();
+                pubOptiOdom(lidarInfo0);
             }
 
             //sleep 2 ms every time
@@ -598,295 +256,129 @@ public:
         }
     }
 
-    void BA_optimization() {
+    void laser_odometry_auxiliary() {
 
         while (ros::ok()) {
 
-            Timer t_ba("BA_optimization");
-            std::vector<Keyframe::Ptr> keyframes_buf;
-            BA_mtx.lock();
-            keyframes_buf.reserve(BAOptiBuf.size());
-            while (!BAOptiBuf.empty()) {
-                auto keyframe = BAOptiBuf.front();
-                BAOptiBuf.pop();
-                keyframes_buf.push_back(keyframe);
-            }
-            BA_mtx.unlock();
+            if ( !lidarInfo1->reader.pointCloudEdgeBuf.empty() &&
+                 !lidarInfo1->reader.pointCloudSurfBuf.empty() &&
+                 !lidarInfo1->reader.pointCloudLessEdgeBuf.empty() &&
+                 !lidarInfo1->reader.pointCloudLessSurfBuf.empty() ) {
 
-            if (keyframes_buf.size() > 0) {
-                // todo use openmp
-//                for (const auto& this_keyframe : keyframes_buf) {
-//                    if (this_keyframe->index > 0) {
-//                        Keyframe::Ptr to_keyframe = keyframeVec->keyframes[this_keyframe->index - 1];
-//                        addPlaneToPlaneFactor(this_keyframe, to_keyframe);
-//                    }
-//                }
-                // todo use openmp
-                std::vector<LoopFactor> loopFactors;
-                for (const auto& keyframe : keyframes_buf) {
-                    loopDetector.loop_detector(keyframeVec, keyframe, loopFactors);
-                }
-                for (const auto& factor: loopFactors) {
-                    BAGraph.add(factor);
+                Timer t_laser_odometry("laser_odometry: " + lidarSensor1.get_lidar_name());
+
+                lidarInfo1->reader.lock();
+
+                if ( lidarInfo1->reader.pointCloudEdgeBuf.front()->header.stamp.toSec() != lidarInfo1->reader.pointCloudSurfBuf.front()->header.stamp.toSec() ) {
+                    printf("unsync messeage!");
+                    ROS_BREAK();
                 }
 
-                loop_found = (loopFactors.size() > 0);
+                pcl::PointCloud<PointT>::Ptr cloud_in_edge(new pcl::PointCloud<PointT>());
+                pcl::PointCloud<PointT>::Ptr cloud_in_surf(new pcl::PointCloud<PointT>());
+                pcl::PointCloud<PointT>::Ptr cloud_in_less_edge(new pcl::PointCloud<PointT>());
+                pcl::PointCloud<PointT>::Ptr cloud_in_less_surf(new pcl::PointCloud<PointT>());
+
+                pcl::fromROSMsg(*lidarInfo1->reader.pointCloudEdgeBuf.front(), *cloud_in_edge);
+                pcl::fromROSMsg(*lidarInfo1->reader.pointCloudSurfBuf.front(), *cloud_in_surf);
+                pcl::fromROSMsg(*lidarInfo1->reader.pointCloudLessEdgeBuf.front(), *cloud_in_less_edge);
+                pcl::fromROSMsg(*lidarInfo1->reader.pointCloudLessSurfBuf.front(), *cloud_in_less_surf);
+
+                lidarInfo1->ros_time = lidarInfo1->reader.pointCloudEdgeBuf.front()->header.stamp;
+
+                lidarInfo1->reader.pointCloudEdgeBuf.pop();
+                lidarInfo1->reader.pointCloudSurfBuf.pop();
+                lidarInfo1->reader.pointCloudLessEdgeBuf.pop();
+                lidarInfo1->reader.pointCloudLessSurfBuf.pop();
+
+                lidarInfo1->reader.unlock();
+
+                lidarInfo1->odom = lidarSensor1.update(lidarInfo1->ros_time, cloud_in_edge, cloud_in_surf, cloud_in_less_edge, cloud_in_less_surf);
+                pubRawOdom(lidarInfo1);
+                pubOptiOdom(lidarInfo1);
+                pubRawPointCloud(lidarInfo1, cloud_in_less_edge, cloud_in_less_surf);
+
+                static tf::TransformBroadcaster br1;
+                tf::Transform transform;
+                transform.setOrigin( tf::Vector3(lidarInfo1->T_0_i.translation().x(), lidarInfo1->T_0_i.translation().y(), lidarInfo1->T_0_i.translation().z()) );
+                Eigen::Quaterniond q_current(lidarInfo1->T_0_i.rotation().matrix());
+                tf::Quaternion q(q_current.x(), q_current.y(), q_current.z(), q_current.w());
+                transform.setRotation(q);
+                br1.sendTransform(tf::StampedTransform(transform, lidarInfo1->ros_time, "map", "map1"));
+
+                t_laser_odometry.count();
+
+            } else if (lidarInfo1->status->status_change) {
+                lidarSensor1.updatePoses();
+                pubOptiOdom(lidarInfo1);
             }
 
-            // isam update
-            isam->update(BAGraph, BAEstimate);
-            isam->update();
-
-            if (loop_found) {
-                isam->update();
-                isam->update();
-                isam->update();
-                loop_found = false;
-            }
-
-            BAGraph.resize(0);
-            BAEstimate.clear();
-
-            isamOptimize = isam->calculateEstimate();
-
-            // send to poses_optimized
-            {
-                std::lock_guard<std::mutex> lg(poses_opti_mtx);
-                poses_optimized.clear();
-                poses_optimized.reserve(isamOptimize.size());
-                for (size_t i = 0; i < isamOptimize.size(); i++) {
-                    poses_optimized.push_back(isamOptimize.at<gtsam::Pose3>(X(i)));
-                }
-            }
-
-            regenerate_map = true;
-
-            t_ba.count();
-
-            //sleep 10 ms every time
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            //sleep 2 ms every time
+            std::this_thread::sleep_for(std::chrono::milliseconds(2));
         }
-
-    }
-
-    void pub_global_map() {
-
-        while (ros::ok()) {
-
-            if (!current_keyframe || !current_keyframe->is_init()) {
-                continue;
-            }
-
-            size_t size = keyframeVec->keyframes.size();
-
-            if (regenerate_map) {
-                mapGenerator.clear();
-                mapGenerator.insert(keyframeVec, 0, size);
-                regenerate_map = false;
-            } else {
-                mapGenerator.insert(keyframeVec, last_map_generate_index, size);
-            }
-
-            auto globalMap = mapGenerator.get();
-            if (!globalMap) {
-                std::cout << "empty global map!" << std::endl;
-                continue;
-            }
-            sensor_msgs::PointCloud2Ptr cloud_msg(new sensor_msgs::PointCloud2());
-            pcl::toROSMsg(*globalMap, *cloud_msg);
-            cloud_msg->header.stamp = cloud_in_time;
-            cloud_msg->header.frame_id = "map";
-
-            pub_map.publish(cloud_msg);
-
-            if (last_map_generate_index == size) {
-                save_latency++;
-            } else {
-                save_latency = 0;
-            }
-            if (save_latency == 20) {
-                pcl::io::savePCDFileASCII("/home/ziv/mloam/global_map_opti.pcd", *globalMap);
-                cout << "saved map!" << endl;
-            }
-
-            last_map_generate_index = size;
-            //sleep 200 ms every time
-            std::this_thread::sleep_for(std::chrono::milliseconds(200));
-        }
-
-    }
-
-    void allocateMem() {
-        slideWindowEdge    = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
-        slideWindowSurf    = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>());
-        kdtreeEdgeSW       = pcl::KdTreeFLANN<PointT>::Ptr(new pcl::KdTreeFLANN<PointT>());
-        kdtreeSurfSW       = pcl::KdTreeFLANN<PointT>::Ptr(new pcl::KdTreeFLANN<PointT>());
-    }
-
-    void initROSHandler() {
-        sub_laser_cloud      = nh.subscribe<sensor_msgs::PointCloud2>("/velodyne_points_2", 100, &LaserOdometry::pointCloudFullHandler, this);
-        sub_laser_cloud_edge = nh.subscribe<sensor_msgs::PointCloud2>("/laser_cloud_edge", 100, &LaserOdometry::pointCloudEdgeHandler, this);
-        sub_laser_cloud_surf = nh.subscribe<sensor_msgs::PointCloud2>("/laser_cloud_surf", 100, &LaserOdometry::pointCloudSurfHandler, this);
-        pub_path_odom = nh.advertise<nav_msgs::Path>("/path_odom", 100);
-        pub_path_opti = nh.advertise<nav_msgs::Path>("/path_opti", 100);
-        pub_map       = nh.advertise<sensor_msgs::PointCloud2>("/global_map", 5);
-        pub_curr_edge = nh.advertise<sensor_msgs::PointCloud2>("/curr_edge", 10);
-        pub_curr_surf = nh.advertise<sensor_msgs::PointCloud2>("/curr_surf", 10);
-        pub_sw_edge   = nh.advertise<sensor_msgs::PointCloud2>("/sw_edge", 10);
-        pub_sw_surf   = nh.advertise<sensor_msgs::PointCloud2>("/sw_surf", 10);
-    }
-
-    ~LaserOdometry() {
-
-    }
-
-    void initParam() {
-
-        keyframeVec = boost::make_shared<KeyframeVec>();
-        keyframeVec->keyframes.reserve(200);
-
-        downSizeFilterEdge.setLeafSize(map_resolution / 2, map_resolution / 2, map_resolution /2 );
-        downSizeFilterSurf.setLeafSize(map_resolution, map_resolution, map_resolution);
-        downSizeFilterNor.setLeafSize(0.1, 0.1, 0.1);
-
-        pose_w_c  = gtsam::Pose3::identity();
-        odom      = gtsam::Pose3::identity();
-        delta     = gtsam::Pose3::identity();
-
-        edge_gaussian_model = gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(3) << 0.2, 0.2, 0.2).finished());
-        surf_gaussian_model = gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(1) << 0.2).finished());
-
-        edge_noise_model = gtsam::noiseModel::Robust::Create(gtsam::noiseModel::mEstimator::Huber::Create(0.58), edge_gaussian_model);
-        surf_noise_model = gtsam::noiseModel::Robust::Create(gtsam::noiseModel::mEstimator::Huber::Create(0.02), surf_gaussian_model);
-
-        prior_gaussian_model = gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(6) << 1e-6, 1e-6, 1e-6, 1e-6, 1e-6, 1e-6).finished());
-        odometry_gaussian_model = gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(6) << 1e-3, 1e-3, 1e-3, 1e-2, 1e-2, 1e-1).finished());
-
-
-
-//        prior_noise_model = gtsam::noiseModel::Robust::Create(gtsam::noiseModel::mEstimator::Huber::Create(1.345), prior_gaussian_model);
-//        odometry_noise_model = gtsam::noiseModel::Robust::Create(gtsam::noiseModel::mEstimator::Huber::Create(1.345), odometry_gaussian_model);
-        prior_noise_model = prior_gaussian_model;
-        odometry_noise_model = odometry_gaussian_model;
-        plane_plane_noise_model = gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(3) << 1e-1, 1e-1, 1e-1).finished());
-
-        gtsam::ISAM2Params isam2Params;
-        isam2Params.relinearizeThreshold = 0.1;
-        isam2Params.relinearizeSkip = 1;
-        isam = std::make_shared<gtsam::ISAM2>(isam2Params);
-
-        init_extract_plane_params();
-
-    }
-
-    LaserOdometry()
-    {
-
-        allocateMem();
-
-        initROSHandler();
-
-        initParam();
-
     }
 
 
+    LaserOdometry() {
 
+        save_map_resolution = nh.param<double>("save_map_resolution", 0.1);
+
+        lidarSensor0.setName("Lidar0");
+        lidarSensor1.setName("Lidar1");
+        lidarInfo0 = boost::make_shared<LidarInfo>(0);
+        lidarInfo1 = boost::make_shared<LidarInfo>(1);
+
+        lidarInfo0->keyframeVec = lidarSensor0.get_keyframeVec();
+        lidarInfo1->keyframeVec = lidarSensor1.get_keyframeVec();
+        lidarInfo0->status = lidarSensor0.get_status();
+        lidarInfo1->status = lidarSensor1.get_status();
+
+        lidarInfo0->sub_laser_cloud_edge      = nh.subscribe<sensor_msgs::PointCloud2>("/left/laser_cloud_edge",  100, &LidarMsgReader::pointCloudEdgeHandler, &lidarInfo0->reader);
+        lidarInfo0->sub_laser_cloud_surf      = nh.subscribe<sensor_msgs::PointCloud2>("/left/laser_cloud_surf",  100, &LidarMsgReader::pointCloudSurfHandler, &lidarInfo0->reader);
+        lidarInfo0->sub_laser_cloud_less_edge = nh.subscribe<sensor_msgs::PointCloud2>("/left/laser_cloud_less_edge",  100, &LidarMsgReader::pointCloudLessEdgeHandler, &lidarInfo0->reader);
+        lidarInfo0->sub_laser_cloud_less_surf = nh.subscribe<sensor_msgs::PointCloud2>("/left/laser_cloud_less_surf",  100, &LidarMsgReader::pointCloudLessSurfHandler, &lidarInfo0->reader);
+        lidarInfo1->sub_laser_cloud_edge      = nh.subscribe<sensor_msgs::PointCloud2>("/right/laser_cloud_edge", 100, &LidarMsgReader::pointCloudEdgeHandler, &lidarInfo1->reader);
+        lidarInfo1->sub_laser_cloud_surf      = nh.subscribe<sensor_msgs::PointCloud2>("/right/laser_cloud_surf", 100, &LidarMsgReader::pointCloudSurfHandler, &lidarInfo1->reader);
+        lidarInfo1->sub_laser_cloud_less_edge = nh.subscribe<sensor_msgs::PointCloud2>("/right/laser_cloud_less_edge", 100, &LidarMsgReader::pointCloudLessEdgeHandler, &lidarInfo1->reader);
+        lidarInfo1->sub_laser_cloud_less_surf = nh.subscribe<sensor_msgs::PointCloud2>("/right/laser_cloud_less_surf", 100, &LidarMsgReader::pointCloudLessSurfHandler, &lidarInfo1->reader);
+
+        lidarInfo0->pub_path_odom = nh.advertise<nav_msgs::Path>("/left/path_odom", 100);
+        lidarInfo0->pub_path_opti = nh.advertise<nav_msgs::Path>("/left/path_opti", 100);
+        lidarInfo0->pub_map       = nh.advertise<sensor_msgs::PointCloud2>("/left/global_map", 5);
+        lidarInfo0->pub_curr_edge = nh.advertise<sensor_msgs::PointCloud2>("/left/curr_edge", 10);
+        lidarInfo0->pub_curr_surf = nh.advertise<sensor_msgs::PointCloud2>("/left/curr_surf", 10);
+
+        lidarInfo1->pub_path_odom = nh.advertise<nav_msgs::Path>("/right/path_odom", 100);
+        lidarInfo1->pub_path_opti = nh.advertise<nav_msgs::Path>("/right/path_opti", 100);
+        lidarInfo1->pub_map       = nh.advertise<sensor_msgs::PointCloud2>("/right/global_map", 5);
+        lidarInfo1->pub_curr_edge = nh.advertise<sensor_msgs::PointCloud2>("/right/curr_edge", 10);
+        lidarInfo1->pub_curr_surf = nh.advertise<sensor_msgs::PointCloud2>("/right/curr_surf", 10);
+
+    }
+
+public:
+    LidarSensor lidarSensor0;
+    LidarSensor lidarSensor1;
 private:
 
     /*********************************************************************
    ** Global Variables
    *********************************************************************/
     ros::NodeHandle nh;
-    ros::Time cloud_in_time;
-    KeyframeVec::Ptr keyframeVec;
 
-    MapGenerator mapGenerator;
-    LoopDetector loopDetector;
+    double save_map_resolution;
 
-    // ros msg
-    ros::Subscriber sub_laser_cloud, sub_laser_cloud_edge, sub_laser_cloud_surf;
-    ros::Publisher pub_path_odom, pub_path_opti, pub_map;
-    ros::Publisher pub_curr_edge, pub_curr_surf;
-    ros::Publisher pub_sw_edge, pub_sw_surf;
-    nav_msgs::Path path_odom, path_opti;
+    LidarInfo::Ptr lidarInfo0;
+    LidarInfo::Ptr lidarInfo1;
 
-    const double keyframeDistThreshold = 0.6;
-    const double keyframeAngleThreshold = 0.1;
-    bool is_keyframe_next = true;
 
-    double map_resolution = 0.4;
-
-    // status
-    bool status_change = false;
-    bool regenerate_map = false;
-
-    // gtsam
-    gtsam::NonlinearFactorGraph BAGraph;
-    gtsam::Values BAEstimate;
+    /*********************************************************************
+   ** GTSAM Optimizer
+   *********************************************************************/
+    gtsam::NonlinearFactorGraph globalGraph;
+    gtsam::Values globalEstimate;
     std::shared_ptr<gtsam::ISAM2> isam;
     gtsam::Values isamOptimize;
-
-    std::mutex poses_opti_mtx;
-    std::vector<gtsam::Pose3> poses_optimized;
-
-    // gaussian model
-    gtsam::SharedNoiseModel edge_gaussian_model, surf_gaussian_model, prior_gaussian_model, odometry_gaussian_model;
-    // noise model
-    gtsam::SharedNoiseModel edge_noise_model, surf_noise_model, prior_noise_model, odometry_noise_model, plane_plane_noise_model;
-
-    /*********************************************************************
-   ** Laser Odometry
-   *********************************************************************/
-    Keyframe::Ptr current_keyframe;
-//    std::vector<Keyframe::Ptr> keyframes;
-    gtsam::Pose3 odom;      // world to current frame
-    gtsam::Pose3 last_odom; // world to last frame
-    gtsam::Pose3 delta;     // last frame to current frame
-    gtsam::Pose3 pose_w_c;  // to be optimized
-
-    bool is_init = false;
-
-    // frame-to-slidewindow
-    const int SLIDE_KEYFRAME_LEN = 6;
-    pcl::PointCloud<PointT>::Ptr slideWindowEdge;
-    pcl::PointCloud<PointT>::Ptr slideWindowSurf;
-    pcl::KdTreeFLANN<PointT>::Ptr kdtreeEdgeSW;
-    pcl::KdTreeFLANN<PointT>::Ptr kdtreeSurfSW;
-
-    // downsample filter
-    pcl::VoxelGrid<PointT> downSizeFilterEdge;
-    pcl::VoxelGrid<PointT> downSizeFilterSurf;
-    pcl::VoxelGrid<PointT> downSizeFilterNor;
-
-    // point cloud from laserProcessing
-    pcl::PointCloud<PointT>::Ptr cloud_in_edge;
-    pcl::PointCloud<PointT>::Ptr cloud_in_surf;
-    pcl::PointCloud<PointT>::Ptr cloud_in_full;
-
-    // queue of ros pointcloud msg
-    std::mutex pcd_msg_mtx;
-    std::queue<sensor_msgs::PointCloud2ConstPtr> pointCloudEdgeBuf;
-    std::queue<sensor_msgs::PointCloud2ConstPtr> pointCloudSurfBuf;
-    std::queue<sensor_msgs::PointCloud2ConstPtr> pointCloudFullBuf;
-
-    // plane segment
-    pcl::NormalEstimationOMP<PointT, NormalT> ne;
-    pcl::search::KdTree<PointT>::Ptr searchKdtree;
-    pcl::RegionGrowing<PointT, NormalT> regionGrowing;
-
-    /*********************************************************************
-   ** backend BA
-   *********************************************************************/
-    std::mutex BA_mtx;
-    std::queue<Keyframe::Ptr> BAOptiBuf;
-    bool loop_found = false;
-
-    /*********************************************************************
-   ** Map Generator
-   *********************************************************************/
-    int save_latency = 0;
-    int last_map_generate_index = 0;
 
 };
 
@@ -896,9 +388,10 @@ int main(int argc, char **argv) {
 
     LaserOdometry laserOdometry;
 
-    std::thread laser_odometry_thread{&LaserOdometry::laser_odometry, &laserOdometry};
-
-    std::thread backend_ba_optimization{&LaserOdometry::BA_optimization, &laserOdometry};
+    std::thread laser_odometry_thread_0{&LaserOdometry::laser_odometry_base, &laserOdometry};
+    std::thread laser_odometry_thread_1{&LaserOdometry::laser_odometry_auxiliary, &laserOdometry};
+    std::thread backend_ba_optimization_0{&LidarSensor::BA_optimization, &laserOdometry.lidarSensor0};
+    std::thread backend_ba_optimization_1{&LidarSensor::BA_optimization, &laserOdometry.lidarSensor1};
 
     std::thread global_map_publisher{&LaserOdometry::pub_global_map, &laserOdometry};
 
