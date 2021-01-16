@@ -8,7 +8,7 @@
 #include "helper.h"
 #include "keyframe.h"
 #include "map_generator.h"
-#include <pclomp/gicp_omp.h>
+#include <fast_gicp/gicp/fast_gicp.hpp>
 
 using FactorPtr = gtsam::NonlinearFactor::shared_ptr;
 
@@ -24,12 +24,12 @@ public:
     int LOOP_KEYFRAME_SKIP;
     int LOOP_KEYFRAME_COOLDOWN;
     int LOOP_CLOSE_DISTANCE;
-    double FITNESS_SCORE;
+    static double FITNESS_SCORE;
 public:
     explicit LoopDetector();
     void loop_detector(KeyframeVec::Ptr keyframeVec, Keyframe::Ptr latestKeyframe, std::vector<FactorPtr>& loopFactors);
     void submap_finetune(KeyframeVec::Ptr keyframeVec, Keyframe::Ptr latestKeyframe, std::vector<FactorPtr>& loopFactors);
-    bool gicp_matching(pcl::PointCloud<PointT>::Ptr cloud_to, pcl::PointCloud<PointT>::Ptr cloud_from, const gtsam::Pose3& pose_guess, gtsam::Pose3& pose);
+    static bool gicp_matching(pcl::PointCloud<PointT>::Ptr cloud_to, pcl::PointCloud<PointT>::Ptr cloud_from, const gtsam::Pose3& pose_guess, gtsam::Pose3& pose);
 };
 
 

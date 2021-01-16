@@ -4,6 +4,8 @@
 
 #include "loop_detector.h"
 
+double LoopDetector::FITNESS_SCORE;
+
 void LoopDetector::loop_detector(KeyframeVec::Ptr keyframeVec, Keyframe::Ptr latestKeyframe, std::vector<FactorPtr>& loopFactors) {
 
     int latest_index = latestKeyframe->index;
@@ -76,13 +78,12 @@ void LoopDetector::loop_detector(KeyframeVec::Ptr keyframeVec, Keyframe::Ptr lat
 
 bool LoopDetector::gicp_matching(pcl::PointCloud<PointT>::Ptr cloud_to, pcl::PointCloud<PointT>::Ptr cloud_from, const gtsam::Pose3& pose_guess, gtsam::Pose3& pose) {
 
-    pclomp::GeneralizedIterativeClosestPoint<PointT, PointT> gicp;
-    gicp.setTransformationEpsilon(1e-6);
-    gicp.setEuclideanFitnessEpsilon(1e-6);
+    fast_gicp::FastGICP<PointT, PointT> gicp;
+    gicp.setNumThreads(0);
+    gicp.setTransformationEpsilon(0.1);
     gicp.setMaximumIterations(64);
-    gicp.setUseReciprocalCorrespondences(false);
+    gicp.setMaxCorrespondenceDistance(2.0);
     gicp.setCorrespondenceRandomness(20);
-    gicp.setMaximumOptimizerIterations(20);
 
     // Align clouds
     gicp.setInputSource(cloud_from);
@@ -97,11 +98,13 @@ bool LoopDetector::gicp_matching(pcl::PointCloud<PointT>::Ptr cloud_to, pcl::Poi
     }
     cout << "fitness score: " << gicp.getFitnessScore() << endl;
 
-    if (gicp.getFitnessScore() > 3) {
+    if (gicp.getFitnessScore() > FITNESS_SCORE) {
         return false;
     }
-    pose = gtsam::Pose3(gicp.getFinalTransformation().cast<double>().matrix());
-    pose = gtsam::Pose3(pose.rotation().normalized(), pose.translation());
+    Eigen::Matrix4d result(gicp.getFinalTransformation().cast<double>());
+    Eigen::Quaterniond q(result.block<3, 3>(0, 0));
+    q.normalize();
+    pose = gtsam::Pose3(gtsam::Rot3(q), result.block<3, 1>(0, 3));
     return true;
 
 }
@@ -142,7 +145,7 @@ void LoopDetector::submap_finetune(KeyframeVec::Ptr keyframeVec, Keyframe::Ptr l
 LoopDetector::LoopDetector() {
     LOOP_KEYFRAME_CROP_LEN = nh.param<int>("loop_keyframe_crop_len", 10);
     LOOP_KEYFRAME_SKIP     = nh.param<int>("loop_keyframe_skip", 50);
-    LOOP_KEYFRAME_COOLDOWN = nh.param<int>("loop_keyframe_cooldown", 10);
+    LOOP_KEYFRAME_COOLDOWN = nh.param<int>("loop_cooldown", 20);
     LOOP_CLOSE_DISTANCE    = nh.param<int>("loop_close_distance", 15);
     FITNESS_SCORE          = nh.param<double>("gcip_fitness_socre", 0.8);
 }

@@ -11,11 +11,12 @@ MapGenerator::MapGenerator() : map(new pcl::PointCloud<PointT>()) {}
 MapGenerator::~MapGenerator() {}
 
 void MapGenerator::clear() {
+    std::lock_guard<std::mutex> lg(mtx);
     map->clear();
 }
 
 void MapGenerator::insert(KeyframeVec::Ptr keyframeVec, size_t begin, size_t end) {
-
+    std::lock_guard<std::mutex> lg(mtx);
     if (begin >= end) {
         return;
     }
@@ -38,14 +39,17 @@ void MapGenerator::insert(KeyframeVec::Ptr keyframeVec, size_t begin, size_t end
 }
 
 pcl::PointCloud<PointT>::Ptr MapGenerator::get(float resolution = 0.0f) const {
-    if (resolution == 0)
-        return map;
-    pcl::VoxelGrid<PointT> f;
-    f.setLeafSize(resolution, resolution, resolution);
-    f.setInputCloud(map);
-    pcl::PointCloud<PointT>::Ptr map1(new pcl::PointCloud<PointT>());
-    f.filter(*map1);
-    return map1;
+    std::lock_guard<std::mutex> lg(mtx);
+    pcl::PointCloud<PointT>::Ptr map_out(new pcl::PointCloud<PointT>());
+    if (resolution == 0) {
+        map_out = map->makeShared();
+    } else {
+        pcl::VoxelGrid<PointT> voxelGrid;
+        voxelGrid.setLeafSize(resolution, resolution, resolution);
+        voxelGrid.setInputCloud(map);
+        voxelGrid.filter(*map_out);
+    }
+    return map_out;
 }
 
 pcl::PointCloud<PointT>::Ptr MapGenerator::generate_cloud(KeyframeVec::Ptr keyframeVec, size_t begin, size_t end, FeatureType featureType) {
