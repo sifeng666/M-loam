@@ -25,6 +25,7 @@ class LidarMsgReader {
 public:
     void lock();
     void unlock();
+    void pointCloudFullHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg);
     void pointCloudEdgeHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg);
     void pointCloudSurfHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg);
     void pointCloudLessEdgeHandler(const sensor_msgs::PointCloud2ConstPtr &laserCloudMsg);
@@ -33,6 +34,7 @@ private:
     std::mutex pcd_msg_mtx;
 public:
     // queue of ros pointcloud msg
+    std::queue<sensor_msgs::PointCloud2ConstPtr> pointCloudFullBuf;
     std::queue<sensor_msgs::PointCloud2ConstPtr> pointCloudEdgeBuf;
     std::queue<sensor_msgs::PointCloud2ConstPtr> pointCloudSurfBuf;
     std::queue<sensor_msgs::PointCloud2ConstPtr> pointCloudLessEdgeBuf;
@@ -88,7 +90,8 @@ public:
                 pcl::PointCloud<PointT>::Ptr currEdge,
                 pcl::PointCloud<PointT>::Ptr currSurf,
                 pcl::PointCloud<PointT>::Ptr currLessEdge,
-                pcl::PointCloud<PointT>::Ptr currLessSurf);
+                pcl::PointCloud<PointT>::Ptr currLessSurf,
+                pcl::PointCloud<PointT>::Ptr currRaw);
 
     void BA_optimization();
 
@@ -122,6 +125,7 @@ private:
     std::mutex poses_opti_mtx;
     std::vector<gtsam::Pose3> poses_optimized;
     bool poses_opti_update = false;
+    int opti_counter;
 
     // gaussian model
     gtsam::SharedNoiseModel edge_gaussian_model, surf_gaussian_model;

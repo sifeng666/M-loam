@@ -14,6 +14,7 @@
 
 class MapGenerator {
 private:
+    mutable std::mutex mtx;
     pcl::PointCloud<PointT>::Ptr map;
 public:
     MapGenerator();
