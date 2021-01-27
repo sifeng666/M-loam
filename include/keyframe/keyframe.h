@@ -45,6 +45,7 @@ public:
     using PointCloudPtr = pcl::PointCloud<PointT>::Ptr;
 public:
     int index;
+    bool fixed = false;
     int valid_frames = 0;
     ros::Time cloud_in_time;
     gtsam::Pose3 pose_world_curr;
@@ -55,9 +56,14 @@ public:
     pcl::PointCloud<PointT>::Ptr planes;
 public:
     Keyframe(int _index, const ros::Time& time, PointCloudPtr EF, PointCloudPtr PF, PointCloudPtr RAW);
-    void set_init(gtsam::Pose3 pose_world_curr_);
-    bool is_init() const;
-    void add_frame();
+    void set_fixed(gtsam::Pose3 pose_world_curr_ = gtsam::Pose3());
+    void set_init(gtsam::Pose3  pose_world_curr_ = gtsam::Pose3());
+
+    inline void fix()            { fixed = true; };
+    inline void add_frame()      { ++valid_frames; };
+    inline bool is_fixed() const { return fixed; };
+    inline bool is_init()  const { return valid_frames > 0; };
+
 };
 
 class KeyframeVec {
@@ -67,8 +73,10 @@ public:
     mutable std::shared_mutex pose_mtx;
     std::vector<Keyframe::Ptr> keyframes;
 public:
-    std::vector<gtsam::Pose3> read_poses(size_t begin, size_t end) const;
+    std::vector<gtsam::Pose3> read_poses(size_t begin, size_t end, bool need_fixed = false) const;
     gtsam::Pose3 read_pose(size_t index) const;
+
+    inline size_t size() const { return keyframes.size(); };
 };
 
 

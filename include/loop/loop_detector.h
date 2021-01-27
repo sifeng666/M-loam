@@ -6,8 +6,8 @@
 #define MLOAM_LOOP_DETECTOR_H
 
 #include "helper.h"
-#include "keyframe.h"
-#include "map_generator.h"
+#include "keyframe/keyframe.h"
+#include "map_generator/map_generator.h"
 #include <fast_gicp/gicp/fast_gicp.hpp>
 
 using FactorPtr = gtsam::NonlinearFactor::shared_ptr;

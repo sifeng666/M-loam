@@ -38,21 +38,20 @@ void MapGenerator::insert(KeyframeVec::Ptr keyframeVec, size_t begin, size_t end
     }
 }
 
-pcl::PointCloud<PointT>::Ptr MapGenerator::get(float resolution = 0.0f) const {
+pcl::PointCloud<PointT>::Ptr MapGenerator::get(float resolution) const {
     std::lock_guard<std::mutex> lg(mtx);
-    pcl::PointCloud<PointT>::Ptr map_out(new pcl::PointCloud<PointT>());
-    if (resolution == 0) {
-        map_out = map->makeShared();
-    } else {
-        pcl::VoxelGrid<PointT> voxelGrid;
-        voxelGrid.setLeafSize(resolution, resolution, resolution);
-        voxelGrid.setInputCloud(map);
-        voxelGrid.filter(*map_out);
-    }
+    pcl::PointCloud<PointT>::Ptr map_out;
+    map_out = map->makeShared();
+    pcl::VoxelGrid<PointT> v;
+    v.setLeafSize(resolution, resolution, resolution);
+    v.setInputCloud(map_out);
+    v.filter(*map_out);
+//    down_sampling_voxel(*map_out, resolution);
     return map_out;
 }
 
-pcl::PointCloud<PointT>::Ptr MapGenerator::generate_cloud(KeyframeVec::Ptr keyframeVec, size_t begin, size_t end, FeatureType featureType) {
+pcl::PointCloud<PointT>::Ptr MapGenerator::generate_cloud(KeyframeVec::Ptr keyframeVec, size_t begin, size_t end,
+                                                          FeatureType featureType, bool need_fixed) {
 
     if (begin >= end) {
         std::cerr << "generate_cloud warning: range err!!" << std::endl;
@@ -71,7 +70,7 @@ pcl::PointCloud<PointT>::Ptr MapGenerator::generate_cloud(KeyframeVec::Ptr keyfr
     }
 
     // read lock
-    std::vector<gtsam::Pose3> poseVec = keyframeVec->read_poses(begin, end);
+    std::vector<gtsam::Pose3> poseVec = keyframeVec->read_poses(begin, end, need_fixed);
 
     pcl::PointCloud<PointT>::Ptr cloud(new pcl::PointCloud<PointT>());
     cloud->reserve(size);

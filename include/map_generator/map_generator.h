@@ -5,7 +5,8 @@
 #ifndef MLOAM_MAP_GENERATOR_H
 #define MLOAM_MAP_GENERATOR_H
 
-#include "keyframe.h"
+#include "keyframe/keyframe.h"
+#include "balmclass.hpp"
 #include <pcl/octree/octree_search.h>
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/point_types.h>
@@ -25,9 +26,10 @@ public:
 
     void insert(KeyframeVec::Ptr keyframeVec, size_t begin, size_t end);
 
-    pcl::PointCloud<PointT>::Ptr get(float) const;
+    pcl::PointCloud<PointT>::Ptr get(float resolution = 0.0f) const;
 
-    static pcl::PointCloud<PointT>::Ptr generate_cloud(KeyframeVec::Ptr keyframeVec, size_t begin, size_t end, FeatureType featureType);
+    static pcl::PointCloud<PointT>::Ptr generate_cloud(KeyframeVec::Ptr keyframeVec, size_t begin, size_t end,
+                                                       FeatureType featureType, bool need_fixed = false);
 
 };
 

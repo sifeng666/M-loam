@@ -5,7 +5,7 @@
 #ifndef MLOAM_CALIBRATION_H
 #define MLOAM_CALIBRATION_H
 
-#include "keyframe.h"
+#include "keyframe/keyframe.h"
 #include "camodocal/PlanarHandEyeCalibration.h"
 //#include "camodocal/HandEyeCalibration.h"
 

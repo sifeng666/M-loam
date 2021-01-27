@@ -1,7 +1,8 @@
 <launch>
     
     <param name="/use_sim_time" value="ture"/>
-    <node pkg="rosbag" type="play" name="playbag" args="--clock /home/ziv/sunshine_dateset/urban07.bag
+    <node pkg="rosbag" type="play" name="playbag" args="--clock /home/ziv/sunshine_dateset/building-002.bag
+         /velodyne_points:=/left/velodyne_points
          /rslidar_points:=/left/velodyne_points
          /ns1/rslidar_points:=/left/velodyne_points
          /ns2/rslidar_points:=/right/velodyne_points
@@ -14,16 +15,23 @@
     <param name="scan_line" type="int" value="16" />
     <param name="min_dis" type="double" value="0.1" />
     <param name="max_dis" type="double" value="100.0" />
-    <param name="map_resolution" type="double" value="0.4" />
-    <param name="submap_len" type="int" value="10" />
-    <param name="keyframe_dist_threshold" type="double" value="3" />
+    <param name="surf_filter_length" type="double" value="0.2"/>
+    <param name="corn_filter_length" type="double" value="0.0"/>
+    <param name="window_size" type="int" value="10" />
+    <param name="margi_size" type="int" value="5" />
+    <param name="keyframe_distance_threshold" type="double" value="0.6" />
     <param name="keyframe_angle_threshold" type="double" value="0.1" />
     <param name="save_map_resolution" type="double" value="0.2" />
     <param name="gicp_fitness_socre" type="double" value="0.5" />
+    <!--loop-->
     <param name="need_loop" type="bool" value="true" />
     <param name="loop_keyframe_crop_len" type="int" value="6" />
-    <param name="loop_close_distance" type="int" value="10" />
+    <param name="loop_close_distance" type="int" value="3" />
     <param name="loop_cooldown" type="int" value="15" />
+
+<!--    <remap from="/left/laser_cloud_less_edge" to="/corn_last"/>-->
+<!--    <remap from="/left/laser_cloud_less_surf" to="/surf_last"/>-->
+<!--    <remap from="/left/velodyne_points_2" to="/full_last"/>-->
 
     <!--    calibration part     -->
     <param name="t_0_1_z_prior" type="double" value="-0.095" />
