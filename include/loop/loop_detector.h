@@ -27,9 +27,11 @@ public:
     static double FITNESS_SCORE;
 public:
     explicit LoopDetector();
-    void loop_detector(KeyframeVec::Ptr keyframeVec, Keyframe::Ptr latestKeyframe, std::vector<FactorPtr>& loopFactors);
     void submap_finetune(KeyframeVec::Ptr keyframeVec, Keyframe::Ptr latestKeyframe, std::vector<FactorPtr>& loopFactors);
-    static bool gicp_matching(pcl::PointCloud<PointT>::Ptr cloud_to, pcl::PointCloud<PointT>::Ptr cloud_from, const gtsam::Pose3& pose_guess, gtsam::Pose3& pose);
+    static bool gicp_matching(pcl::PointCloud<PointT>::Ptr cloud_to, pcl::PointCloud<PointT>::Ptr cloud_from,
+                              const gtsam::Pose3& pose_guess, gtsam::Pose3& pose);
+    bool loop_detector(KeyframeVec::Ptr keyframeVec, Keyframe::Ptr latestKeyframe, vector<FactorPtr>& loopFactors,
+                       int& last_found_index);
 };
 
 

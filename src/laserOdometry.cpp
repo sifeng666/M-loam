@@ -8,7 +8,6 @@
 #include "calibration/calibration.h"
 
 static const int odom_sleep = 2;    // 2ms
-static const int end_signal = 1000; // 1000ms
 
 class LidarInfo {
 public:
@@ -23,7 +22,8 @@ public:
     LidarStatus::Ptr status;                // lidar status, communication of lidar.cpp and this cpp
     MapGenerator mapGenerator;              // generate global map of this lidar
     FixedKeyframeChannel::Ptr fixedChannel; // channel that save map to be publish
-    tf::TransformBroadcaster brMapToFrame;  // tf broadcaster, from map_i to frame_i
+    tf::TransformBroadcaster brMapToFrame;  // tf broadcaster, map_i => frame_i
+    tf::TransformBroadcaster brMapToMap;    // tf broadcaster, map   => map_i
 
     gtsam::Pose3 T_0_i;                     // extrinsic param from L_i to L_base(L_0)
     bool is_base = false;                   // if i == 0, then is_base = true
@@ -34,8 +34,6 @@ public:
     ros::Publisher pub_odom_raw, pub_odom_opti;
     geometry_msgs::PoseArray parray;
     ros::Publisher pub_ros_odom;
-
-    int current_latency = 0;
 
 public:
     LidarInfo(int i_) : i(i_) {
@@ -121,64 +119,55 @@ public:
         lidarInfo->pub_pointcloud_raw.publish(raw_msg);
     }
 
-    int refresh_global_map(LidarInfo::Ptr lidarInfo, pcl::PointCloud<PointT>::Ptr& map) {
+    void refresh_global_map(LidarInfo::Ptr lidarInfo, pcl::PointCloud<PointT>::Ptr& map) {
         KeyframeVec::Ptr keyframeVec = lidarInfo->keyframeVec;
         if (!keyframeVec) {
             map = nullptr;
-            return -1;
+            return;
         }
         int size = int(keyframeVec->keyframes.size());
-        if (size > 0 && keyframeVec->keyframes[size - 1]->is_init()) {
-            lidarInfo->mapGenerator.clear();
-            lidarInfo->mapGenerator.insert(keyframeVec, 0, size);
-            map = lidarInfo->mapGenerator.get(save_map_resolution);
-            return size;
-        }
-        map = nullptr;
-        return -1;
-    }
-
-    int gen_map(LidarInfo::Ptr lidarInfo, pcl::PointCloud<PointT>::Ptr& map) {
-        KeyframeVec::Ptr keyframeVec = lidarInfo->keyframeVec;
-        if (!keyframeVec) {
-            map = nullptr;
-            return -1;
-        }
-        int size = int(keyframeVec->keyframes.size());
-        if (size > 0 && keyframeVec->keyframes[size - 1]->is_init()) {
-            lidarInfo->mapGenerator.clear();
-            lidarInfo->mapGenerator.insert(keyframeVec, 0, size);
-            map = lidarInfo->mapGenerator.get(save_map_resolution);
-            return size;
-        }
-        map = nullptr;
-        return -1;
+        lidarInfo->mapGenerator.clear();
+        lidarInfo->mapGenerator.insert(keyframeVec, 0, size);
+        map = lidarInfo->mapGenerator.get(save_map_resolution);
+        return;
     }
 
     void full_map_handler(LidarInfo::Ptr lidarInfo) {
-        std::string frame_id = "map" + std::to_string(lidarInfo->i);
+        std::string map_id = "map" + std::to_string(lidarInfo->i);
+        pcl::PointCloud<PointT>::Ptr map_full_pub(new pcl::PointCloud<PointT>());
 
-        if (!lidarInfo0->status->map_refresh_signal) {
-            Keyframe::Ptr fixed_keyframe = lidarInfo0->fixedChannel->get_front();
-            if (!fixed_keyframe)
-                return;
-            sensor_msgs::PointCloud2Ptr cloud_msg(new sensor_msgs::PointCloud2());
-            pcl::PointCloud<PointT> map_full_pub;
-            pcl::transformPointCloud(*fixed_keyframe->raw, map_full_pub, fixed_keyframe->pose_world_curr.matrix());
-            pcl::toROSMsg(map_full_pub, *cloud_msg);
-            cloud_msg->header.stamp = fixed_keyframe->cloud_in_time;
-            cloud_msg->header.frame_id = frame_id;
-            lidarInfo0->pub_map.publish(cloud_msg);
-
-            static tf::TransformBroadcaster br0;
-            tf::Transform transform;
-            transform.setOrigin( tf::Vector3(0, 0, 0) );
-            tf::Quaternion q(tf::Quaternion::getIdentity());
-            transform.setRotation(q);
-            br0.sendTransform(tf::StampedTransform(transform, fixed_keyframe->cloud_in_time, "map", "map0"));
-
+        if (lidarInfo->status->map_refresh_signal) {
+            refresh_global_map(lidarInfo, map_full_pub);
+            if (map_full_pub) {
+                lidarInfo->status->map_refresh_signal = false;
+            }
+            else return;
         } else {
-            // todo refresh map
+            Keyframe::Ptr fixed_keyframe = lidarInfo->fixedChannel->get_front();
+            if (!fixed_keyframe) return;
+            pcl::transformPointCloud(*fixed_keyframe->raw, *map_full_pub, fixed_keyframe->pose_world_curr.matrix());
+        }
+
+        sensor_msgs::PointCloud2Ptr cloud_msg(new sensor_msgs::PointCloud2());
+        pcl::toROSMsg(*map_full_pub, *cloud_msg);
+        cloud_msg->header.stamp = ros::Time::now();
+        cloud_msg->header.frame_id = map_id;
+        lidarInfo->pub_map.publish(cloud_msg);
+
+        tf::Transform transform;
+        transform.setOrigin( tf::Vector3(lidarInfo->T_0_i.x(), lidarInfo->T_0_i.y(), lidarInfo->T_0_i.z()) );
+        Eigen::Quaterniond q(lidarInfo->T_0_i.rotation().matrix());
+        transform.setRotation(tf::Quaternion(q.x(), q.y(), q.z(), q.w()));
+        lidarInfo->brMapToMap.sendTransform(tf::StampedTransform(transform, cloud_msg->header.stamp, "map", map_id));
+    }
+
+    void save_global_map(LidarInfo::Ptr lidarInfo, const std::string& filename) {
+        if (lidarInfo->status->is_end) {
+            pcl::PointCloud<PointT>::Ptr map_full_pub(new pcl::PointCloud<PointT>());
+            refresh_global_map(lidarInfo, map_full_pub);
+            pcl::io::savePCDFileASCII(file_save_path + filename, *map_full_pub);
+            std::cout << "saved map: " << std::to_string(lidarInfo->i) + "!" << std::endl;
+            lidarInfo->status->is_end = false;
         }
     }
 
@@ -190,30 +179,11 @@ public:
 
             full_map_handler(lidarInfo0);
 
-            // deal with map 1
-            {
-                std::string frame_id = "map1";
-                pcl::PointCloud<PointT>::Ptr map;
-                int size = gen_map(lidarInfo1, map);
-                if (size < 0 || map == nullptr) {
-                    continue;
-                }
+            full_map_handler(lidarInfo1);
 
-                sensor_msgs::PointCloud2Ptr cloud_msg(new sensor_msgs::PointCloud2());
-                pcl::toROSMsg(*map, *cloud_msg);
-                cloud_msg->header.stamp = lidarInfo1->ros_time;
-                cloud_msg->header.frame_id = frame_id;
-                lidarInfo1->pub_map.publish(cloud_msg);
+            save_global_map(lidarInfo0, "gmap0.pcd");
 
-                // save map 1
-                {
-                    if (lidarInfo1->current_latency >= end_signal && lidarInfo1->current_latency < 2 * end_signal) {
-                        pcl::io::savePCDFileASCII(file_save_path + "global_map_1.pcd", *map);
-                        cout << "saved map_1!" << endl;
-                    }
-                }
-            }
-
+            save_global_map(lidarInfo1, "gmap1.pcd");
 
             //sleep 200 ms every time
             std::this_thread::sleep_for(std::chrono::milliseconds(200));
@@ -222,8 +192,6 @@ public:
     }
 
     void laser_odometry_base() {
-
-        ros::Time current = ros::Time::now();
 
         while (ros::ok()) {
 
@@ -265,45 +233,19 @@ public:
                 lidarInfo0->reader.unlock();
 
                 lidarInfo0->odom = lidarSensor0.update(lidarInfo0->ros_time, nullptr, nullptr, cloud_in_less_edge, cloud_in_less_surf, cloud_raw);
-                pubRawOdom(lidarInfo0);
+//                pubRawOdom(lidarInfo0);
                 pubOptiOdom(lidarInfo0);
                 pubRawPointCloud(lidarInfo0, cloud_raw);
 
-//                t_laser_odometry.count();
+                t_laser_odometry.count();
 
-            } else {
-                if (current != lidarInfo0->ros_time) {
-                    lidarInfo0->current_latency = 0;
-                    current = lidarInfo0->ros_time;
-                } else {
-                    lidarInfo0->current_latency++;
-                }
-                if (lidarInfo0->current_latency == end_signal) {
-
-                    // debug
-                    auto poseVec = lidarInfo0->keyframeVec->read_poses(0, lidarInfo0->keyframeVec->size());
-                    {
-                        std::ofstream f(nh.param<std::string>("file_save_path", "") + "pose_final.txt");
-                        for (size_t i = 0; i < poseVec.size(); i++) {
-                            f << "i: " << i << "\n" << poseVec[i].matrix() << endl;
-                        }
-                        f.close();
-                    }
-
-//                    lidarSensor0.updatePoses();
-                    pubOptiOdom(lidarInfo0);
-                    std::cout << "lidar 0 end!" << std::endl;
-                }
             }
-
             //sleep 2 ms every time
             std::this_thread::sleep_for(std::chrono::milliseconds(odom_sleep));
         }
     }
 
     void laser_odometry_auxiliary() {
-
-        ros::Time current = ros::Time::now();
 
         while (ros::ok()) {
 
@@ -345,35 +287,15 @@ public:
                 lidarInfo1->reader.unlock();
 
                 lidarInfo1->odom = lidarSensor1.update(lidarInfo1->ros_time, nullptr, nullptr, cloud_in_less_edge, cloud_in_less_surf, cloud_raw);
-                pubRawOdom(lidarInfo1);
+//                pubRawOdom(lidarInfo1);
                 pubOptiOdom(lidarInfo1);
                 pubRawPointCloud(lidarInfo1, cloud_raw);
 
-                static tf::TransformBroadcaster br1;
-                tf::Transform transform;
-                transform.setOrigin( tf::Vector3(lidarInfo1->T_0_i.translation().x(), lidarInfo1->T_0_i.translation().y(), lidarInfo1->T_0_i.translation().z()) );
-                Eigen::Quaterniond q_current(lidarInfo1->T_0_i.rotation().matrix());
-                tf::Quaternion q(q_current.x(), q_current.y(), q_current.z(), q_current.w());
-                transform.setRotation(q);
-                br1.sendTransform(tf::StampedTransform(transform, lidarInfo1->ros_time, "map", "map1"));
-
                 t_laser_odometry.count();
 
-            } else {
-                if (current != lidarInfo1->ros_time) {
-                    lidarInfo1->current_latency = 0;
-                    current = lidarInfo1->ros_time;
-                } else {
-                    lidarInfo1->current_latency++;
-                }
-                if (lidarInfo1->current_latency == end_signal) {
-                    lidarSensor1.updatePoses();
-                    pubOptiOdom(lidarInfo1);
-                    std::cout << "lidar 1 end!" << std::endl;
-                }
             }
             //sleep 2 ms every time
-            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            std::this_thread::sleep_for(std::chrono::milliseconds(odom_sleep));
         }
     }
 
@@ -496,9 +418,9 @@ int main(int argc, char **argv) {
     LaserOdometry laserOdometry;
 
     std::thread laser_odometry_thread_0{&LaserOdometry::laser_odometry_base, &laserOdometry};
-//    std::thread laser_odometry_thread_1{&LaserOdometry::laser_odometry_auxiliary, &laserOdometry};
+    std::thread laser_odometry_thread_1{&LaserOdometry::laser_odometry_auxiliary, &laserOdometry};
     std::thread backend_ba_optimization_0{&LidarSensor::BA_optimization, &laserOdometry.lidarSensor0};
-//    std::thread backend_ba_optimization_1{&LidarSensor::BA_optimization, &laserOdometry.lidarSensor1};
+    std::thread backend_ba_optimization_1{&LidarSensor::BA_optimization, &laserOdometry.lidarSensor1};
     std::thread laser_calibration_thread{&LaserOdometry::laser_calibration, &laserOdometry};
 
     std::thread global_map_publisher{&LaserOdometry::pub_global_map, &laserOdometry};

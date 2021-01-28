@@ -73,10 +73,14 @@ public:
     mutable std::shared_mutex pose_mtx;
     std::vector<Keyframe::Ptr> keyframes;
 public:
+    // read poses that are inited or fixed
     std::vector<gtsam::Pose3> read_poses(size_t begin, size_t end, bool need_fixed = false) const;
+    // read pose that is inited, not require fixed
     gtsam::Pose3 read_pose(size_t index) const;
 
     inline size_t size() const { return keyframes.size(); };
+    inline Keyframe::Ptr& operator[](size_t index) { return this->keyframes.at(index); };
+    inline const Keyframe::Ptr& operator[](size_t index) const { return this->keyframes.at(index); };
 };
 
 

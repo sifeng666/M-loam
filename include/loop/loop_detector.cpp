@@ -6,15 +6,14 @@
 
 double LoopDetector::FITNESS_SCORE;
 
-void LoopDetector::loop_detector(KeyframeVec::Ptr keyframeVec, Keyframe::Ptr latestKeyframe, std::vector<FactorPtr>& loopFactors) {
+bool LoopDetector::loop_detector(KeyframeVec::Ptr keyframeVec, Keyframe::Ptr latestKeyframe,
+                                 std::vector<FactorPtr>& loopFactors, int& last_found_index) {
 
     int latest_index = latestKeyframe->index;
-
     if (latest_index < LOOP_KEYFRAME_SKIP + 1)
-        return;
-
+        return false;
     if (last_loop_found_index > 0 && latest_index <= last_loop_found_index + LOOP_KEYFRAME_COOLDOWN)
-        return;
+        return false;
 
     size_t buffer_size = latest_index - LOOP_KEYFRAME_SKIP;
     // <frameCount, distance>
@@ -35,7 +34,7 @@ void LoopDetector::loop_detector(KeyframeVec::Ptr keyframeVec, Keyframe::Ptr lat
     }
 
     if (candidates.empty())
-        return;
+        return false;
 
     std::sort(candidates.begin(), candidates.end(), [](const auto& p1, const auto& p2) {
         return p1.second < p2.second;
@@ -67,17 +66,21 @@ void LoopDetector::loop_detector(KeyframeVec::Ptr keyframeVec, Keyframe::Ptr lat
         cout << "find loop: [" << latest_index << "] and [" << closestKeyIdx << "]\n";
         cout << "pose coarse:     \n" << pose_crop_latest_coarse.matrix() << endl;
         cout << "pose after gicp: \n" << pose_crop_latest_opti.matrix() << endl;
-        success_loop_count++;
+        success_loop_count++; 
     }
 
     if (success_loop_count > 0) {
         last_loop_found_index = latest_index;
+        last_found_index = last_loop_found_index;
+        return true;
     }
+    return false;
 
 }
 
 bool LoopDetector::gicp_matching(pcl::PointCloud<PointT>::Ptr cloud_to, pcl::PointCloud<PointT>::Ptr cloud_from, const gtsam::Pose3& pose_guess, gtsam::Pose3& pose) {
 
+    Timer t_gicp_matching("gicp_matching");
     fast_gicp::FastGICP<PointT, PointT> gicp;
     gicp.setNumThreads(0);
     gicp.setTransformationEpsilon(0.1);
@@ -105,6 +108,7 @@ bool LoopDetector::gicp_matching(pcl::PointCloud<PointT>::Ptr cloud_to, pcl::Poi
     Eigen::Quaterniond q(result.block<3, 3>(0, 0));
     q.normalize();
     pose = gtsam::Pose3(gtsam::Rot3(q), result.block<3, 1>(0, 3));
+    t_gicp_matching.count();
     return true;
 
 }

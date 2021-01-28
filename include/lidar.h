@@ -65,6 +65,7 @@ public:
     using Ptr = boost::shared_ptr<LidarStatus>;
     bool status_change  = false;
     bool map_refresh_signal = false;
+    bool is_end = false;
 };
 
 class FixedKeyframeChannel {
@@ -127,8 +128,6 @@ public:
     
     void updateSubmap(size_t range_from = 0, size_t range_to = 0);
     bool nextFrameToBeKeyframe();
-    void initOdomFactor();
-    void addOdomFactor();
     void handleRegistration();
     void updatePoses();
     void initParam();
@@ -150,6 +149,8 @@ public:
                 pcl::PointCloud<PointT>::Ptr currLessEdge,
                 pcl::PointCloud<PointT>::Ptr currLessSurf,
                 pcl::PointCloud<PointT>::Ptr currRaw);
+
+    void addOdomFactor(int last_index, int index);
 
     void BA_optimization();
 

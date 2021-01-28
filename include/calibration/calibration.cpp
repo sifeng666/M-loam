@@ -35,8 +35,8 @@ gtsam::Pose3 interpolate(double t, const gtsam::Pose3& start, const gtsam::Pose3
 bool HandEyeCalibrator::calibrate(KeyframeVec::Ptr keyframeVec_0, KeyframeVec::Ptr keyframeVec_i, gtsam::Pose3& T_0_i) {
 
     bool success;
-    std::vector<gtsam::Pose3> poses_0 = keyframeVec_0->read_poses(0, keyframeVec_0->keyframes.size());
-    std::vector<gtsam::Pose3> poses_i = keyframeVec_i->read_poses(0, keyframeVec_i->keyframes.size());
+    std::vector<gtsam::Pose3> poses_0 = keyframeVec_0->read_poses(0, keyframeVec_0->keyframes.size(), true);
+    std::vector<gtsam::Pose3> poses_i = keyframeVec_i->read_poses(0, keyframeVec_i->keyframes.size(), true);
 
     std::vector<PoseTimeStamp> PTS_0, PTS_i;
     for (size_t i = 0; i < poses_0.size(); i++) PTS_0.emplace_back(keyframeVec_0->keyframes[i]->cloud_in_time, poses_0[i]);
@@ -44,7 +44,6 @@ bool HandEyeCalibrator::calibrate(KeyframeVec::Ptr keyframeVec_0, KeyframeVec::P
 
     success = sync_timestamp(PTS_0, PTS_i);
     if (!success) {
-//        std::cout << "fail to calibrate, sync timestamp fail" << std::endl;
         return false;
     }
 
@@ -66,13 +65,11 @@ bool HandEyeCalibrator::calibrate(KeyframeVec::Ptr keyframeVec_0, KeyframeVec::P
     }
     success = calib.addMotions(H1, H2);
     if (!success) {
-//        std::cout << "fail to calibrate, add motions fail" << std::endl;
         return false;
     }
     Eigen::Matrix4d H_12;
     success = calib.calibrate(H_12);
     if (!success) {
-//        std::cout << "fail to calibrate, calitrate fail" << std::endl;
         return false;
     }
     T_0_i = gtsam::Pose3(H_12);

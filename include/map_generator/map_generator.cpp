@@ -26,7 +26,7 @@ void MapGenerator::insert(KeyframeVec::Ptr keyframeVec, size_t begin, size_t end
     }
 
     // read lock
-    std::vector<gtsam::Pose3> poseVec = keyframeVec->read_poses(begin, end);
+    std::vector<gtsam::Pose3> poseVec = keyframeVec->read_poses(begin, end, true);
 
     for (size_t i = 0; i < poseVec.size(); i++) {
         Keyframe::Ptr keyframe = keyframeVec->keyframes[i + begin];
@@ -42,10 +42,10 @@ pcl::PointCloud<PointT>::Ptr MapGenerator::get(float resolution) const {
     std::lock_guard<std::mutex> lg(mtx);
     pcl::PointCloud<PointT>::Ptr map_out;
     map_out = map->makeShared();
-    pcl::VoxelGrid<PointT> v;
-    v.setLeafSize(resolution, resolution, resolution);
-    v.setInputCloud(map_out);
-    v.filter(*map_out);
+//    pcl::VoxelGrid<PointT> v;
+//    v.setLeafSize(resolution, resolution, resolution);
+//    v.setInputCloud(map_out);
+//    v.filter(*map_out);
 //    down_sampling_voxel(*map_out, resolution);
     return map_out;
 }
@@ -102,6 +102,3 @@ pcl::PointCloud<PointT>::Ptr MapGenerator::generate_cloud(KeyframeVec::Ptr keyfr
     cloud->is_dense = false;
     return cloud;
 }
-
-
-
