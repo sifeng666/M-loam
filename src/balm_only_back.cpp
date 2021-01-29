@@ -289,7 +289,7 @@ int main(int argc, char **argv)
       }
 
       pcl::PointCloud<PointType> pl_send;
-      
+
       for(int i=0; i<margi_size; i+=pub_skip)
       {
         trans.block<3, 3>(0, 0) = opt_lsv.so3_poses[i].matrix();

@@ -146,8 +146,6 @@ public:
     gtsam::Pose3 update(const ros::Time cloud_in_time,
                 pcl::PointCloud<PointT>::Ptr currEdge,
                 pcl::PointCloud<PointT>::Ptr currSurf,
-                pcl::PointCloud<PointT>::Ptr currLessEdge,
-                pcl::PointCloud<PointT>::Ptr currLessSurf,
                 pcl::PointCloud<PointT>::Ptr currRaw);
 
     void addOdomFactor(int last_index, int index);

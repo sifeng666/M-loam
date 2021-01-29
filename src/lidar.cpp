@@ -400,13 +400,11 @@ void LidarSensor::getTransToSubmap(pcl::PointCloud<PointT>::Ptr currEdge, pcl::P
 gtsam::Pose3 LidarSensor::update(const ros::Time cloud_in_time,
             pcl::PointCloud<PointT>::Ptr currEdge,
             pcl::PointCloud<PointT>::Ptr currSurf,
-            pcl::PointCloud<PointT>::Ptr currLessEdge,
-            pcl::PointCloud<PointT>::Ptr currLessSurf,
             pcl::PointCloud<PointT>::Ptr currRaw)
 {
     // if is keyframe, append to keyframes vector
     if (is_keyframe_next) {
-        update_keyframe(cloud_in_time, currLessEdge, currLessSurf, currRaw);
+        update_keyframe(cloud_in_time, currEdge, currSurf, currRaw);
     }
 
     if (!is_init) {
@@ -416,10 +414,10 @@ gtsam::Pose3 LidarSensor::update(const ros::Time cloud_in_time,
         return gtsam::Pose3();
     }
 
-    down_sampling_voxel(*currLessEdge, corn_filter_length);
-    down_sampling_voxel(*currLessSurf, surf_filter_length);
+    down_sampling_voxel(*currEdge, corn_filter_length);
+    down_sampling_voxel(*currSurf, surf_filter_length);
 
-    getTransToSubmap(currLessEdge, currLessSurf);
+    getTransToSubmap(currEdge, currSurf);
 
     handleRegistration();
 
@@ -536,19 +534,15 @@ void LidarSensor::BALM_backend(const std::vector<Keyframe::Ptr>& keyframes_buf,
             // update submap here, front end will use
             updateSubmap(window_base, window_base + window_size);
 
-            for(auto iter=surf_map.begin(); iter!=surf_map.end(); ++iter)
-            {
-                if(iter->second->is2opt)
-                {
+            for (auto iter=surf_map.begin(); iter!=surf_map.end(); ++iter) {
+                if (iter->second->is2opt) {
                     iter->second->root_centors.clear();
                     iter->second->marginalize(0, margi_size, q_poses, t_poses, window_base, iter->second->root_centors);
                 }
             }
 
-            for(auto iter=corn_map.begin(); iter!=corn_map.end(); ++iter)
-            {
-                if(iter->second->is2opt)
-                {
+            for (auto iter=corn_map.begin(); iter!=corn_map.end(); ++iter) {
+                if (iter->second->is2opt) {
                     iter->second->root_centors.clear();
                     iter->second->marginalize(0, margi_size, q_poses, t_poses, window_base, iter->second->root_centors);
                 }
@@ -624,6 +618,16 @@ void LidarSensor::BA_optimization() {
                 }
             }
 
+//            // debug
+//            auto poseVec = keyframeVec->read_poses(0, keyframeVec->size(), true);
+//            {
+//                std::ofstream f(nh.param<std::string>("file_save_path", "") + "with_loop.txt");
+//                for (size_t i = 0; i < poseVec.size(); i++) {
+//                    f << "i: " << i << "\n" << poseVec[i].matrix() << endl;
+//                }
+//                f.close();
+//            }
+
             if (status->status_change) {
                 status->map_refresh_signal = true;
                 status->status_change = false;
@@ -633,7 +637,7 @@ void LidarSensor::BA_optimization() {
         }
         else {
             current_latency += backend_sleep;
-            if (current_latency == end_signal) {
+            if (last_index > 0 && current_latency >= end_signal && !status->is_end) {
                 status->is_end = true;
             }
         }

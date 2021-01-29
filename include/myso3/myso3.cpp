@@ -17,7 +17,10 @@ SO3
 SO3
 ::SO3(const Quaterniond & quat) : unit_quaternion_(quat)
 {
-  assert(unit_quaternion_.squaredNorm() > SMALL_EPS);
+//  assert(unit_quaternion_.squaredNorm() > SMALL_EPS);
+  if (!(unit_quaternion_.squaredNorm() > SMALL_EPS)) {
+      std::cerr << "unit_quaternion_.squaredNorm(): " << unit_quaternion_.squaredNorm() << std::endl;
+  }
   unit_quaternion_.normalize();
 }
 

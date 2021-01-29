@@ -46,7 +46,7 @@ pcl::PointCloud<PointT>::Ptr MapGenerator::get(float resolution) const {
 //    v.setLeafSize(resolution, resolution, resolution);
 //    v.setInputCloud(map_out);
 //    v.filter(*map_out);
-//    down_sampling_voxel(*map_out, resolution);
+    down_sampling_voxel(*map_out, resolution);
     return map_out;
 }
 
