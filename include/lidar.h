@@ -5,16 +5,19 @@
 #ifndef MLOAM_LIDAR_H
 #define MLOAM_LIDAR_H
 
-#include "keyframe/keyframe.h"
-#include "map_generator/map_generator.h"
-#include "loop/loop_detector.h"
-#include "factors.h"
+#include "tools/keyframe.hpp"
+#include "tools/map_generator.hpp"
+#include "tools/loop_detector.hpp"
+#include "tools/registration.hpp"
 
+#include "factors.h"
 #include "balmclass.hpp"
 
 #include <pcl/segmentation/region_growing.h>
 #include <pcl/features/normal_3d_omp.h>
 #include <pcl/features/normal_3d.h>
+
+using namespace tools;
 
 // extract from balm back
 static double voxel_size[2] = {1, 1};
@@ -131,7 +134,7 @@ public:
     void handleRegistration();
     void updatePoses();
     void initParam();
-    void resetBALMParam();
+    void initBALMParam();
 
     pcl::PointCloud<PointT>::Ptr extract_planes(pcl::PointCloud<PointT>::Ptr currSurf);
 
@@ -154,6 +157,8 @@ public:
 
     void BALM_backend(const std::vector<Keyframe::Ptr>& keyframes_buf,
                       std::vector<Keyframe::Ptr>& fixedKeyframes_buf);
+
+    void loop_detect_thread();
 
 
 private:
@@ -207,18 +212,19 @@ private:
     pcl::PointCloud<PointT>::Ptr submapSurf;
     pcl::KdTreeFLANN<PointT>::Ptr kdtreeEdgeSubmap;
     pcl::KdTreeFLANN<PointT>::Ptr kdtreeSurfSubmap;
-
-    // plane segment
-    pcl::NormalEstimationOMP<PointT, NormalT> ne;
-    pcl::search::KdTree<PointT>::Ptr searchKdtree;
-    pcl::RegionGrowing<PointT, NormalT> regionGrowing;
-
+    pcl::VoxelGrid<PointT> voxelGrid;
 
     /*********************************************************************
    ** backend BA
    *********************************************************************/
     std::mutex BA_mtx;
     std::queue<Keyframe::Ptr> BAKeyframeBuf;
+
+    // loop
+    std::mutex fixed_mtx;
+    std::queue<Keyframe::Ptr> FixedKeyframeBuf;
+    std::mutex loop_factors_mtx;
+    std::queue<FactorPtr> factorsBuf;
 
 
     int window_size = 6;

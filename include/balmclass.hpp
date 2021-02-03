@@ -5,7 +5,7 @@
 #include <pcl/common/transforms.h>
 #include <unordered_map>
 #include <opencv2/core.hpp>
-#include "myso3/myso3.hpp"
+#include "tools/myso3/myso3.hpp"
 #include <thread>
 #include <mutex>
 #include <fstream>
@@ -15,6 +15,7 @@ typedef std::vector<Eigen::Vector3d> PL_VEC;
 typedef pcl::PointXYZINormal PointType;
 #define MIN_PS 7
 using namespace std;
+using namespace tools;
 
 // Key of hash table
 class VOXEL_LOC
@@ -48,10 +49,10 @@ struct M_POINT
 {
   float xyz[3];
   int count = 0;
+  float intensity = 0;
 };
 
 // Similar with PCL voxelgrid filter
-template <typename PointT>
 static void down_sampling_voxel(pcl::PointCloud<PointT> &pl_feat, double voxel_size)
 {
   if(voxel_size < 0.01)
@@ -83,6 +84,7 @@ static void down_sampling_voxel(pcl::PointCloud<PointT> &pl_feat, double voxel_s
       iter->second.xyz[1] += p_c.y;
       iter->second.xyz[2] += p_c.z;
       iter->second.count++;
+      iter->second.intensity += p_c.intensity;
     }
     else
     {
@@ -91,6 +93,7 @@ static void down_sampling_voxel(pcl::PointCloud<PointT> &pl_feat, double voxel_s
       anp.xyz[1] = p_c.y;
       anp.xyz[2] = p_c.z;
       anp.count = 1;
+      anp.intensity = p_c.intensity;
       feat_map[position] = anp;
     }
   }
@@ -105,6 +108,7 @@ static void down_sampling_voxel(pcl::PointCloud<PointT> &pl_feat, double voxel_s
     pl_feat[i].x = iter->second.xyz[0]/iter->second.count;
     pl_feat[i].y = iter->second.xyz[1]/iter->second.count;
     pl_feat[i].z = iter->second.xyz[2]/iter->second.count;
+    pl_feat[i].intensity = iter->second.intensity/iter->second.count;
     i++;
   }
 

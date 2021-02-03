@@ -10,7 +10,7 @@
 #include <gtsam/geometry/Rot3.h>
 
 
-void _mkdir(const std::string& filename) {
+static void _mkdir(const std::string& filename) {
     boost::filesystem::path save_path(filename);
     auto folder_path = save_path.parent_path();
     if (!boost::filesystem::exists(folder_path)) {

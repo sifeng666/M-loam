@@ -17,6 +17,8 @@
 #include <cstdio>
 #include <thread>
 #include <utility>
+#include <random>
+#include <chrono>
 
 #include <ros/ros.h>
 #include <sensor_msgs/PointCloud2.h>
@@ -49,9 +51,18 @@
 using namespace std;
 
 using PointT = pcl::PointXYZI;
-using NormalT = pcl::Normal;
 
 static std::atomic<int> timerCount = 1;
+
+/// Thread-safe function returning a pseudo-random integer.
+/// The integer is drawn from a uniform distribution bounded by min and max
+/// (inclusive) (reference from open3d)
+[[maybe_unused]] static int UniformRandInt(const int min, const int max) {
+    static thread_local std::mt19937 generator(std::random_device{}());
+    std::uniform_int_distribution<int> distribution(min, max);
+    return distribution(generator);
+}
+
 
 class TimeCounter {
 private:
@@ -82,6 +93,24 @@ public:
         clock_type tp2 = std::chrono::time_point_cast<std::chrono::milliseconds>(std::chrono::system_clock::now());
         std::cout << "Timer_" << name << "_" << timerCount++ << " count: " << tp2.time_since_epoch().count() - startTime << "msec" << std::endl;
     }
+};
+
+class TicToc {
+public:
+    TicToc() {
+        tic();
+    }
+    void tic() {
+        start = std::chrono::system_clock::now();
+    }
+    double toc() {
+        end = std::chrono::system_clock::now();
+        std::chrono::duration<double> elapsed_seconds = end - start;
+        return elapsed_seconds.count() * 1000;
+    }
+
+private:
+    std::chrono::time_point<std::chrono::system_clock> start, end;
 };
 
 

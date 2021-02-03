@@ -5,14 +5,15 @@
 #include "helper.h"
 #include "utils.h"
 #include "lidar.h"
-#include "calibration/calibration.h"
+#include "tools/calibration.hpp"
+
+using namespace tools;
 
 static const int odom_sleep = 2;    // 2ms
 
 class LidarInfo {
 public:
-    using Ptr = boost::shared_ptr<LidarInfo>;
-    using PointCloudPtr = pcl::PointCloud<PointT>::Ptr;
+    using Ptr = std::shared_ptr<LidarInfo>;
 public:
     int i;                                  // Lidar i_th
     LidarMsgReader reader;                  // read ros lidar pointcloud msg
@@ -20,7 +21,7 @@ public:
     ros::Time ros_time;                     // latest ros timestamp of this lidar, not save history
     KeyframeVec::Ptr keyframeVec;           // including all history keyframes, optimized
     LidarStatus::Ptr status;                // lidar status, communication of lidar.cpp and this cpp
-    MapGenerator mapGenerator;              // generate global map of this lidar
+//    MapGenerator mapGenerator;              // generate global map of this lidar
     FixedKeyframeChannel::Ptr fixedChannel; // channel that save map to be publish
     tf::TransformBroadcaster brMapToFrame;  // tf broadcaster, map_i => frame_i
     tf::TransformBroadcaster brMapToMap;    // tf broadcaster, map   => map_i
@@ -29,11 +30,13 @@ public:
     bool is_base = false;                   // if i == 0, then is_base = true
 
     // ros msg
-    ros::Subscriber sub_laser_cloud, sub_laser_cloud_edge, sub_laser_cloud_surf, sub_laser_cloud_less_edge, sub_laser_cloud_less_surf;
-    ros::Publisher pub_map, pub_pointcloud_raw;
-    ros::Publisher pub_odom_raw, pub_odom_opti;
-    geometry_msgs::PoseArray parray;
-    ros::Publisher pub_ros_odom;
+    ros::Subscriber sub_laser_cloud;
+    ros::Subscriber sub_laser_cloud_less_edge;
+    ros::Subscriber sub_laser_cloud_less_surf;
+    ros::Publisher pub_map;
+    ros::Publisher pub_pointcloud_raw;
+    ros::Publisher pub_odom_opti;
+    nav_msgs::Path parray_path;
 
 public:
     LidarInfo(int i_) : i(i_) {
@@ -46,43 +49,40 @@ class LaserOdometry {
 public:
     void pubOptiOdom(LidarInfo::Ptr lidarInfo) {
         if (lidarInfo->keyframeVec->keyframes.empty()) return;
-        geometry_msgs::PoseArray& parray = lidarInfo->parray;
+        auto& parray_path = lidarInfo->parray_path;
         KeyframeVec::Ptr keyframeVec = lidarInfo->keyframeVec;
         // read lock
-        std::vector<gtsam::Pose3> poseVec = keyframeVec->read_poses(0, keyframeVec->keyframes.size());
+        std::vector<gtsam::Pose3> poseVec = keyframeVec->read_poses(0, keyframeVec->keyframes.size(), true);
 
-        parray.header.stamp = ros::Time::now();
-        parray.header.frame_id = "map" + std::to_string(lidarInfo->i);
+        parray_path.header.stamp = ros::Time::now();
+        parray_path.header.frame_id = "map" + std::to_string(lidarInfo->i);
 
         for (size_t i = 0; i < poseVec.size(); i++) {
             Eigen::Quaterniond q(poseVec[i].rotation().matrix());
-            if (i < parray.poses.size()) {
-                parray.poses[i].orientation.w = q.w();
-                parray.poses[i].orientation.x = q.x();
-                parray.poses[i].orientation.y = q.y();
-                parray.poses[i].orientation.z = q.z();
-                parray.poses[i].position.x    = poseVec[i].translation().x();
-                parray.poses[i].position.y    = poseVec[i].translation().y();
-                parray.poses[i].position.z    = poseVec[i].translation().z();
+            if (i < parray_path.poses.size()) {
+                parray_path.poses[i].pose.orientation.w = q.w(); parray_path.poses[i].pose.orientation.x = q.x();
+                parray_path.poses[i].pose.orientation.y = q.y(); parray_path.poses[i].pose.orientation.z = q.z();
+                parray_path.poses[i].pose.position.x = poseVec[i].translation().x();
+                parray_path.poses[i].pose.position.y = poseVec[i].translation().y();
+                parray_path.poses[i].pose.position.z = poseVec[i].translation().z();
             } else {
-                geometry_msgs::Pose apose;
-                apose.orientation.w = q.w();
-                apose.orientation.x = q.x();
-                apose.orientation.y = q.y();
-                apose.orientation.z = q.z();
-                apose.position.x = poseVec[i].translation().x();
-                apose.position.y = poseVec[i].translation().y();
-                apose.position.z = poseVec[i].translation().z();
-                parray.poses.push_back(apose);
+                geometry_msgs::PoseStamped apose;
+                apose.pose.orientation.w = q.w(); apose.pose.orientation.x = q.x();
+                apose.pose.orientation.y = q.y(); apose.pose.orientation.z = q.z();
+                apose.pose.position.x = poseVec[i].translation().x();
+                apose.pose.position.y = poseVec[i].translation().y();
+                apose.pose.position.z = poseVec[i].translation().z();
+                parray_path.poses.push_back(apose);
             }
         }
-        lidarInfo->pub_odom_opti.publish(parray);
+
+        lidarInfo->pub_odom_opti.publish(parray_path);
 
         tf::Transform transform;
         transform.setOrigin( tf::Vector3(lidarInfo->T_0_i.x(), lidarInfo->T_0_i.y(), lidarInfo->T_0_i.z()) );
         Eigen::Quaterniond q(lidarInfo->T_0_i.rotation().matrix());
         transform.setRotation(tf::Quaternion(q.x(), q.y(), q.z(), q.w()));
-        lidarInfo->brMapToMap.sendTransform(tf::StampedTransform(transform, parray.header.stamp, "map", parray.header.frame_id));
+        lidarInfo->brMapToMap.sendTransform(tf::StampedTransform(transform, parray_path.header.stamp, "map", parray_path.header.frame_id));
     }
 
 
@@ -109,34 +109,15 @@ public:
 
     }
 
-    void refresh_global_map(LidarInfo::Ptr lidarInfo, pcl::PointCloud<PointT>::Ptr& map) {
-        KeyframeVec::Ptr keyframeVec = lidarInfo->keyframeVec;
-        if (!keyframeVec) {
-            map = nullptr;
-            return;
-        }
-        int size = int(keyframeVec->size());
-        lidarInfo->mapGenerator.clear();
-        lidarInfo->mapGenerator.insert(keyframeVec, 0, size);
-        map = lidarInfo->mapGenerator.get(save_map_resolution);
-        return;
-    }
-
     void full_map_handler(LidarInfo::Ptr lidarInfo) {
         std::string map_id = "map" + std::to_string(lidarInfo->i);
-        pcl::PointCloud<PointT>::Ptr map_full_pub(new pcl::PointCloud<PointT>());
 
-        if (lidarInfo->status->map_refresh_signal) {
-            refresh_global_map(lidarInfo, map_full_pub);
-            if (map_full_pub) {
-                lidarInfo->status->map_refresh_signal = false;
-            }
-            else return;
-        } else {
-            Keyframe::Ptr fixed_keyframe = lidarInfo->fixedChannel->get_front();
-            if (!fixed_keyframe) return;
-            pcl::transformPointCloud(*fixed_keyframe->raw, *map_full_pub, fixed_keyframe->pose_world_curr.matrix());
-        }
+        auto map_full_pub = MapGenerator::generate_cloud(lidarInfo->keyframeVec, 0, lidarInfo->keyframeVec->size(), FeatureType::Full, true);
+        if (!map_full_pub) return;
+        pcl::VoxelGrid<PointT> v;
+        v.setLeafSize(0.2, 0.2, 0.2);
+        v.setInputCloud(map_full_pub);
+        v.filter(*map_full_pub);
 
         sensor_msgs::PointCloud2Ptr cloud_msg(new sensor_msgs::PointCloud2());
         pcl::toROSMsg(*map_full_pub, *cloud_msg);
@@ -147,8 +128,10 @@ public:
 
     void save_global_map(LidarInfo::Ptr lidarInfo, const std::string& filename) {
         if (lidarInfo->status->is_end) {
-            pcl::PointCloud<PointT>::Ptr map_full_pub(new pcl::PointCloud<PointT>());
-            refresh_global_map(lidarInfo, map_full_pub);
+            auto map_full_pub = MapGenerator::generate_cloud(lidarInfo->keyframeVec, 0, lidarInfo->keyframeVec->size(), FeatureType::Full, true);
+            if (!map_full_pub) return;
+            down_sampling_voxel(*map_full_pub, save_map_resolution);
+
             pcl::io::savePCDFileASCII(file_save_path + filename, *map_full_pub);
             std::cout << "saved map: " << std::to_string(lidarInfo->i) + "!" << std::endl;
             lidarInfo->status->is_end = false;
@@ -214,6 +197,8 @@ public:
 
                 t_laser_odometry.count();
 
+            } else {
+                pubOptiOdom(lidarInfo0);
             }
             //sleep 2 ms every time
             std::this_thread::sleep_for(std::chrono::milliseconds(odom_sleep));
@@ -259,6 +244,8 @@ public:
 
                 t_laser_odometry.count();
 
+            } else {
+                pubOptiOdom(lidarInfo0);
             }
             //sleep 2 ms every time
             std::this_thread::sleep_for(std::chrono::milliseconds(odom_sleep));
@@ -310,14 +297,14 @@ public:
 
         // lidar 0 init
         lidarSensor0.set_name("Lidar0");
-        lidarInfo0 = boost::make_shared<LidarInfo>(0);
+        lidarInfo0 = std::make_shared<LidarInfo>(0);
         lidarInfo0->keyframeVec = lidarSensor0.get_keyframeVec();
         lidarInfo0->status = lidarSensor0.status;
         lidarInfo0->fixedChannel = lidarSensor0.fixedKeyframeChannel;
 
         // lidar 1 init
         lidarSensor1.set_name("Lidar1");
-        lidarInfo1 = boost::make_shared<LidarInfo>(1);
+        lidarInfo1 = std::make_shared<LidarInfo>(1);
         lidarInfo1->keyframeVec = lidarSensor1.get_keyframeVec();
         lidarInfo1->status = lidarSensor1.status;
         lidarInfo1->fixedChannel = lidarSensor1.fixedKeyframeChannel;
@@ -325,14 +312,14 @@ public:
         lidarInfo0->sub_laser_cloud           = nh.subscribe<sensor_msgs::PointCloud2>("/left/velodyne_points_2",  100, &LidarMsgReader::pointCloudFullHandler, &lidarInfo0->reader);
         lidarInfo0->sub_laser_cloud_less_edge = nh.subscribe<sensor_msgs::PointCloud2>("/left/laser_cloud_less_edge",  100, &LidarMsgReader::pointCloudLessEdgeHandler, &lidarInfo0->reader);
         lidarInfo0->sub_laser_cloud_less_surf = nh.subscribe<sensor_msgs::PointCloud2>("/left/laser_cloud_less_surf",  100, &LidarMsgReader::pointCloudLessSurfHandler, &lidarInfo0->reader);
-        lidarInfo0->pub_odom_opti             = nh.advertise<geometry_msgs::PoseArray>("/left/odom_opti", 100);
+        lidarInfo0->pub_odom_opti             = nh.advertise<nav_msgs::Path>(          "/left/odom_opti", 100);
         lidarInfo0->pub_map                   = nh.advertise<sensor_msgs::PointCloud2>("/left/global_map", 5);
         lidarInfo0->pub_pointcloud_raw        = nh.advertise<sensor_msgs::PointCloud2>("/left/raw_points", 10);
 
         lidarInfo1->sub_laser_cloud           = nh.subscribe<sensor_msgs::PointCloud2>("/right/velodyne_points_2",  100, &LidarMsgReader::pointCloudFullHandler, &lidarInfo1->reader);
         lidarInfo1->sub_laser_cloud_less_edge = nh.subscribe<sensor_msgs::PointCloud2>("/right/laser_cloud_less_edge", 100, &LidarMsgReader::pointCloudLessEdgeHandler, &lidarInfo1->reader);
         lidarInfo1->sub_laser_cloud_less_surf = nh.subscribe<sensor_msgs::PointCloud2>("/right/laser_cloud_less_surf", 100, &LidarMsgReader::pointCloudLessSurfHandler, &lidarInfo1->reader);
-        lidarInfo1->pub_odom_opti             = nh.advertise<geometry_msgs::PoseArray>("/right/odom_opti", 100);
+        lidarInfo1->pub_odom_opti             = nh.advertise<nav_msgs::Path>(          "/right/odom_opti", 100);
         lidarInfo1->pub_map                   = nh.advertise<sensor_msgs::PointCloud2>("/right/global_map", 5);
         lidarInfo1->pub_pointcloud_raw        = nh.advertise<sensor_msgs::PointCloud2>("/right/raw_points", 10);;
 
@@ -372,9 +359,13 @@ int main(int argc, char **argv) {
     LaserOdometry laserOdometry;
 
     std::thread laser_odometry_thread_0{&LaserOdometry::laser_odometry_base, &laserOdometry};
-    std::thread laser_odometry_thread_1{&LaserOdometry::laser_odometry_auxiliary, &laserOdometry};
     std::thread backend_ba_optimization_0{&LidarSensor::BA_optimization, &laserOdometry.lidarSensor0};
-    std::thread backend_ba_optimization_1{&LidarSensor::BA_optimization, &laserOdometry.lidarSensor1};
+    std::thread backend_loop_detector_0{&LidarSensor::loop_detect_thread, &laserOdometry.lidarSensor0};
+
+//    std::thread laser_odometry_thread_1{&LaserOdometry::laser_odometry_auxiliary, &laserOdometry};
+//    std::thread backend_ba_optimization_1{&LidarSensor::BA_optimization, &laserOdometry.lidarSensor1};
+//    std::thread backend_loop_detector_1{&LidarSensor::loop_detect_thread, &laserOdometry.lidarSensor1};
+
     std::thread laser_calibration_thread{&LaserOdometry::laser_calibration, &laserOdometry};
 
     std::thread global_map_publisher{&LaserOdometry::pub_global_map, &laserOdometry};

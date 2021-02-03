@@ -1,4 +1,4 @@
-#include "calibration/camodocal/PlanarHandEyeCalibration.h"
+#include "tools/camodocal/PlanarHandEyeCalibration.h"
 
 #include <cstdio>
 #include <cstring>
@@ -11,7 +11,7 @@
 #include <opencv2/core/eigen.hpp>
 #endif //  defined(HAVE_OPENCV2) || defined(HAVE_OPENCV3)
 
-#include "calibration/camodocal/EigenUtils.h"
+#include "tools/camodocal/EigenUtils.h"
 #include "ceres/ceres.h"
 
 namespace camodocal
