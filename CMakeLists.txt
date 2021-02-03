@@ -54,30 +54,22 @@ catkin_package(
     LIBRARIES
 )
 
-#add_library(
-#    laser_odometry
-#    src/laserOdometry.cpp
-#    src/keyframe.cpp
-#    src/map_generator.cpp
-#    src/loop_detector.cpp
-#    src/lidar.cpp
-#    src/calibration.cpp
-#)
-
 add_executable(laserProcessing src/laserProcessing.cpp)
 target_link_libraries(laserProcessing ${catkin_LIBRARIES} ${PCL_LIBRARIES})
 
 add_executable(laserOdometry
         src/laserOdometry.cpp
-        src/keyframe.cpp
-        src/map_generator.cpp
-        src/loop_detector.cpp
         src/lidar.cpp
-        src/calibration.cpp
-        include/camodocal/src/PlanarHandEyeCalibration.cc)
-target_link_libraries(laserOdometry ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES} gtsam)
 
-#add_executable(kittiHelper src/kittiHelper.cpp)
-#target_link_libraries(kittiHelper ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBS})
+        include/tools/keyframe.hpp
+        include/tools/map_generator.hpp
+        include/tools/loop_detector.hpp
+        include/tools/calibration.hpp
+        include/tools/registration.hpp
+        include/tools/camodocal/src/PlanarHandEyeCalibration.cc
+        include/tools/myso3/myso3.cpp
+        include/tools/myso3/myso3.hpp
+)
+target_link_libraries(laserOdometry ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES} gtsam)
 
 add_subdirectory(test)
