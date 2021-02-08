@@ -6,8 +6,7 @@ Panels:
       Expanded:
         - /Global Options1
         - /Status1
-        - /left_map1
-        - /left_path1
+        - /right_map1
       Splitter Ratio: 0.5
     Tree Height: 1571
   - Class: rviz/Selection
@@ -69,14 +68,14 @@ Visualization Manager:
       Enabled: true
       Invert Rainbow: false
       Max Color: 255; 255; 255
-      Max Intensity: 15.125091552734375
+      Max Intensity: 15.125154495239258
       Min Color: 0; 0; 0
-      Min Intensity: 4.960394653608091e-05
+      Min Intensity: 0.006364262197166681
       Name: left_map
       Position Transformer: XYZ
       Queue Size: 10
       Selectable: true
-      Size (Pixels): 3
+      Size (Pixels): 2
       Size (m): 0.009999999776482582
       Style: Points
       Topic: /left/global_map
@@ -95,13 +94,13 @@ Visualization Manager:
       Class: rviz/PointCloud2
       Color: 255; 255; 255
       Color Transformer: Intensity
-      Decay Time: 1e+06
+      Decay Time: 0
       Enabled: true
       Invert Rainbow: false
       Max Color: 255; 255; 255
-      Max Intensity: 15.12506103515625
+      Max Intensity: 15.124748229980469
       Min Color: 0; 0; 0
-      Min Intensity: 0
+      Min Intensity: 0.0008040605462156236
       Name: right_map
       Position Transformer: XYZ
       Queue Size: 10
@@ -110,7 +109,7 @@ Visualization Manager:
       Size (m): 0.009999999776482582
       Style: Points
       Topic: /right/global_map
-      Unreliable: false
+      Unreliable: true
       Use Fixed Frame: true
       Use rainbow: false
       Value: true
@@ -129,7 +128,7 @@ Visualization Manager:
       Enabled: true
       Invert Rainbow: false
       Max Color: 255; 255; 255
-      Max Intensity: 15.12505054473877
+      Max Intensity: 15.125347137451172
       Min Color: 0; 0; 0
       Min Intensity: 0
       Name: left_raw
@@ -159,7 +158,7 @@ Visualization Manager:
       Enabled: true
       Invert Rainbow: false
       Max Color: 255; 255; 255
-      Max Intensity: 15.125051498413086
+      Max Intensity: 15.125067710876465
       Min Color: 0; 0; 0
       Min Intensity: 0
       Name: right_raw
@@ -198,6 +197,30 @@ Visualization Manager:
       Topic: /left/odom_opti
       Unreliable: false
       Value: true
+    - Alpha: 1
+      Buffer Length: 1
+      Class: rviz/Path
+      Color: 236; 0; 255
+      Enabled: true
+      Head Diameter: 0.30000001192092896
+      Head Length: 0.20000000298023224
+      Length: 0.4000000059604645
+      Line Style: Billboards
+      Line Width: 0.03999999910593033
+      Name: right_path
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
+      Pose Color: 255; 85; 255
+      Pose Style: Axes
+      Queue Size: 10
+      Radius: 0.10000000149011612
+      Shaft Diameter: 0.10000000149011612
+      Shaft Length: 0.10000000149011612
+      Topic: /right/odom_opti
+      Unreliable: false
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
@@ -226,7 +249,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 81.04986572265625
+      Distance: 65.77442169189453
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -234,17 +257,17 @@ Visualization Manager:
         Value: false
       Field of View: 0.7853981852531433
       Focal Point:
-        X: 14.074774742126465
-        Y: -2.2011001110076904
-        Z: -9.661462783813477
+        X: 9.592168807983398
+        Y: 4.711969375610352
+        Z: -9.661882400512695
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 1.3697965145111084
+      Pitch: 1.5697963237762451
       Target Frame: <Fixed Frame>
-      Yaw: 3.1135876178741455
+      Yaw: 3.5635907649993896
     Saved: ~
 Window Geometry:
   Displays:

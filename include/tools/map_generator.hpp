@@ -65,18 +65,19 @@ namespace tools
             return map_out;
         }
 
-        static pcl::PointCloud<PointT>::Ptr generate_cloud(KeyframeVec::Ptr keyframeVec, size_t begin, size_t end,
+        static pcl::PointCloud<PointT>::Ptr generate_cloud(KeyframeVec::Ptr keyframeVec, int begin, int end,
                                                            FeatureType featureType, bool need_fixed = false) {
             if (!keyframeVec || begin >= end) {
-                std::cerr << "generate_cloud warning: range err!!" << std::endl;
+//                std::cerr << "generate_cloud warning: range err!!" << std::endl;
                 return nullptr;
             }
+            begin = max(0, begin);
 
             size_t size;
             if (featureType == FeatureType::Edge) {
-                size = keyframeVec->keyframes[begin]->edgeFeatures->size() * (end - begin);
+                size = keyframeVec->keyframes[begin]->corn_features->size() * (end - begin);
             } else if (featureType == FeatureType::Surf) {
-                size = keyframeVec->keyframes[begin]->surfFeatures->size() * (end - begin);
+                size = keyframeVec->keyframes[begin]->surf_features->size() * (end - begin);
             } else {
                 size = (keyframeVec->keyframes[begin]->raw->size()) * (end - begin);
             }
@@ -92,12 +93,12 @@ namespace tools
                 Eigen::Affine3f pose(Eigen::Matrix4f(poseVec[i].matrix().cast<float>()));
 
                 if (featureType == FeatureType::Edge) {
-                    for(const auto& src_pt : keyframe->edgeFeatures->points) {
+                    for(const auto& src_pt : keyframe->corn_features->points) {
                         cloud->emplace_back(pcl::transformPoint(src_pt, pose));
                     }
                 }
                 else if (featureType == FeatureType::Surf) {
-                    for(const auto& src_pt : keyframe->surfFeatures->points) {
+                    for(const auto& src_pt : keyframe->surf_features->points) {
                         cloud->emplace_back(pcl::transformPoint(src_pt, pose));
                     }
                 } else {

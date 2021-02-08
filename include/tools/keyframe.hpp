@@ -46,14 +46,14 @@ namespace tools
         ros::Time cloud_in_time;
         gtsam::Pose3 pose_world_curr;
         // feature point cloud
-        pcl::PointCloud<PointT>::Ptr edgeFeatures;
-        pcl::PointCloud<PointT>::Ptr surfFeatures;
+        pcl::PointCloud<PointT>::Ptr corn_features;
+        pcl::PointCloud<PointT>::Ptr surf_features;
         pcl::PointCloud<PointT>::Ptr raw;
     public:
         Keyframe(int index_, const ros::Time& time,
                  PointCloudPtr EF, PointCloudPtr PF, PointCloudPtr RAW) :
-                 index(index_), cloud_in_time(time),
-                 edgeFeatures(EF), surfFeatures(PF), raw(RAW)
+                index(index_), cloud_in_time(time),
+                corn_features(EF), surf_features(PF), raw(RAW)
         {
 
         }
@@ -90,7 +90,7 @@ namespace tools
         // read poses that are inited or fixed
         std::vector<gtsam::Pose3> read_poses(size_t begin, size_t end, bool need_fixed = false) const {
             if (begin >= end || end > keyframes.size()) {
-                std::cerr << "read_poses invalid range" << std::endl;
+//                std::cerr << "read_poses invalid range" << std::endl;
                 return {};
             }
 
@@ -127,8 +127,8 @@ namespace tools
         }
 
         inline size_t size() const { return keyframes.size(); };
-        inline Keyframe::Ptr& operator[](size_t index) { return this->keyframes.at(index); };
-        inline const Keyframe::Ptr& operator[](size_t index) const { return this->keyframes.at(index); };
+        inline Keyframe::Ptr& at(size_t index) { return this->keyframes.at(index); }
+        inline const Keyframe::Ptr& at(size_t index) const { return this->keyframes.at(index); }
     };
 
 }
