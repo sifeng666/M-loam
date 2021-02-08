@@ -65,10 +65,10 @@ static void cut_voxel(unordered_map<VOXEL_LOC, OCTO_TREE*> &feat_map, pcl::Point
 
 class LidarStatus {
 public:
-    using Ptr = boost::shared_ptr<LidarStatus>;
+    using Ptr = std::shared_ptr<LidarStatus>;
     bool status_change  = false;
-    bool map_refresh_signal = false;
     bool is_end = false;
+    int last_loop_found_index = 0;
 };
 
 class FixedKeyframeChannel {
@@ -116,18 +116,19 @@ public:
     inline std::string get_lidar_name() const { return lidar_name; }
     inline KeyframeVec::Ptr get_keyframeVec() const { return keyframeVec; }
 
-    int addEdgeCostFactor(const pcl::PointCloud<PointT>::Ptr& pc_in, 
-        const pcl::PointCloud<PointT>::Ptr& map_in,
-        const pcl::KdTreeFLANN<PointT>::Ptr& kdtreeEdge,
-        const gtsam::Pose3& odom,
-        gtsam::NonlinearFactorGraph& factors);
+    static void addCornCostFactor(const pcl::PointCloud<PointT>::Ptr& pc_in,
+                                  const pcl::PointCloud<PointT>::Ptr& map_in,
+                                  const pcl::KdTreeFLANN<PointT>& kdtree_corn,
+                                  const gtsam::Pose3& odom,
+                                  gtsam::NonlinearFactorGraph& factors,
+                                  const gtsam::Pose3& point_transform = gtsam::Pose3::identity());
 
-    int addSurfCostFactor(
-        const pcl::PointCloud<PointT>::Ptr& pc_in,
-        const pcl::PointCloud<PointT>::Ptr& map_in,
-        const pcl::KdTreeFLANN<PointT>::Ptr& kdtreeSurf,
-        const gtsam::Pose3& odom,
-        gtsam::NonlinearFactorGraph& factors);
+    static void addSurfCostFactor(const pcl::PointCloud<PointT>::Ptr& pc_in,
+                                  const pcl::PointCloud<PointT>::Ptr& map_in,
+                                  const pcl::KdTreeFLANN<PointT>& kdtree_surf,
+                                  const gtsam::Pose3& odom,
+                                  gtsam::NonlinearFactorGraph& factors,
+                                  const gtsam::Pose3& point_transform = gtsam::Pose3::identity());
     
     void updateSubmap(size_t range_from = 0, size_t range_to = 0);
     bool nextFrameToBeKeyframe();
@@ -189,8 +190,8 @@ private:
     gtsam::Values isamOptimize;
 
     // noise model
-    gtsam::SharedNoiseModel edge_noise_model;
-    gtsam::SharedNoiseModel surf_noise_model;
+    static gtsam::SharedNoiseModel edge_noise_model;
+    static gtsam::SharedNoiseModel surf_noise_model;
     gtsam::SharedNoiseModel prior_noise_model;
     gtsam::SharedNoiseModel odometry_noise_model;
 
@@ -208,10 +209,10 @@ private:
 
     // frame-to-submap
     std::mutex submap_mtx;
-    pcl::PointCloud<PointT>::Ptr submapEdge;
-    pcl::PointCloud<PointT>::Ptr submapSurf;
-    pcl::KdTreeFLANN<PointT>::Ptr kdtreeEdgeSubmap;
-    pcl::KdTreeFLANN<PointT>::Ptr kdtreeSurfSubmap;
+    pcl::PointCloud<PointT>::Ptr submap_corn;
+    pcl::PointCloud<PointT>::Ptr submap_surf;
+    pcl::KdTreeFLANN<PointT> kdtree_corn;
+    pcl::KdTreeFLANN<PointT> kdtree_surf;
     pcl::VoxelGrid<PointT> voxelGrid;
 
     /*********************************************************************

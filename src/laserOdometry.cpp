@@ -79,8 +79,9 @@ public:
         lidarInfo->pub_odom_opti.publish(parray_path);
 
         tf::Transform transform;
-        transform.setOrigin( tf::Vector3(lidarInfo->T_0_i.x(), lidarInfo->T_0_i.y(), lidarInfo->T_0_i.z()) );
-        Eigen::Quaterniond q(lidarInfo->T_0_i.rotation().matrix());
+        gtsam::Pose3 T(lidarInfo->T_0_i.inverse());
+        transform.setOrigin( tf::Vector3(T.x(), T.y(), T.z()) );
+        Eigen::Quaterniond q(T.rotation().matrix());
         transform.setRotation(tf::Quaternion(q.x(), q.y(), q.z(), q.w()));
         lidarInfo->brMapToMap.sendTransform(tf::StampedTransform(transform, parray_path.header.stamp, "map", parray_path.header.frame_id));
     }
@@ -98,8 +99,6 @@ public:
         raw_msg->header.frame_id = child_frame_id;
         lidarInfo->pub_pointcloud_raw.publish(raw_msg);
 
-        auto odometry_odom = poseToNavOdometry(cloud_in_time, odom, frame_id, child_frame_id);
-
         tf::Transform transform;
         transform.setOrigin( tf::Vector3(odom.translation().x(), odom.translation().y(), odom.translation().z()) );
         Eigen::Quaterniond q_current(odom.rotation().matrix());
@@ -115,7 +114,7 @@ public:
         auto map_full_pub = MapGenerator::generate_cloud(lidarInfo->keyframeVec, 0, lidarInfo->keyframeVec->size(), FeatureType::Full, true);
         if (!map_full_pub) return;
         pcl::VoxelGrid<PointT> v;
-        v.setLeafSize(0.2, 0.2, 0.2);
+        v.setLeafSize(show_map_resolution, show_map_resolution, show_map_resolution);
         v.setInputCloud(map_full_pub);
         v.filter(*map_full_pub);
 
@@ -195,7 +194,7 @@ public:
                 pubOptiOdom(lidarInfo0);
                 pubRawPointCloud(lidarInfo0, cloud_raw);
 
-                t_laser_odometry.count();
+//                t_laser_odometry.count();
 
             } else {
                 pubOptiOdom(lidarInfo0);
@@ -242,10 +241,10 @@ public:
                 pubOptiOdom(lidarInfo1);
                 pubRawPointCloud(lidarInfo1, cloud_raw);
 
-                t_laser_odometry.count();
+//                t_laser_odometry.count();
 
             } else {
-                pubOptiOdom(lidarInfo0);
+                pubOptiOdom(lidarInfo1);
             }
             //sleep 2 ms every time
             std::this_thread::sleep_for(std::chrono::milliseconds(odom_sleep));
@@ -254,7 +253,25 @@ public:
 
     void laser_calibration() {
 
-        double t_0_1_z_prior = nh.param<double>("t_0_1_z_prior", 0.0);
+        bool manual_tz = nh.param<bool>("manual_tz", true);
+        double tz_0_1  = nh.param<double>("tz_0_1", 0.0);
+
+        auto set_tz = [&](gtsam::Pose3& T_0_1) {
+            if (manual_tz) {
+                T_0_1 = gtsam::Pose3(T_0_1.rotation(), gtsam::Point3(T_0_1.x(), T_0_1.y(), tz_0_1));
+            } else {
+                auto gmap0 = MapGenerator::generate_cloud(lidarInfo0->keyframeVec, 0,
+                                                          lidarInfo0->keyframeVec->keyframes.size(),
+                                                          FeatureType::Full, true);
+                auto gmap1 = MapGenerator::generate_cloud(lidarInfo1->keyframeVec, 0,
+                                                          lidarInfo1->keyframeVec->keyframes.size(),
+                                                          FeatureType::Full, true);
+                Eigen::Matrix4d T;
+                tools::FastGeneralizedRegistration(gmap0, gmap1, T, T_0_1.matrix());
+                T_0_1 = gtsam::Pose3(T_0_1.rotation(), gtsam::Point3(T_0_1.x(), T_0_1.y(), T(12)));
+            }
+        };
+
         gtsam::Pose3 last_T;
 
         while(ros::ok()) {
@@ -262,29 +279,124 @@ public:
             //sleep 2000 ms every time
             std::this_thread::sleep_for(std::chrono::milliseconds(2000));
 
-            if (!convergence) {
+            bool encounter_loop = lidarInfo0->status->status_change &&  lidarInfo1->status->status_change &&
+                    std::abs(lidarInfo0->status->last_loop_found_index - lidarInfo1->status->last_loop_found_index) < 5;
+            bool calibra_simple_done = !calibra_with_loop && calibra_simple;
+            bool start_calibra_with_loop = encounter_loop && calibra_simple_done;
 
-                bool success;
+            if (!calibra_simple) {
                 gtsam::Pose3 T_0_1;
-                success = HandEyeCalibrator::calibrate(lidarInfo0->keyframeVec, lidarInfo1->keyframeVec, T_0_1);
+                bool success = HandEyeCalibrator::calibrate(lidarInfo0->keyframeVec, lidarInfo1->keyframeVec, T_0_1);
                 if (!success) continue;
-                std::cout << "hand eye calibrate result: \n" << T_0_1.matrix() << std::endl;
-                T_0_1 = gtsam::Pose3(T_0_1.rotation(), gtsam::Point3(T_0_1.x(), T_0_1.y(), t_0_1_z_prior));
+                std::cout << "hand eye calibrate convergence result: \n" << T_0_1.matrix() << std::endl;
+                set_tz(T_0_1);
 
-//                auto map_0 = lidarInfo0->mapGenerator.get(0);
-//                auto map_1 = lidarInfo1->mapGenerator.get(0);
-//                success = LoopDetector::gicp_matching(map_0, map_1, T_0_1, T_0_1);
-//                if (!success) continue;
-//                std::cout << "gicp calibrate result: \n" << T_0_1.matrix() << std::endl;
-                if (T_0_1.equals(last_T, 0.005)) {
-                    convergence = true;
-                    std::cout << "calibration convergence!" << std::endl;
-                    lidarInfo1->T_0_i = T_0_1.inverse();
+                if (T_0_1.equals(last_T, 0.01)) {
+                    calibra_simple = true;
+                    std::cout << "simple calibration done!" << std::endl;
+                    lidarInfo1->T_0_i = T_0_1;
                 }
                 last_T = T_0_1;
-
             }
 
+            if (start_calibra_with_loop) {
+                gtsam::Pose3 T_0_1;
+                bool success = HandEyeCalibrator::calibrate(lidarInfo0->keyframeVec, lidarInfo1->keyframeVec, T_0_1);
+                if (!success) continue;
+                std::cout << "hand eye calibrate fixed result: \n" << T_0_1.matrix() << std::endl;
+                set_tz(T_0_1);
+
+                calibra_with_loop = true;
+                std::cout << "calibration with loop done!" << std::endl;
+                lidarInfo1->T_0_i = T_0_1;
+            }
+
+        }
+
+    }
+
+    void global_calibration() {
+
+        bool require_loop         = nh.param<bool>("require_loop", true);
+        double surf_filter_length = nh.param<double>("surf_filter_length",  0.4);
+        double corn_filter_length = nh.param<double>("corn_filter_length",  0.2);
+
+        KeyframeVec::Ptr keyframeVec0 = lidarInfo0->keyframeVec;
+        KeyframeVec::Ptr keyframeVec1 = lidarInfo1->keyframeVec;
+
+        // submap and kdtree from Lidar0
+        pcl::PointCloud<PointT>::Ptr submap_corn, submap_surf;
+        pcl::KdTreeFLANN<PointT> kdtree_corn, kdtree_surf;
+
+        gtsam::Pose3 pose_w_c;
+
+        while (ros::ok()) {
+
+            //sleep 20 ms every time
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+
+            if (require_loop && calibra_with_loop) {
+
+                int l0_end_cursor = lidarInfo0->status->last_loop_found_index;
+                int l1_end_cursor = lidarInfo1->status->last_loop_found_index;
+
+                auto poseVec0 = keyframeVec0->read_poses(0, l0_end_cursor + 1);
+                auto poseVec1 = keyframeVec1->read_poses(0, l1_end_cursor + 1);
+
+                if (std::abs(l0_end_cursor - l1_end_cursor) < 5) {
+
+                    assert(keyframeVec0->at(l0_end_cursor)->is_fixed() && keyframeVec1->at(l1_end_cursor)->is_fixed());
+
+                    gtsam::Pose3 T_0_1 = lidarInfo1->T_0_i;
+
+                    TicToc t1;
+                    submap_corn = MapGenerator::generate_cloud(keyframeVec0, 0, l0_end_cursor + 1, FeatureType::Edge,
+                                                               true);
+                    submap_surf = MapGenerator::generate_cloud(keyframeVec0, 0, l0_end_cursor + 1, FeatureType::Surf,
+                                                               true);
+                    cout << "generate submap takes: " << t1.toc() << "ms" << endl;
+                    t1.tic();
+
+                    down_sampling_voxel(*submap_corn, corn_filter_length);
+                    down_sampling_voxel(*submap_surf, surf_filter_length);
+                    cout << "down_sampling_voxel takes: " << t1.toc() << "ms" << endl;
+
+                    kdtree_corn.setInputCloud(submap_corn);
+                    kdtree_surf.setInputCloud(submap_surf);
+
+                    gtsam::NonlinearFactorGraph factors;
+                    gtsam::Values init_values;
+                    auto state_key = X(0);
+                    init_values.insert(state_key, T_0_1);
+                    t1.tic();
+                    for (int i = 0; i <= l1_end_cursor; i++) {
+
+                        // 'pose_w_c' to be optimize
+                        pose_w_c = poseVec0[i] * T_0_1;
+
+                        //  corn and surf features have already downsample when push to keyframeVec
+                        LidarSensor::addCornCostFactor(keyframeVec1->at(i)->corn_features, submap_corn, kdtree_corn,
+                                                       pose_w_c, factors, poseVec0[i]);
+                        LidarSensor::addSurfCostFactor(keyframeVec1->at(i)->surf_features, submap_surf, kdtree_surf,
+                                                       pose_w_c, factors, poseVec0[i]);
+
+                    }
+                    printf("add factor takes %f ms\n", t1.toc());
+                    t1.tic();
+                    // gtsam
+                    gtsam::LevenbergMarquardtParams params;
+                    params.setLinearSolverType("MULTIFRONTAL_CHOLESKY");
+                    params.setRelativeErrorTol(5e-3);
+                    params.maxIterations = 10;
+
+                    auto result = gtsam::LevenbergMarquardtOptimizer(factors, init_values, params).optimize();
+                    pose_w_c = result.at<gtsam::Pose3>(state_key);
+                    cout << "before T_0_1: \n" << T_0_1.matrix() << endl;
+                    cout << "after opti: \n" << pose_w_c.matrix() << endl;
+                    printf("gtsam takes %f ms\n", t1.toc());
+                }
+
+            }
         }
 
     }
@@ -293,6 +405,7 @@ public:
     LaserOdometry() {
 
         save_map_resolution = nh.param<double>("save_map_resolution", 0.1);
+        show_map_resolution = nh.param<double>("show_map_resolution", 0.2);
         file_save_path = nh.param<std::string>("file_save_path", "");
 
         // lidar 0 init
@@ -337,18 +450,14 @@ private:
 
     LidarInfo::Ptr lidarInfo0;
     LidarInfo::Ptr lidarInfo1;
-    bool convergence = false;
+
+    bool calibra_simple = false;
+    bool calibra_with_loop = false;
+    bool calibra_fixed = false;
 
     double save_map_resolution;
+    double show_map_resolution;
     std::string file_save_path;
-
-    /*********************************************************************
-   ** GTSAM Optimizer
-   *********************************************************************/
-    gtsam::NonlinearFactorGraph globalGraph;
-    gtsam::Values globalEstimate;
-    std::shared_ptr<gtsam::ISAM2> isam;
-    gtsam::Values isamOptimize;
 
 };
 
@@ -362,11 +471,12 @@ int main(int argc, char **argv) {
     std::thread backend_ba_optimization_0{&LidarSensor::BA_optimization, &laserOdometry.lidarSensor0};
     std::thread backend_loop_detector_0{&LidarSensor::loop_detect_thread, &laserOdometry.lidarSensor0};
 
-//    std::thread laser_odometry_thread_1{&LaserOdometry::laser_odometry_auxiliary, &laserOdometry};
-//    std::thread backend_ba_optimization_1{&LidarSensor::BA_optimization, &laserOdometry.lidarSensor1};
-//    std::thread backend_loop_detector_1{&LidarSensor::loop_detect_thread, &laserOdometry.lidarSensor1};
+    std::thread laser_odometry_thread_1{&LaserOdometry::laser_odometry_auxiliary, &laserOdometry};
+    std::thread backend_ba_optimization_1{&LidarSensor::BA_optimization, &laserOdometry.lidarSensor1};
+    std::thread backend_loop_detector_1{&LidarSensor::loop_detect_thread, &laserOdometry.lidarSensor1};
 
     std::thread laser_calibration_thread{&LaserOdometry::laser_calibration, &laserOdometry};
+    std::thread global_calibration_thread{&LaserOdometry::global_calibration, &laserOdometry};
 
     std::thread global_map_publisher{&LaserOdometry::pub_global_map, &laserOdometry};
 

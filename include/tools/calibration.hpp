@@ -97,12 +97,8 @@ namespace tools
     bool HandEyeCalibrator::sync_timestamp(std::vector<PoseTimeStamp>& PTS_0, std::vector<PoseTimeStamp>& PTS_i) {
 
         if (PTS_0.size() < 30 && PTS_i.size() < 30) {
-//        std::cout << "too less trajectories, exit" << std::endl;
             return false;
         }
-
-//    write_to_file("/home/ziv/mloam/interpolate/" + std::to_string(file_count) + "/PTS0.txt", PTS_0);
-//    write_to_file("/home/ziv/mloam/interpolate/" + std::to_string(file_count) + "/PTS1.txt", PTS_i);
 
         std::vector<PoseTimeStamp> PTS_0_opti, PTS_i_opti;
 
@@ -114,13 +110,11 @@ namespace tools
             ros::Time currTime = PTS_0[i].timestamp;
             while (k < PTS_i.size() && PTS_i[k].timestamp < currTime) k++;
             if (k == PTS_i.size()) {
-//            std::cout << "range err" << std::endl;
                 return false;
             }
             size_t last_k = k;
             while (last_k >= 0 && PTS_i[last_k].timestamp >= currTime) last_k--;
             if (last_k < 0) {
-//            std::cout << "range err" << std::endl;
                 return false;
             }
 
@@ -129,11 +123,6 @@ namespace tools
 
             PTS_i_opti.emplace_back(currTime, gtsam::interpolate(PTS_i[last_k].pose, PTS_i[k].pose, t));
         }
-
-//    write_to_file("/home/ziv/mloam/interpolate/" + std::to_string(file_count) + "/PTS0_opti.txt", PTS_0_opti);
-//    write_to_file("/home/ziv/mloam/interpolate/" + std::to_string(file_count) + "/PTS1_opti.txt", PTS_i_opti);
-//    write_to_file("/home/ziv/mloam/interpolate/" + std::to_string(file_count) + "/PTS1_gtsam.txt", PTS_i_gtsam);
-//    write_to_file("/home/ziv/mloam/interpolate/" + std::to_string(file_count) + "/PTS1_RT.txt", PTS_i_RT);
 
         PTS_0 = PTS_0_opti;
         PTS_i = PTS_i_opti;

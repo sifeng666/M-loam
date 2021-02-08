@@ -1,7 +1,7 @@
 <launch>
     
     <param name="/use_sim_time" value="ture"/>
-    <node pkg="rosbag" type="play" name="playbag" args="--clock -r 2 /home/ziv/sunshine_dateset/building-003.bag
+    <node pkg="rosbag" type="play" name="playbag" args="--clock /home/ziv/sunshine_dateset/dzf/005.bag
          /velodyne_points:=/left/velodyne_points
          /rslidar_points:=/left/velodyne_points
          /ns1/rslidar_points:=/left/velodyne_points
@@ -18,17 +18,18 @@
     <param name="max_dis" type="double" value="100.0" />
     <param name="surf_filter_length" type="double" value="0.3"/>
     <param name="corn_filter_length" type="double" value="0.1"/>
-    <param name="window_size" type="int" value="10" />
-    <param name="margi_size" type="int" value="5" />
-    <param name="keyframe_distance_threshold" type="double" value="1" />
+    <param name="window_size" type="int" value="15" />
+    <param name="margi_size" type="int" value="4" />
+    <param name="keyframe_distance_threshold" type="double" value="0.6" />
     <param name="keyframe_angle_threshold" type="double" value="0.15" />
     <param name="save_map_resolution" type="double" value="0.05" />
-    <param name="gicp_fitness_socre" type="double" value="1" />
+    <param name="show_map_resolution" type="double" value="0.2" />
+    <param name="gicp_fitness_socre" type="double" value="0.5" />
     <!--loop-->
     <param name="need_loop" type="bool" value="true" />
     <param name="loop_submap_length" type="int" value="5" />
-    <param name="loop_detect_distance" type="int" value="15" />
-    <param name="loop_found_sleep" type="int" value="5" />
+    <param name="loop_detect_distance" type="int" value="3" />
+    <param name="loop_found_sleep" type="int" value="10" />
     <param name="loop_skip_last" type="int" value="50" />
 
 <!--    <remap from="/left/laser_cloud_less_edge" to="/corn_last"/>-->
@@ -36,7 +37,9 @@
 <!--    <remap from="/left/velodyne_points_2" to="/full_last"/>-->
 
     <!--    calibration part     -->
-    <param name="t_0_1_z_prior" type="double" value="-0.095" />
+    <param name="manual_tz" type="bool" value="true" />
+    <param name="tz_0_1" type="double" value="-0.095" />
+    <param name="require_loop" type="bool" value="true" />
 
     <node pkg="mloam" type="laserProcessing" name="laserProcessing" output="screen" />
 
