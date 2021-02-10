@@ -29,13 +29,15 @@ namespace tools
         int loop_submap_length_;
         int loop_skip_last_;
 
+        std::ofstream f_loop;
+
     public:
-        LoopDetector() {
+        LoopDetector() : f_loop("/home/ziv/mloam/f_loop.txt") {
             loop_detect_distance_ = nh.param<int>("loop_detect_distance", 15);
             loop_found_sleep_     = nh.param<int>("loop_found_sleep", 20);
             loop_submap_length_   = nh.param<int>("loop_submap_length", 10);
             loop_skip_last_       = nh.param<int>("loop_skip_last", loop_detect_distance_ * 2);
-            fitness_thres_        = nh.param<double>("gcip_fitness_socre", 0.8);
+            fitness_thres_        = nh.param<double>("gicp_fitness_socre", 0.8);
         }
 
 //    void submap_finetune(KeyframeVec::Ptr keyframeVec,
@@ -89,9 +91,9 @@ namespace tools
                 pcl::transformPointCloud(*submap_pcd, *submap_pcd, poseVec[closestKeyIdx].inverse().matrix());
                 auto curr_pcd = keyframeVec->keyframes[curr_index]->raw;
 
-                Eigen::Matrix4d init_guess(poseVec[closestKeyIdx].between(curr_pose).matrix());
+                Eigen::Matrix4d pose_curr_closest(poseVec[closestKeyIdx].between(curr_pose).matrix());
                 Eigen::Matrix4d final;
-                bool ok = tools::FastGeneralizedRegistration(curr_pcd, submap_pcd,final, init_guess, 2.0, fitness_thres_);
+                bool ok = tools::FastGeneralizedRegistration(curr_pcd, submap_pcd, final, pose_curr_closest, 2.0, fitness_thres_);
 
 //                {
 //                    static string path0 = "/home/ziv/mloam/debug_loop/";
@@ -124,12 +126,17 @@ namespace tools
                 auto information = tools::GetInformationMatrixFromPointClouds(curr_pcd, submap_pcd, 2.0, final);
                 auto loop_model = gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(6) << 1e-3, 1e-3, 1e-3, 1e-2, 1e-2, 1e-1).finished());
                 cout << "loop information:\n" << information << endl;
+
+                f_loop << closestKeyIdx << " " << curr_index << endl;
+                f_loop << final << endl;
+                f_loop << information << endl;
+
                 loopFactors.emplace_back(new gtsam::BetweenFactor<gtsam::Pose3>(
                         X(closestKeyIdx),
                         X(curr_index),
                         gtsam::Pose3(final),
 //                        loop_model));
-                        gtsam::noiseModel::Diagonal::Information(information)));
+                        gtsam::noiseModel::Gaussian::Information(information)));
 
                 printf("add loop factor: [%d] and [%d]\n", curr_index, closestKeyIdx);
                 success_loop_count++;

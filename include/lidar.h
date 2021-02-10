@@ -9,6 +9,7 @@
 #include "tools/map_generator.hpp"
 #include "tools/loop_detector.hpp"
 #include "tools/registration.hpp"
+#include "tools/calibration_graph.h"
 
 #include "factors.h"
 #include "balmclass.hpp"
@@ -189,6 +190,8 @@ private:
     std::shared_ptr<gtsam::ISAM2> isam;
     gtsam::Values isamOptimize;
 
+    CalibrationGraph cg;
+
     // noise model
     static gtsam::SharedNoiseModel edge_noise_model;
     static gtsam::SharedNoiseModel surf_noise_model;
@@ -248,6 +251,12 @@ private:
 public:
     LidarStatus::Ptr status;
     FixedKeyframeChannel::Ptr fixedKeyframeChannel;
+
+
+
+    std::ofstream f_pose_fixed;
+
+
 };
 
 

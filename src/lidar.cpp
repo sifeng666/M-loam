@@ -414,8 +414,12 @@ gtsam::Pose3 LidarSensor::update(const ros::Time cloud_in_time,
 void LidarSensor::addOdomFactor(int last_index, int curr_index) {
 
     if (last_index < 0) {
+
+//        cg.set_initial(X(0), Eigen::Matrix4d::Identity());
+
         BAGraph.emplace_shared<gtsam::PriorFactor<gtsam::Pose3>>(X(0), gtsam::Pose3(), prior_noise_model);
         BAEstimate.insert(X(0), gtsam::Pose3());
+        f_pose_fixed << 0 << endl << gtsam::Pose3().matrix() << endl;
         std::cout << "init Odom factor!" << std::endl;
         return;
     }
@@ -423,18 +427,22 @@ void LidarSensor::addOdomFactor(int last_index, int curr_index) {
     // read lock
     gtsam::Pose3 last_pose = keyframeVec->read_pose(last_index);
     gtsam::Pose3 curr_pose = keyframeVec->read_pose(curr_index);
-    gtsam::Pose3 pose_between = last_pose.between(curr_pose);
+    gtsam::Pose3 pose_curr_last = last_pose.between(curr_pose);
 
     auto information = GetInformationMatrixFromPointClouds(keyframeVec->keyframes[curr_index]->raw,
                                                            keyframeVec->keyframes[last_index]->raw,
                                                            2.0,
-                                                           pose_between.matrix());
+                                                           pose_curr_last.matrix());
 
-    BAGraph.emplace_shared<gtsam::BetweenFactor<gtsam::Pose3>>(X(last_index),
-                                                            X(curr_index),
-                                                            pose_between,
+    f_pose_fixed << curr_index << endl << curr_pose.matrix() << endl << endl;
+    f_pose_fixed << information << endl << endl;
+
+//    cg.add_edge(X(last_index), X(curr_index), pose_curr_last.matrix(), information);
+//    cg.set_initial(X(curr_index), curr_pose.matrix());
+    BAGraph.emplace_shared<gtsam::BetweenFactor<gtsam::Pose3>>(X(last_index), X(curr_index),
+                                                               pose_curr_last,
 //                                                            odometry_noise_model);
-                                                            gtsam::noiseModel::Diagonal::Information(information));
+                                                            gtsam::noiseModel::Gaussian::Information(information));
     BAEstimate.insert(X(curr_index), curr_pose);
     printf("add Odom factor between [%d] and [%d]\n", last_index, curr_index);
 }
@@ -599,7 +607,10 @@ void LidarSensor::BA_optimization() {
             }
         }
 
-        if (!keyframes_buf.empty()) {
+        if (!keyframes_buf.empty() || !factorsBuf.empty()) {
+
+            // if there is new keyframe, clear end signal
+            current_latency = 0;
 
             std::vector<Keyframe::Ptr> fixedKeyframes_buf;
 
@@ -608,63 +619,69 @@ void LidarSensor::BA_optimization() {
 
             // deal with fixed keyframes with factorGraph
             std::lock_guard<std::mutex> lg(fixed_mtx);
-            for (const auto& keyframe: fixedKeyframes_buf) {
 
-                int curr_index = keyframe->index;
-                addOdomFactor(last_index, curr_index);
-                last_index = curr_index;
-
-                if (need_loop) {
-                    FixedKeyframeBuf.push(keyframe);
-                }
-            }
-
-            // isam update
-            isam->update(BAGraph, BAEstimate);
-            isam->update();
-            BAGraph.resize(0);
-            BAEstimate.clear();
-            {
-                std::lock_guard<std::mutex> lg(loop_factors_mtx);
-                if (!factorsBuf.empty()) {
-                    while (!factorsBuf.empty()) {
-                        BAGraph.add(factorsBuf.front());
-                        factorsBuf.pop();
+            if (!fixedKeyframes_buf.empty() || !factorsBuf.empty()) {
+                for (const auto& keyframe: fixedKeyframes_buf) {
+                    int curr_index = keyframe->index;
+                    addOdomFactor(last_index, curr_index);
+                    last_index = curr_index;
+                    if (need_loop) {
+                        FixedKeyframeBuf.push(keyframe);
                     }
-                    isam->update(BAGraph, BAEstimate);
-                    isam->update();
-                    isam->update();
-                    BAGraph.resize(0);
-                    BAEstimate.clear();
-                    status->status_change = true;
                 }
-            }
+                bool has_loop = false;
+                {
+                    std::lock_guard<std::mutex> lg(loop_factors_mtx);
+                    if (!factorsBuf.empty()) {
+                        while (!factorsBuf.empty()) {
+                            BAGraph.add(factorsBuf.front());
+//                            cg.graph().add(factorsBuf.front());
+                            factorsBuf.pop();
+                        }
+                        has_loop = true;
+                    }
+                }
 
-            isamOptimize = isam->calculateEstimate();
-            isam->getFactorsUnsafe().saveGraph("/home/ziv/mloam/factor_graph.dot", isamOptimize);
+                // isam update
+                isam->update(BAGraph, BAEstimate);
+                isam->update();
+                isam->update();
+                BAGraph.resize(0);
+                BAEstimate.clear();
 
 
-            {   // write lock
-                std::unique_lock<std::shared_mutex> ul(keyframeVec->pose_mtx);
-                for (size_t i = 0; i < isamOptimize.size(); i++) {
-                    keyframeVec->keyframes[i]->set_fixed(isamOptimize.at<gtsam::Pose3>(X(i)));
+                isamOptimize = isam->calculateEstimate();
+                isam->getFactorsUnsafe().saveGraph("/home/ziv/mloam/factor_graph.dot", isamOptimize);
+//                cg.optimize(5);
+//                isamOptimize = cg.result();
+
+                status->status_change = has_loop;
+                {   // write lock
+                    std::unique_lock<std::shared_mutex> ul(keyframeVec->pose_mtx);
+                    for (size_t i = 0; i < isamOptimize.size(); i++) {
+                        keyframeVec->keyframes[i]->set_fixed(isamOptimize.at<gtsam::Pose3>(X(i)));
+                    }
                 }
             }
 
             // debug
             auto poseVec = keyframeVec->read_poses(0, keyframeVec->size(), true);
             {
-                std::ofstream f(nh.param<std::string>("file_save_path", "") + "without_loop.txt");
+                std::ofstream f(nh.param<std::string>("file_save_path", "") + "debug_pose.txt");
                 for (size_t i = 0; i < poseVec.size(); i++) {
                     f << "i: " << i << "\n" << poseVec[i].matrix() << endl;
                 }
                 f.close();
             }
 
-            current_latency = 0; // if there is new keyframe, clear end signal
+
         } else {
             current_latency += backend_sleep;
-            if (last_index > 0 && current_latency >= end_signal && current_latency < 5 * end_signal && !status->is_end) {
+            if (last_index > 0 &&
+                current_latency >= end_signal &&
+                current_latency < 5 * end_signal &&
+                !status->is_end)
+            {
                 status->is_end = true;
             }
         }
@@ -674,7 +691,7 @@ void LidarSensor::BA_optimization() {
     }
 }
 
-LidarSensor::LidarSensor() : opt_lsv(window_size, filter_num, thread_num)
+LidarSensor::LidarSensor() : opt_lsv(window_size, filter_num, thread_num), f_pose_fixed("/home/ziv/mloam/pose_fixed_raw.txt")
 {
     nh.param<bool>  ("need_loop", need_loop, true);
     nh.param<double>("keyframe_distance_threshold", keyframe_distance_thres, 0.6);

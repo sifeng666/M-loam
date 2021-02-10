@@ -66,6 +66,7 @@ add_executable(laserOdometry
         include/tools/loop_detector.hpp
         include/tools/calibration.hpp
         include/tools/registration.hpp
+        include/tools/calibration_graph.cpp
         include/tools/camodocal/src/PlanarHandEyeCalibration.cc
         include/tools/myso3/myso3.cpp
         include/tools/myso3/myso3.hpp
