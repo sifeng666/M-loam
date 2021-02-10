@@ -368,29 +368,38 @@ public:
                     gtsam::Values init_values;
                     auto state_key = X(0);
                     init_values.insert(state_key, T_0_1);
-                    t1.tic();
-                    for (int i = 0; i <= l1_end_cursor; i++) {
 
-                        // 'pose_w_c' to be optimize
-                        pose_w_c = poseVec0[i] * T_0_1;
 
-                        //  corn and surf features have already downsample when push to keyframeVec
-                        LidarSensor::addCornCostFactor(keyframeVec1->at(i)->corn_features, submap_corn, kdtree_corn,
-                                                       pose_w_c, factors, poseVec0[i]);
-                        LidarSensor::addSurfCostFactor(keyframeVec1->at(i)->surf_features, submap_surf, kdtree_surf,
-                                                       pose_w_c, factors, poseVec0[i]);
+                    for (int k = 0; k < 3; k++) {
+
+                        t1.tic();
+
+                        for (int i = 0; i <= l1_end_cursor; i++) {
+
+                            // 'pose_w_c' to be optimize
+                            pose_w_c = poseVec0[i] * T_0_1;
+
+                            //  corn and surf features have already downsample when push to keyframeVec
+                            LidarSensor::addCornCostFactor(keyframeVec1->at(i)->corn_features, submap_corn, kdtree_corn,
+                                                           pose_w_c, factors, poseVec0[i]);
+                            LidarSensor::addSurfCostFactor(keyframeVec1->at(i)->surf_features, submap_surf, kdtree_surf,
+                                                           pose_w_c, factors, poseVec0[i]);
+
+                        }
+
+                        printf("add factor takes %f ms\n", t1.toc());
+                        t1.tic();
+                        // gtsam
+                        gtsam::LevenbergMarquardtParams params;
+                        params.setLinearSolverType("MULTIFRONTAL_CHOLESKY");
+                        params.setRelativeErrorTol(5e-3);
+                        params.maxIterations = 6;
+
+                        auto result = gtsam::LevenbergMarquardtOptimizer(factors, init_values, params).optimize();
+                        pose_w_c = result.at<gtsam::Pose3>(state_key);
 
                     }
-                    printf("add factor takes %f ms\n", t1.toc());
-                    t1.tic();
-                    // gtsam
-                    gtsam::LevenbergMarquardtParams params;
-                    params.setLinearSolverType("MULTIFRONTAL_CHOLESKY");
-                    params.setRelativeErrorTol(5e-3);
-                    params.maxIterations = 10;
 
-                    auto result = gtsam::LevenbergMarquardtOptimizer(factors, init_values, params).optimize();
-                    pose_w_c = result.at<gtsam::Pose3>(state_key);
                     cout << "before T_0_1: \n" << T_0_1.matrix() << endl;
                     cout << "after opti: \n" << pose_w_c.matrix() << endl;
                     printf("gtsam takes %f ms\n", t1.toc());

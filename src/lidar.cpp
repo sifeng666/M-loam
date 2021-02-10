@@ -10,6 +10,50 @@ gtsam::SharedNoiseModel LidarSensor::surf_noise_model;
 static const int backend_sleep = 5;    // 5ms
 static const int end_signal = 20000;   // 20000ms
 
+// extract from balm back
+static double voxel_size[2] = {1, 1};
+static void cut_voxel(unordered_map<VOXEL_LOC, OCTO_TREE*> &feat_map, pcl::PointCloud<PointT>::Ptr pl_feat, Eigen::Matrix3d R_p, Eigen::Vector3d t_p, int feattype, int fnum, int capacity)
+{
+    uint plsize = pl_feat->size();
+    for(uint i=0; i<plsize; i++)
+    {
+        PointT &p_c = pl_feat->points[i];
+        Eigen::Vector3d pvec_orig(p_c.x, p_c.y, p_c.z);
+        Eigen::Vector3d pvec_tran = R_p*pvec_orig + t_p;
+
+        float loc_xyz[3];
+        for(int j=0; j<3; j++)
+        {
+            loc_xyz[j] = pvec_tran[j] / voxel_size[feattype];
+            if(loc_xyz[j] < 0)
+            {
+                loc_xyz[j] -= 1.0;
+            }
+        }
+
+        VOXEL_LOC position((int64_t)loc_xyz[0], (int64_t)loc_xyz[1], (int64_t)loc_xyz[2]);
+        auto iter = feat_map.find(position);
+        if(iter != feat_map.end())
+        {
+            iter->second->plvec_orig[fnum]->push_back(pvec_orig);
+            iter->second->plvec_tran[fnum]->push_back(pvec_tran);
+            iter->second->is2opt = true;
+        }
+        else
+        {
+            OCTO_TREE *ot = new OCTO_TREE(feattype, capacity);
+            ot->plvec_orig[fnum]->push_back(pvec_orig);
+            ot->plvec_tran[fnum]->push_back(pvec_tran);
+
+            ot->voxel_center[0] = (0.5+position.x) * voxel_size[feattype];
+            ot->voxel_center[1] = (0.5+position.y) * voxel_size[feattype];
+            ot->voxel_center[2] = (0.5+position.z) * voxel_size[feattype];
+            ot->quater_length = voxel_size[feattype] / 4.0;
+            feat_map[position] = ot;
+        }
+    }
+}
+
 gtsam::Pose3 pose_normalize(const gtsam::Pose3& pose) {
     return gtsam::Pose3(pose.rotation().normalized(), pose.translation());
 }
@@ -648,7 +692,6 @@ void LidarSensor::BA_optimization() {
                 isam->update();
                 BAGraph.resize(0);
                 BAEstimate.clear();
-
 
                 isamOptimize = isam->calculateEstimate();
                 isam->getFactorsUnsafe().saveGraph("/home/ziv/mloam/factor_graph.dot", isamOptimize);
