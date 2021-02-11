@@ -7,6 +7,11 @@
 #include <vector>
 #include <string>
 #include <gtsam/geometry/Pose3.h>
+#include <gtsam/linear/NoiseModel.h>
+#include <gtsam/nonlinear/NonlinearFactorGraph.h>
+#include <gtsam/slam/BetweenFactor.h>
+#include <gtsam/slam/PriorFactor.h>
+#include <gtsam/slam/dataset.h>
 #include "calibration_graph.h"
 #include "helper.h"
 
@@ -18,13 +23,13 @@ using namespace ct;
 
 
 struct Odom {
-    int index;
+    size_t index;
     Pose3 pose;
     Eigen::Matrix6d information;
 };
 
 struct Loop {
-    int from, to;
+    size_t from, to;
     Pose3 pose;
     Eigen::Matrix6d information;
 };
@@ -89,55 +94,93 @@ void read_from_file(string pose_raw_filename, string loop_filename, vector<Odom>
 }
 
 
-int main() {
+int main(int argc, char** argv) {
 
-    string path = "/home/ziv/catkin_ziv/src/M-loam/test/";
+    if (argc != 2)
+    {
+        std::cerr << "./test_gtsam_opti /path/to/txt_file" << std::endl;
+        std::exit(-1);
+    }
+
+    string path = argv[1];
+    if (path.back() != '/') path += '/';
 
     vector<Odom> odoms;
     vector<Loop> loops;
 
-    read_from_file(path + "pose_fixed_raw.txt", path + "f_loop.txt", odoms, loops);
+    read_from_file(path + "/pose_fixed_raw.txt", path + "/f_loop.txt", odoms, loops);
 
-    CalibrationGraph cg;
-
-    gtsam::ISAM2Params isam2Params;
+    /// iSAM params
+    ISAM2Params isam2Params;
     isam2Params.relinearizeThreshold = 0.1;
     isam2Params.relinearizeSkip = 1;
     ISAM2 isam(isam2Params);
 
-    // isam
-    for (int i = 0; i < odoms.size(); i++) {
-        if (i == 0) {
-            cg.set_initial(0, odoms[i].pose.matrix());
-        } else {
-            Eigen::Matrix4d measurement = odoms[i-1].pose.between(odoms[i].pose).matrix();
-            cg.add_edge(i - 1, i, measurement, odoms[i].information);
-            cg.set_initial(i, odoms[i].pose.matrix());
-        }
-        if (i % 4 == 0) {
-            isam.update(cg.graph(), cg.initial());
-            isam.update();
-            cg.result() = isam.calculateEstimate();
-            cg.initial().clear();
-            cg.graph().resize(0);
+    /// noise models
+    Vector6 diagonal; diagonal << 1e-6, 1e-6, 1e-6, 1e-6, 1e-6, 1e-6;
+    auto prior_model = noiseModel::Diagonal::Variances(diagonal);
+
+    /// Factors container
+    NonlinearFactorGraph new_factors;
+    Values new_values, current_estimate;
+
+    for (size_t i = 0; i < odoms.size(); i++)
+    {
+        if (i == 0) 
+        {
+            // add prior
+            new_factors.addPrior<Pose3>(i, odoms[i].pose, prior_model);
+            new_values.insert(i, odoms[i].pose);
+        } 
+        else 
+        {
+            // normal odom
+            auto model = noiseModel::Gaussian::Information(odoms[i].information);
+            new_factors.emplace_shared<BetweenFactor<Pose3>>(i-1, i, odoms[i-1].pose.between(odoms[i].pose), model);
+            new_values.insert(i, odoms[i].pose);
         }
 
+        bool has_loop = false;
+        // If exist a loop?
         for (const auto& loop : loops) {
             if (i == loop.to)
-                cg.add_edge(loop.from, loop.to, loop.pose.matrix(), loop.information);
-            isam.update(cg.graph(), cg.initial());
-            isam.update();
-            cg.result() = isam.calculateEstimate();
-            cg.initial().clear();
-            cg.graph().resize(0);
+            {
+                // find a loop
+                auto model = noiseModel::Gaussian::Information(loop.information);
+                new_factors.emplace_shared<BetweenFactor<Pose3>>(loop.from, loop.to, loop.pose, model);
+
+                has_loop = true;
+            }
         }
+
+        if (has_loop)
+        {
+            // save before optimization
+            isam.getFactorsUnsafe().saveGraph(path + "isam_before_loop.dot", current_estimate);
+            writeG2o(isam.getFactorsUnsafe(), current_estimate, path + "isam_before_loop.g2o");
+        }
+
+        // Do optimization
+        isam.update(new_factors, new_values);
+        isam.update();
+
+        // update values
+        current_estimate = isam.calculateEstimate();
+        new_factors.resize(0);
+        new_values.clear();
     }
 
-    isam.getFactorsUnsafe().saveGraph(path + "isam.dot", cg.result());
+    isam.getFactorsUnsafe().saveGraph(path + "isam_final.dot", current_estimate);
+    writeG2o(isam.getFactorsUnsafe(), current_estimate, path + "isam_final.g2o");
 
-    cg = CalibrationGraph();
 
-    for (int i = 0; i < odoms.size(); i++) {
+    //////////////////////////////////////////////  Traditional BA  //////////////////////////////////////////////////
+
+
+    CalibrationGraph cg = CalibrationGraph();
+
+    // Add from file data
+    for (size_t i = 0; i < odoms.size(); i++) {
         if (i == 0) {
             cg.set_initial(0, odoms[i].pose.matrix());
         } else {
@@ -145,19 +188,23 @@ int main() {
             cg.add_edge(i - 1, i, measurement, odoms[i].information);
             cg.set_initial(i, odoms[i].pose.matrix());
         }
-        // just like what is done in slam, every 3 or 4 step
-        if (i % 3 == 0) {
-            cg.optimize(5);
-        }
-
-        for (const auto& loop : loops) {
-            if (i == loop.to) {
-                cg.add_edge(loop.from, loop.to, loop.pose.matrix(), loop.information);
-                cg.optimize(5);
-            }
-        }
     }
 
-    cg.graph().saveGraph(path + "cg.dot", cg.result());
+    cg.graph().saveGraph(path + "cg_before_odom_opti.dot");
+    writeG2o(cg.graph(), cg.initial(), path + "cg_before_odom_opti.g2o");
+
+    cg.optimize(5);
+
+    cg.graph().saveGraph(path + "cg_after_odom_opti.dot", cg.result());
+    writeG2o(cg.graph(), cg.result(), path + "cg_after_odom_opti_opti.g2o");
+
+    // Add loop
+    for (const auto& loop : loops) {
+        cg.add_edge(loop.from, loop.to, loop.pose.matrix(), loop.information);
+    }
+    cg.optimize(5);
+
+    cg.graph().saveGraph(path + "cg_after_add_loop_opti.dot", cg.result());
+    writeG2o(cg.graph(), cg.result(), path + "cg_after_add_loop_opti.g2o");
 
 }
