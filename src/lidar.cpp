@@ -301,7 +301,6 @@ void LidarSensor::initParam() {
     edge_noise_model = gtsam::noiseModel::Robust::Create(gtsam::noiseModel::mEstimator::Huber::Create(0.58), edge_gaussian_model);
     surf_noise_model = gtsam::noiseModel::Robust::Create(gtsam::noiseModel::mEstimator::Huber::Create(0.02), surf_gaussian_model);
     prior_noise_model = gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(6) << 1e-6, 1e-6, 1e-6, 1e-6, 1e-6, 1e-6).finished());
-    odometry_noise_model = gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(6) << 1e-3, 1e-3, 1e-3, 1e-2, 1e-2, 1e-1).finished());
 
     gtsam::ISAM2Params isam2Params;
     isam2Params.relinearizeThreshold = 0.1;
@@ -457,21 +456,20 @@ gtsam::Pose3 LidarSensor::update(const ros::Time cloud_in_time,
 
 void LidarSensor::addOdomFactor(int last_index, int curr_index) {
 
+    using namespace gtsam;
+
     if (last_index < 0) {
-
-//        cg.set_initial(X(0), Eigen::Matrix4d::Identity());
-
-        BAGraph.emplace_shared<gtsam::PriorFactor<gtsam::Pose3>>(X(0), gtsam::Pose3(), prior_noise_model);
-        BAEstimate.insert(X(0), gtsam::Pose3());
-        f_pose_fixed << 0 << endl << gtsam::Pose3().matrix() << endl;
+        BAGraph.addPrior(X(0), Pose3::identity(), prior_noise_model);
+        BAEstimate.insert(X(0), Pose3::identity());
+        f_pose_fixed << 0 << endl << Pose3().matrix() << endl;
         std::cout << "init Odom factor!" << std::endl;
         return;
     }
 
     // read lock
-    gtsam::Pose3 last_pose = keyframeVec->read_pose(last_index);
-    gtsam::Pose3 curr_pose = keyframeVec->read_pose(curr_index);
-    gtsam::Pose3 pose_curr_last = last_pose.between(curr_pose);
+    Pose3 last_pose = keyframeVec->read_pose(last_index);
+    Pose3 curr_pose = keyframeVec->read_pose(curr_index);
+    Pose3 pose_curr_last = last_pose.between(curr_pose);
 
     auto information = GetInformationMatrixFromPointClouds(keyframeVec->keyframes[curr_index]->raw,
                                                            keyframeVec->keyframes[last_index]->raw,
@@ -481,14 +479,14 @@ void LidarSensor::addOdomFactor(int last_index, int curr_index) {
     f_pose_fixed << curr_index << endl << curr_pose.matrix() << endl << endl;
     f_pose_fixed << information << endl << endl;
 
-//    cg.add_edge(X(last_index), X(curr_index), pose_curr_last.matrix(), information);
-//    cg.set_initial(X(curr_index), curr_pose.matrix());
-    BAGraph.emplace_shared<gtsam::BetweenFactor<gtsam::Pose3>>(X(last_index), X(curr_index),
-                                                               pose_curr_last,
+    BAGraph.emplace_shared<BetweenFactor<Pose3>>(X(last_index), X(curr_index), pose_curr_last,
 //                                                            odometry_noise_model);
-                                                            gtsam::noiseModel::Gaussian::Information(information));
+                                                            noiseModel::Gaussian::Information(information));
     BAEstimate.insert(X(curr_index), curr_pose);
     printf("add Odom factor between [%d] and [%d]\n", last_index, curr_index);
+
+    updateISAM();
+
 }
 
 void LidarSensor::BALM_backend(const std::vector<Keyframe::Ptr>& keyframes_buf,
@@ -577,7 +575,6 @@ void LidarSensor::BALM_backend(const std::vector<Keyframe::Ptr>& keyframes_buf,
                 auto keyframe = keyframeVec->keyframes[window_base + i];
                 keyframe->fix();
                 fixedKeyframes_buf.push_back(keyframe);
-//                fixedKeyframeChannel->push(keyframe);
             }
 
             // update submap here, front end will use
@@ -635,6 +632,16 @@ void LidarSensor::loop_detect_thread() {
 
 }
 
+void LidarSensor::updateISAM() {
+    // isam update
+    isam->update(BAGraph, BAEstimate);
+    isam->update();
+    isamOptimize = isam->calculateEstimate();
+
+    BAGraph.resize(0);
+    BAEstimate.clear();
+}
+
 void LidarSensor::BA_optimization() {
 
     int last_index = -1;
@@ -657,13 +664,11 @@ void LidarSensor::BA_optimization() {
             current_latency = 0;
 
             std::vector<Keyframe::Ptr> fixedKeyframes_buf;
-
             // from balm backend
             BALM_backend(keyframes_buf, fixedKeyframes_buf);
 
             // deal with fixed keyframes with factorGraph
             std::lock_guard<std::mutex> lg(fixed_mtx);
-
             if (!fixedKeyframes_buf.empty() || !factorsBuf.empty()) {
                 for (const auto& keyframe: fixedKeyframes_buf) {
                     int curr_index = keyframe->index;
@@ -679,25 +684,14 @@ void LidarSensor::BA_optimization() {
                     if (!factorsBuf.empty()) {
                         while (!factorsBuf.empty()) {
                             BAGraph.add(factorsBuf.front());
-//                            cg.graph().add(factorsBuf.front());
                             factorsBuf.pop();
+                            updateISAM();
                         }
                         has_loop = true;
                     }
                 }
 
-                // isam update
-                isam->update(BAGraph, BAEstimate);
-                isam->update();
-                isam->update();
-                BAGraph.resize(0);
-                BAEstimate.clear();
-
-                isamOptimize = isam->calculateEstimate();
                 isam->getFactorsUnsafe().saveGraph("/home/ziv/mloam/factor_graph.dot", isamOptimize);
-//                cg.optimize(5);
-//                isamOptimize = cg.result();
-
                 status->status_change = has_loop;
                 {   // write lock
                     std::unique_lock<std::shared_mutex> ul(keyframeVec->pose_mtx);
@@ -720,11 +714,9 @@ void LidarSensor::BA_optimization() {
 
         } else {
             current_latency += backend_sleep;
-            if (last_index > 0 &&
-                current_latency >= end_signal &&
-                current_latency < 5 * end_signal &&
-                !status->is_end)
-            {
+            bool reach_end = current_latency >= end_signal;
+            bool under_max_delay = current_latency < 3 * end_signal;
+            if (last_index > 0 && reach_end && under_max_delay && !status->is_end) {
                 status->is_end = true;
             }
         }

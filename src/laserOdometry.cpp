@@ -26,8 +26,7 @@ public:
     tf::TransformBroadcaster brMapToFrame;  // tf broadcaster, map_i => frame_i
     tf::TransformBroadcaster brMapToMap;    // tf broadcaster, map   => map_i
 
-    gtsam::Pose3 T_0_i;                     // extrinsic param from L_i to L_base(L_0)
-    bool is_base = false;                   // if i == 0, then is_base = true
+    gtsam::Pose3 T_0_i;                     // extrinsic param from L_0 to L_base(L_i)
 
     // ros msg
     ros::Subscriber sub_laser_cloud;
@@ -41,7 +40,6 @@ public:
 public:
     LidarInfo(int i_) : i(i_) {
         T_0_i = gtsam::Pose3(gtsam::Rot3(), gtsam::Point3(0, 50 * i, 0));
-        if (i == 0) is_base = true;
     }
 };
 
@@ -208,6 +206,8 @@ public:
 
         while (ros::ok()) {
 
+            if (calibra_fixed) return;
+
             if ( !lidarInfo1->reader.pointCloudFullBuf.empty() &&
                  !lidarInfo1->reader.pointCloudLessEdgeBuf.empty() &&
                  !lidarInfo1->reader.pointCloudLessSurfBuf.empty() ) {
@@ -328,7 +328,7 @@ public:
         pcl::PointCloud<PointT>::Ptr submap_corn, submap_surf;
         pcl::KdTreeFLANN<PointT> kdtree_corn, kdtree_surf;
 
-        gtsam::Pose3 pose_w_c;
+        gtsam::Pose3 pose_w0_w1, pose_w0_curr;
 
         while (ros::ok()) {
 
@@ -340,20 +340,16 @@ public:
                 int l0_end_cursor = lidarInfo0->status->last_loop_found_index;
                 int l1_end_cursor = lidarInfo1->status->last_loop_found_index;
 
-                auto poseVec0 = keyframeVec0->read_poses(0, l0_end_cursor + 1);
-                auto poseVec1 = keyframeVec1->read_poses(0, l1_end_cursor + 1);
+                auto poseVec_w0_curr = keyframeVec0->read_poses(0, l0_end_cursor + 1);
+                auto poseVec_w1_curr = keyframeVec1->read_poses(0, l1_end_cursor + 1);
 
                 if (std::abs(l0_end_cursor - l1_end_cursor) < 5) {
 
                     assert(keyframeVec0->at(l0_end_cursor)->is_fixed() && keyframeVec1->at(l1_end_cursor)->is_fixed());
 
-                    gtsam::Pose3 T_0_1 = lidarInfo1->T_0_i;
-
                     TicToc t1;
-                    submap_corn = MapGenerator::generate_cloud(keyframeVec0, 0, l0_end_cursor + 1, FeatureType::Edge,
-                                                               true);
-                    submap_surf = MapGenerator::generate_cloud(keyframeVec0, 0, l0_end_cursor + 1, FeatureType::Surf,
-                                                               true);
+                    submap_corn = MapGenerator::generate_cloud(keyframeVec0, 0, l0_end_cursor + 1, FeatureType::Edge, true);
+                    submap_surf = MapGenerator::generate_cloud(keyframeVec0, 0, l0_end_cursor + 1, FeatureType::Surf, true);
                     cout << "generate submap takes: " << t1.toc() << "ms" << endl;
                     t1.tic();
 
@@ -367,8 +363,9 @@ public:
                     gtsam::NonlinearFactorGraph factors;
                     gtsam::Values init_values;
                     auto state_key = X(0);
-                    init_values.insert(state_key, T_0_1);
+                    gtsam::Pose3 pose_w1_w0 = lidarInfo1->T_0_i.inverse();
 
+                    init_values.insert(state_key, pose_w1_w0);
 
                     for (int k = 0; k < 3; k++) {
 
@@ -376,14 +373,14 @@ public:
 
                         for (int i = 0; i <= l1_end_cursor; i++) {
 
-                            // 'pose_w_c' to be optimize
-                            pose_w_c = poseVec0[i] * T_0_1;
+                            // ???? why pose_w1_w0 not pose_w0_w1
+                            pose_w0_curr = pose_w1_w0 * poseVec_w1_curr[i];
 
                             //  corn and surf features have already downsample when push to keyframeVec
                             LidarSensor::addCornCostFactor(keyframeVec1->at(i)->corn_features, submap_corn, kdtree_corn,
-                                                           pose_w_c, factors, poseVec0[i]);
+                                                           pose_w0_curr, factors, poseVec_w1_curr[i]);
                             LidarSensor::addSurfCostFactor(keyframeVec1->at(i)->surf_features, submap_surf, kdtree_surf,
-                                                           pose_w_c, factors, poseVec0[i]);
+                                                           pose_w0_curr, factors, poseVec_w1_curr[i]);
 
                         }
 
@@ -396,13 +393,17 @@ public:
                         params.maxIterations = 6;
 
                         auto result = gtsam::LevenbergMarquardtOptimizer(factors, init_values, params).optimize();
-                        pose_w_c = result.at<gtsam::Pose3>(state_key);
+                        pose_w1_w0 = result.at<gtsam::Pose3>(state_key);
 
                     }
 
-                    cout << "before T_0_1: \n" << T_0_1.matrix() << endl;
-                    cout << "after opti: \n" << pose_w_c.matrix() << endl;
+                    cout << "before T_0_1: \n" << lidarInfo1->T_0_i.matrix() << endl;
+                    cout << "after opti: \n"   << pose_w1_w0.inverse().matrix() << endl;
                     printf("gtsam takes %f ms\n", t1.toc());
+
+                    calibra_fixed = true;
+                    lidarInfo1->T_0_i = pose_w1_w0.inverse();
+                    return;
                 }
 
             }

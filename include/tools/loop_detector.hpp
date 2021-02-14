@@ -91,9 +91,9 @@ namespace tools
                 pcl::transformPointCloud(*submap_pcd, *submap_pcd, poseVec[closestKeyIdx].inverse().matrix());
                 auto curr_pcd = keyframeVec->keyframes[curr_index]->raw;
 
-                Eigen::Matrix4d pose_curr_closest(poseVec[closestKeyIdx].between(curr_pose).matrix());
+                Eigen::Matrix4d pose_closest_curr(poseVec[closestKeyIdx].between(curr_pose).matrix());
                 Eigen::Matrix4d final;
-                bool ok = tools::FastGeneralizedRegistration(curr_pcd, submap_pcd, final, pose_curr_closest, 2.0, fitness_thres_);
+                bool ok = tools::FastGeneralizedRegistration(curr_pcd, submap_pcd, final, pose_closest_curr, 2.0, fitness_thres_);
 
 //                {
 //                    static string path0 = "/home/ziv/mloam/debug_loop/";

@@ -93,6 +93,7 @@ public:
     bool nextFrameToBeKeyframe();
     void handleRegistration();
     void updatePoses();
+    void updateISAM();
     void initParam();
     void initBALMParam();
 
@@ -148,13 +149,10 @@ private:
     std::shared_ptr<gtsam::ISAM2> isam;
     gtsam::Values isamOptimize;
 
-    CalibrationGraph cg;
-
     // noise model
     static gtsam::SharedNoiseModel edge_noise_model;
     static gtsam::SharedNoiseModel surf_noise_model;
     gtsam::SharedNoiseModel prior_noise_model;
-    gtsam::SharedNoiseModel odometry_noise_model;
 
 
     /*********************************************************************
