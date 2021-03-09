@@ -253,6 +253,8 @@ public:
 
     void laser_calibration() {
 
+        if (!need_calibra) return;
+
         bool manual_tz = nh.param<bool>("manual_tz", true);
         double tz_0_1  = nh.param<double>("tz_0_1", 0.0);
 
@@ -335,6 +337,8 @@ public:
             //sleep 20 ms every time
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
 
+            if (!need_calibra) return;
+
             if (require_loop && calibra_with_loop) {
 
                 int l0_end_cursor = lidarInfo0->status->last_loop_found_index;
@@ -414,6 +418,8 @@ public:
 
     LaserOdometry() {
 
+        need_calibra = nh.param<bool>("need_calibra", true);
+
         save_map_resolution = nh.param<double>("save_map_resolution", 0.1);
         show_map_resolution = nh.param<double>("show_map_resolution", 0.2);
         file_save_path = nh.param<std::string>("file_save_path", "");
@@ -460,6 +466,8 @@ private:
 
     LidarInfo::Ptr lidarInfo0;
     LidarInfo::Ptr lidarInfo1;
+
+    bool need_calibra;
 
     bool calibra_simple = false;
     bool calibra_with_loop = false;

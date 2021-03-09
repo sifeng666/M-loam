@@ -1,7 +1,7 @@
 <launch>
     
     <param name="/use_sim_time" value="ture"/>
-    <node pkg="rosbag" type="play" name="playbag" args="--clock /home/ziv/sunshine_dateset/dzf/005.bag
+    <node pkg="rosbag" type="play" name="playbag" args="--clock /home/ziv/sunshine_dateset/0309/ziv_bag/out05.bag
          /velodyne_points:=/left/velodyne_points
          /rslidar_points:=/left/velodyne_points
          /ns1/rslidar_points:=/left/velodyne_points
@@ -13,16 +13,18 @@
 
     <param name="file_save_path" type="string" value="/home/ziv/mloam/" />
 
-
+<!--    outdoor    -->
 <!--    building-003 10-4-0.8-0.1-->
+    <param name="need_calibra" type="bool" value="false" />
+
     <param name="scan_line" type="int" value="16" />
     <param name="min_dis" type="double" value="0.1" />
     <param name="max_dis" type="double" value="100.0" />
-    <param name="surf_filter_length" type="double" value="0.2"/>
+    <param name="surf_filter_length" type="double" value="0.3"/>
     <param name="corn_filter_length" type="double" value="0.1"/>
-    <param name="window_size" type="int" value="8" />
-    <param name="margi_size" type="int" value="3" />
-    <param name="keyframe_distance_threshold" type="double" value="0.8" />
+    <param name="window_size" type="int" value="10" />
+    <param name="margi_size" type="int" value="4" />
+    <param name="keyframe_distance_threshold" type="double" value="0.6" />
     <param name="keyframe_angle_threshold" type="double" value="0.1" />
     <param name="save_map_resolution" type="double" value="0.05" />
     <param name="show_map_resolution" type="double" value="0.2" />
@@ -30,13 +32,33 @@
     <!--loop-->
     <param name="need_loop" type="bool" value="true" />
     <param name="loop_submap_length" type="int" value="5" />
-    <param name="loop_detect_distance" type="int" value="3" />
+    <param name="loop_detect_distance" type="int" value="5" />
     <param name="loop_found_sleep" type="int" value="10" />
-    <param name="loop_skip_last" type="int" value="30" />
+    <param name="loop_skip_last" type="int" value="50" />
 
-<!--    <remap from="/left/laser_cloud_less_edge" to="/corn_last"/>-->
-<!--    <remap from="/left/laser_cloud_less_surf" to="/surf_last"/>-->
-<!--    <remap from="/left/velodyne_points_2" to="/full_last"/>-->
+
+
+<!--&lt;!&ndash;    for calibrate&ndash;&gt;-->
+<!--    <param name="need_calibra" type="bool" value="true" />-->
+<!--    -->
+<!--    <param name="scan_line" type="int" value="16" />-->
+<!--    <param name="min_dis" type="double" value="0.2" />-->
+<!--    <param name="max_dis" type="double" value="100.0" />-->
+<!--    <param name="surf_filter_length" type="double" value="0"/>-->
+<!--    <param name="corn_filter_length" type="double" value="0"/>-->
+<!--    <param name="window_size" type="int" value="8" />-->
+<!--    <param name="margi_size" type="int" value="3" />-->
+<!--    <param name="keyframe_distance_threshold" type="double" value="0.6" />-->
+<!--    <param name="keyframe_angle_threshold" type="double" value="0.1" />-->
+<!--    <param name="save_map_resolution" type="double" value="0.05" />-->
+<!--    <param name="show_map_resolution" type="double" value="0.05" />-->
+<!--    <param name="gicp_fitness_socre" type="double" value="0.5" />-->
+<!--    &lt;!&ndash;loop&ndash;&gt;-->
+<!--    <param name="need_loop" type="bool" value="true" />-->
+<!--    <param name="loop_submap_length" type="int" value="5" />-->
+<!--    <param name="loop_detect_distance" type="int" value="3" />-->
+<!--    <param name="loop_found_sleep" type="int" value="10" />-->
+<!--    <param name="loop_skip_last" type="int" value="30" />-->
 
     <!--    calibration part     -->
     <param name="manual_tz" type="bool" value="true" />

@@ -15,3 +15,6 @@ target_link_libraries(test_global_align ${PCL_LIBRARIES} fast_gicp)
 
 add_executable(test_gtsam_opti test_gtsam_opti.cpp calibration_graph.cpp)
 target_link_libraries(test_gtsam_opti gtsam)
+
+add_executable(test_eigen test_eigen.cpp)
+target_link_libraries(test_eigen gtsam)
