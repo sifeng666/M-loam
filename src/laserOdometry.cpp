@@ -77,8 +77,8 @@ public:
         lidarInfo->pub_odom_opti.publish(parray_path);
 
         tf::Transform transform;
-        gtsam::Pose3 T(lidarInfo->T_0_i.inverse());
-        transform.setOrigin( tf::Vector3(T.x(), T.y(), T.z()) );
+        gtsam::Pose3 T(lidarInfo->T_0_i);
+        transform.setOrigin( tf::Vector3(T.x(), T.y(), T.z()));
         Eigen::Quaterniond q(T.rotation().matrix());
         transform.setRotation(tf::Quaternion(q.x(), q.y(), q.z(), q.w()));
         lidarInfo->brMapToMap.sendTransform(tf::StampedTransform(transform, parray_path.header.stamp, "map", parray_path.header.frame_id));
@@ -125,6 +125,12 @@ public:
 
     void save_global_map(LidarInfo::Ptr lidarInfo, const std::string& filename) {
         if (lidarInfo->status->is_end) {
+            _mkdir(file_save_path + to_string(lidarInfo->i) + "/1.txt");
+            for (int i = 0; i < lidarInfo->keyframeVec->size(); i++) {
+                pcl::io::savePCDFileASCII(file_save_path + to_string(lidarInfo->i) + "/" + to_string(i) + ".pcd", *lidarInfo->keyframeVec->at(i)->raw);
+            }
+            cout << "save all pcd!: " << lidarInfo->i << endl;
+
             auto map_full_pub = MapGenerator::generate_cloud(lidarInfo->keyframeVec, 0, lidarInfo->keyframeVec->size(), FeatureType::Full, true);
             if (!map_full_pub) return;
             down_sampling_voxel(*map_full_pub, save_map_resolution);
@@ -155,15 +161,123 @@ public:
 
     }
 
+    void laser_odometry_fusion() {
+
+        ros::Time sys_time;
+        bool use_lidar0 = true;
+        bool use_lidar1 = false;
+
+        bool is_first = true;
+
+        while (ros::ok()) {
+
+            if (!go_fusion) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                continue;
+            }
+
+            if ((use_lidar0 &&
+                !lidarInfo0->reader.pointCloudFullBuf.empty() &&
+                !lidarInfo0->reader.pointCloudLessEdgeBuf.empty() &&
+                !lidarInfo0->reader.pointCloudLessSurfBuf.empty())
+                ||
+                (use_lidar1 &&
+                !lidarInfo1->reader.pointCloudFullBuf.empty() &&
+                !lidarInfo1->reader.pointCloudLessEdgeBuf.empty() &&
+                !lidarInfo1->reader.pointCloudLessSurfBuf.empty()))
+            {
+
+                Timer t_laser_odometry("laser_odometry fusion");
+
+                pcl::PointCloud<PointT>::Ptr cloud_raw(new pcl::PointCloud<PointT>());
+                pcl::PointCloud<PointT>::Ptr cloud_in_edge(new pcl::PointCloud<PointT>());
+                pcl::PointCloud<PointT>::Ptr cloud_in_surf(new pcl::PointCloud<PointT>());
+
+                if (use_lidar0) {
+                    lidarInfo0->reader.lock();
+                    if ( lidarInfo0->reader.pointCloudFullBuf.front()->header.stamp.toSec() != lidarInfo0->reader.pointCloudLessEdgeBuf.front()->header.stamp.toSec() ) {
+                        printf("unsync messeage!");
+                        ROS_BREAK();
+                    }
+
+                    pcl::fromROSMsg(*lidarInfo0->reader.pointCloudFullBuf.front(), *cloud_raw);
+                    pcl::fromROSMsg(*lidarInfo0->reader.pointCloudLessEdgeBuf.front(), *cloud_in_edge);
+                    pcl::fromROSMsg(*lidarInfo0->reader.pointCloudLessSurfBuf.front(), *cloud_in_surf);
+
+                    lidarInfo0->ros_time = lidarInfo0->reader.pointCloudFullBuf.front()->header.stamp;
+
+                    lidarInfo0->reader.pointCloudFullBuf.pop();
+                    lidarInfo0->reader.pointCloudLessEdgeBuf.pop();
+                    lidarInfo0->reader.pointCloudLessSurfBuf.pop();
+
+                    lidarInfo0->reader.unlock();
+
+                    if (is_first) {
+                        sys_time = lidarInfo0->ros_time;
+                        is_first = false;
+                    }
+
+                    if (lidarInfo0->ros_time < sys_time) {
+                        continue;
+                    } else{
+                        sys_time = lidarInfo0->ros_time;
+                        use_lidar0 = false;
+                        use_lidar1 = true;
+                    }
+
+                }
+                else {
+                    if ( lidarInfo1->reader.pointCloudFullBuf.front()->header.stamp.toSec() != lidarInfo1->reader.pointCloudLessEdgeBuf.front()->header.stamp.toSec() ) {
+                        printf("unsync messeage!");
+                        ROS_BREAK();
+                    }
+
+                    pcl::fromROSMsg(*lidarInfo1->reader.pointCloudFullBuf.front(), *cloud_raw);
+                    pcl::fromROSMsg(*lidarInfo1->reader.pointCloudLessEdgeBuf.front(), *cloud_in_edge);
+                    pcl::fromROSMsg(*lidarInfo1->reader.pointCloudLessSurfBuf.front(), *cloud_in_surf);
+
+                    lidarInfo1->ros_time = lidarInfo1->reader.pointCloudFullBuf.front()->header.stamp;
+
+                    lidarInfo1->reader.pointCloudFullBuf.pop();
+                    lidarInfo1->reader.pointCloudLessEdgeBuf.pop();
+                    lidarInfo1->reader.pointCloudLessSurfBuf.pop();
+
+                    lidarInfo1->reader.unlock();
+
+                    if (lidarInfo1->ros_time < sys_time) {
+                        continue;
+                    } else {
+                        sys_time = lidarInfo1->ros_time;
+                        use_lidar0 = true;
+                        use_lidar1 = false;
+                    }
+                }
+
+                lidarInfo0->odom = lidarSensor0.update(sys_time, cloud_in_edge, cloud_in_surf, cloud_raw);
+                pubOptiOdom(lidarInfo0);
+                pubRawPointCloud(lidarInfo0, cloud_raw);
+
+            } else {
+                pubOptiOdom(lidarInfo0);
+            }
+
+        }
+    }
+
     void laser_odometry_base() {
 
         while (ros::ok()) {
+
+            if (go_fusion) {
+                return;
+            }
 
             if ( !lidarInfo0->reader.pointCloudFullBuf.empty() &&
                  !lidarInfo0->reader.pointCloudLessEdgeBuf.empty() &&
                  !lidarInfo0->reader.pointCloudLessSurfBuf.empty() ) {
 
-                Timer t_laser_odometry("laser_odometry: " + lidarSensor0.get_lidar_name());
+//                Timer t_laser_odometry("laser_odometry: " + lidarSensor0.get_lidar_name());
+                TicToc tic;
 
                 lidarInfo0->reader.lock();
 
@@ -193,6 +307,7 @@ public:
                 pubRawPointCloud(lidarInfo0, cloud_raw);
 
 //                t_laser_odometry.count();
+                f_lidar0_timecost << tic.toc() << endl;
 
             } else {
                 pubOptiOdom(lidarInfo0);
@@ -206,14 +321,16 @@ public:
 
         while (ros::ok()) {
 
-            if (calibra_fixed) return;
+            if (go_fusion) {
+                return;
+            }
 
             if ( !lidarInfo1->reader.pointCloudFullBuf.empty() &&
                  !lidarInfo1->reader.pointCloudLessEdgeBuf.empty() &&
                  !lidarInfo1->reader.pointCloudLessSurfBuf.empty() ) {
 
-                Timer t_laser_odometry("laser_odometry: " + lidarSensor1.get_lidar_name());
-
+//                Timer t_laser_odometry("laser_odometry: " + lidarSensor1.get_lidar_name());
+                TicToc tic;
                 lidarInfo1->reader.lock();
 
                 if ( lidarInfo1->reader.pointCloudFullBuf.front()->header.stamp.toSec() != lidarInfo1->reader.pointCloudLessEdgeBuf.front()->header.stamp.toSec() ) {
@@ -242,6 +359,7 @@ public:
                 pubRawPointCloud(lidarInfo1, cloud_raw);
 
 //                t_laser_odometry.count();
+                f_lidar1_timecost << tic.toc() << endl;
 
             } else {
                 pubOptiOdom(lidarInfo1);
@@ -252,6 +370,13 @@ public:
     }
 
     void laser_calibration() {
+
+        string hand_eye_convergence = file_save_path + "hand_eye_convergence.txt";
+        std::ofstream f_hand_eye_convergence(hand_eye_convergence);
+
+        string hand_eye_loop = file_save_path + "hand_eye_loop.txt";
+        std::ofstream f_hand_eye_loop(hand_eye_loop);
+
 
         if (!need_calibra) return;
 
@@ -269,46 +394,68 @@ public:
                                                           lidarInfo1->keyframeVec->keyframes.size(),
                                                           FeatureType::Full, true);
                 Eigen::Matrix4d T;
-                tools::FastGeneralizedRegistration(gmap0, gmap1, T, T_0_1.matrix());
+                tools::FastGeneralizedRegistration(gmap1, gmap0, T, T_0_1.matrix());
                 T_0_1 = gtsam::Pose3(T_0_1.rotation(), gtsam::Point3(T_0_1.x(), T_0_1.y(), T(12)));
             }
         };
 
         gtsam::Pose3 last_T;
 
+        int conv_time = 0;
+
         while(ros::ok()) {
 
             //sleep 2000 ms every time
-            std::this_thread::sleep_for(std::chrono::milliseconds(2000));
+            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 
-            bool encounter_loop = lidarInfo0->status->status_change &&  lidarInfo1->status->status_change &&
-                    std::abs(lidarInfo0->status->last_loop_found_index - lidarInfo1->status->last_loop_found_index) < 5;
+            bool encounter_loop = (lidarInfo0->status->status_change && lidarInfo1->status->status_change);
             bool calibra_simple_done = !calibra_with_loop && calibra_simple;
             bool start_calibra_with_loop = encounter_loop && calibra_simple_done;
 
+            if (start_calibra_with_loop) {
+                lidarInfo0->status->status_change = false;
+                lidarInfo1->status->status_change = false;
+            }
+
             if (!calibra_simple) {
                 gtsam::Pose3 T_0_1;
-                bool success = HandEyeCalibrator::calibrate(lidarInfo0->keyframeVec, lidarInfo1->keyframeVec, T_0_1);
+                bool success = HandEyeCalibrator::calibrate(lidarInfo1->keyframeVec, lidarInfo0->keyframeVec, T_0_1);
                 if (!success) continue;
                 std::cout << "hand eye calibrate convergence result: \n" << T_0_1.matrix() << std::endl;
+
+
+                f_hand_eye_convergence << "Hand-eye count: " << conv_time++ << std::endl;
+                f_hand_eye_convergence << "T_0_1 = " << std::endl;
+                f_hand_eye_convergence << T_0_1.matrix() << std::endl << std::endl;
+
                 set_tz(T_0_1);
 
-                if (T_0_1.equals(last_T, 0.01)) {
+                if (T_0_1.equals(last_T, 0.005)) {
                     calibra_simple = true;
                     std::cout << "simple calibration done!" << std::endl;
+
+                    f_hand_eye_convergence << "### first converge" << endl;
+
                     lidarInfo1->T_0_i = T_0_1;
                 }
                 last_T = T_0_1;
             }
 
             if (start_calibra_with_loop) {
+
+                cout << "start start_calibra_with_loop!!!!" <<endl;
                 gtsam::Pose3 T_0_1;
-                bool success = HandEyeCalibrator::calibrate(lidarInfo0->keyframeVec, lidarInfo1->keyframeVec, T_0_1);
+                bool success = HandEyeCalibrator::calibrate(lidarInfo1->keyframeVec, lidarInfo0->keyframeVec, T_0_1);
                 if (!success) continue;
                 std::cout << "hand eye calibrate fixed result: \n" << T_0_1.matrix() << std::endl;
+
+                f_hand_eye_loop << "LOOP count: " << conv_time++ << std::endl;
+                f_hand_eye_loop << "T_0_1 = " << std::endl;
+                f_hand_eye_loop << T_0_1.matrix() << std::endl << std::endl;
+
                 set_tz(T_0_1);
 
-                calibra_with_loop = true;
+//                calibra_with_loop = true;
                 std::cout << "calibration with loop done!" << std::endl;
                 lidarInfo1->T_0_i = T_0_1;
             }
@@ -318,6 +465,8 @@ public:
     }
 
     void global_calibration() {
+
+//        return;
 
         bool require_loop         = nh.param<bool>("require_loop", true);
         double surf_filter_length = nh.param<double>("surf_filter_length",  0.4);
@@ -331,6 +480,9 @@ public:
         pcl::KdTreeFLANN<PointT> kdtree_corn, kdtree_surf;
 
         gtsam::Pose3 pose_w0_w1, pose_w0_curr;
+
+        string calibration_opti = file_save_path + "calibration_opti.txt";
+        std::ofstream f_calibration_opti(calibration_opti);
 
         while (ros::ok()) {
 
@@ -367,9 +519,9 @@ public:
                     gtsam::NonlinearFactorGraph factors;
                     gtsam::Values init_values;
                     auto state_key = X(0);
-                    gtsam::Pose3 pose_w1_w0 = lidarInfo1->T_0_i.inverse();
+                    gtsam::Pose3 pose_w0_w1 = lidarInfo1->T_0_i;
 
-                    init_values.insert(state_key, pose_w1_w0);
+                    init_values.insert(state_key, pose_w0_w1);
 
                     for (int k = 0; k < 3; k++) {
 
@@ -377,8 +529,7 @@ public:
 
                         for (int i = 0; i <= l1_end_cursor; i++) {
 
-                            // ???? why pose_w1_w0 not pose_w0_w1
-                            pose_w0_curr = pose_w1_w0 * poseVec_w1_curr[i];
+                            pose_w0_curr = pose_w0_w1 * poseVec_w1_curr[i];
 
                             //  corn and surf features have already downsample when push to keyframeVec
                             LidarSensor::addCornCostFactor(keyframeVec1->at(i)->corn_features, submap_corn, kdtree_corn,
@@ -397,16 +548,20 @@ public:
                         params.maxIterations = 6;
 
                         auto result = gtsam::LevenbergMarquardtOptimizer(factors, init_values, params).optimize();
-                        pose_w1_w0 = result.at<gtsam::Pose3>(state_key);
+                        pose_w0_w1 = result.at<gtsam::Pose3>(state_key);
 
                     }
 
                     cout << "before T_0_1: \n" << lidarInfo1->T_0_i.matrix() << endl;
-                    cout << "after opti: \n"   << pose_w1_w0.inverse().matrix() << endl;
+                    cout << "after opti: \n"   << pose_w0_w1.matrix() << endl;
+
+                    f_calibration_opti << "before T_0_1: \n" << lidarInfo1->T_0_i.matrix() << endl;
+                    f_calibration_opti << "after opti: \n"   << pose_w0_w1.matrix() << endl;
+
                     printf("gtsam takes %f ms\n", t1.toc());
 
                     calibra_fixed = true;
-                    lidarInfo1->T_0_i = pose_w1_w0.inverse();
+                    lidarInfo1->T_0_i = pose_w0_w1;
                     return;
                 }
 
@@ -416,13 +571,26 @@ public:
     }
 
 
-    LaserOdometry() {
+    LaserOdometry() : lidarSensor0(0), lidarSensor1(1) {
 
         need_calibra = nh.param<bool>("need_calibra", true);
+        go_fusion = nh.param<bool>("go_fusion", false);
 
         save_map_resolution = nh.param<double>("save_map_resolution", 0.1);
         show_map_resolution = nh.param<double>("show_map_resolution", 0.2);
         file_save_path = nh.param<std::string>("file_save_path", "");
+        _mkdir(file_save_path+"test.txt");
+
+        f_lidar0_timecost.open(file_save_path+"lidar0_timecost.txt");
+        f_lidar1_timecost.open(file_save_path+"lidar1_timecost.txt");
+        cout << "#######################################" << endl;
+        cout << "f_lidar0_timecost path: " << file_save_path+"lidar0_timecost.txt" << endl;
+        cout << "f_lidar0_timecost isopen? " << f_lidar0_timecost.is_open() << endl;
+        cout << "f_lidar1_timecost path: " << file_save_path+"lidar1_timecost.txt" << endl;
+        cout << "f_lidar1_timecost isopen? " << f_lidar1_timecost.is_open() << endl;
+        cout << "#######################################" << endl;
+
+
 
         // lidar 0 init
         lidarSensor0.set_name("Lidar0");
@@ -468,6 +636,7 @@ private:
     LidarInfo::Ptr lidarInfo1;
 
     bool need_calibra;
+    bool go_fusion;
 
     bool calibra_simple = false;
     bool calibra_with_loop = false;
@@ -476,6 +645,8 @@ private:
     double save_map_resolution;
     double show_map_resolution;
     std::string file_save_path;
+    ofstream f_lidar0_timecost;
+    ofstream f_lidar1_timecost;
 
 };
 

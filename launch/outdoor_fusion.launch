@@ -1,7 +1,7 @@
 <launch>
     
     <param name="/use_sim_time" value="ture"/>
-    <node pkg="rosbag" type="play" name="playbag" args="--clock /home/ziv/sunshine_dateset/dzf/005.bag
+    <node pkg="rosbag" type="play" name="playbag" args="--clock /home/ziv/sunshine_dateset/0309/ziv_bag/out02.bag
          /velodyne_points:=/left/velodyne_points
          /rslidar_points:=/left/velodyne_points
          /ns1/rslidar_points:=/left/velodyne_points
@@ -11,11 +11,12 @@
          /points_raw:=/left/velodyne_points
     "/>
 
-    <param name="file_save_path" type="string" value="/home/ziv/mloam/result/" />
+    <param name="file_save_path" type="string" value="/home/ziv/mloam/" />
 
 <!--    outdoor    -->
 <!--    building-003 10-4-0.8-0.1-->
     <param name="need_calibra" type="bool" value="false" />
+    <param name="go_fusion" type="bool" value="true" />
 
     <param name="scan_line" type="int" value="16" />
     <param name="min_dis" type="double" value="0.1" />

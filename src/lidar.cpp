@@ -494,6 +494,7 @@ void LidarSensor::BALM_backend(const std::vector<Keyframe::Ptr>& keyframes_buf,
 
     for (const auto& keyframe : keyframes_buf) {
         Timer t_BALM("BALM keyframe_" + std::to_string(keyframe->index));
+        TicToc tic;
 
         gtsam::Pose3 curr_pose = keyframe->pose_world_curr;
         q_odom = Eigen::Quaterniond(curr_pose.rotation().matrix());
@@ -598,6 +599,7 @@ void LidarSensor::BALM_backend(const std::vector<Keyframe::Ptr>& keyframes_buf,
             opt_lsv.free_voxel();
         }
         t_BALM.count();
+        f_backend_timecost << tic.toc() << endl;
     }
 }
 
@@ -692,7 +694,9 @@ void LidarSensor::BA_optimization() {
                 }
 
                 isam->getFactorsUnsafe().saveGraph("/home/ziv/mloam/factor_graph.dot", isamOptimize);
-                status->status_change = has_loop;
+                if (has_loop) {
+                    status->status_change = true;
+                }
                 {   // write lock
                     std::unique_lock<std::shared_mutex> ul(keyframeVec->pose_mtx);
                     for (size_t i = 0; i < isamOptimize.size(); i++) {
@@ -702,14 +706,14 @@ void LidarSensor::BA_optimization() {
             }
 
             // debug
-            auto poseVec = keyframeVec->read_poses(0, keyframeVec->size(), true);
-            {
-                std::ofstream f(nh.param<std::string>("file_save_path", "") + "debug_pose.txt");
-                for (size_t i = 0; i < poseVec.size(); i++) {
-                    f << "i: " << i << "\n" << poseVec[i].matrix() << endl;
-                }
-                f.close();
-            }
+//            auto poseVec = keyframeVec->read_poses(0, keyframeVec->size(), true);
+//            {
+//                std::ofstream f(nh.param<std::string>("file_save_path", "") + "debug_pose.txt");
+//                for (size_t i = 0; i < poseVec.size(); i++) {
+//                    f << "i: " << i << "\n" << poseVec[i].matrix() << endl;
+//                }
+//                f.close();
+//            }
 
 
         } else {
@@ -726,8 +730,31 @@ void LidarSensor::BA_optimization() {
     }
 }
 
-LidarSensor::LidarSensor() : opt_lsv(window_size, filter_num, thread_num), f_pose_fixed("/home/ziv/mloam/pose_fixed_raw.txt")
+void _mkdir(const std::string& filename) {
+    boost::filesystem::path save_path(filename);
+    auto folder_path = save_path.parent_path();
+    if (!boost::filesystem::exists(folder_path)) {
+        boost::filesystem::create_directories(folder_path);
+    }
+}
+
+LidarSensor::LidarSensor(int i) : opt_lsv(window_size, filter_num, thread_num), loopDetector(i)
 {
+
+    string file_save_path = nh.param<std::string>("file_save_path", "");
+    _mkdir(file_save_path+"test.txt");
+    f_pose_fixed.open(file_save_path+"lidar"+to_string(i)+"fixed_poses_raw.txt");
+    f_backend_timecost.open(file_save_path+ "lidar"+to_string(i) + "backend_timecost.txt");
+    cout << "#######################################" << endl;
+    cout << "current_lidar: " << i << endl;
+    cout << "f_pose_fixed path: " << file_save_path+"lidar"+to_string(i)+"fixed_poses_raw.txt" << endl;
+    cout << "f_pose_fixed isopen? " << f_pose_fixed.is_open() << endl;
+    cout << "f_backend_timecost path: " << "lidar"+to_string(i) + "backend_timecost.txt" << endl;
+    cout << "f_backend_timecost isopen? " << f_backend_timecost.is_open() << endl;
+    cout << "#######################################" << endl;
+
+
+
     nh.param<bool>  ("need_loop", need_loop, true);
     nh.param<double>("keyframe_distance_threshold", keyframe_distance_thres, 0.6);
     nh.param<double>("keyframe_angle_threshold",    keyframe_angle_thres,    0.1);

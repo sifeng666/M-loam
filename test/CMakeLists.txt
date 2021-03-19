@@ -14,7 +14,14 @@ add_executable(test_global_align test_global_align.cpp ../include/tools/registra
 target_link_libraries(test_global_align ${PCL_LIBRARIES} fast_gicp)
 
 add_executable(test_gtsam_opti test_gtsam_opti.cpp calibration_graph.cpp)
-target_link_libraries(test_gtsam_opti gtsam)
+target_link_libraries(test_gtsam_opti ${PCL_LIBRARIES} gtsam)
 
 add_executable(test_eigen test_eigen.cpp)
 target_link_libraries(test_eigen gtsam)
+
+
+find_package(PythonLibs 3.8)
+
+add_executable(draw_result draw_result.cpp)
+target_include_directories(draw_result PRIVATE ${PYTHON_INCLUDE_DIRS})
+target_link_libraries(draw_result ${PYTHON_LIBRARIES} gtsam)

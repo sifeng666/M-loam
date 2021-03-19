@@ -3,6 +3,7 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <ostream>
 #include <iostream>
 #include <complex>
 
@@ -16,6 +17,10 @@
 
 namespace camodocal
 {
+
+    //f out
+    std::ofstream f("/home/ziv/mloam/result/hand_eye_two_step.txt");
+
 
 class PlanarPoseError
 {
@@ -206,6 +211,9 @@ PlanarHandEyeCalibration::estimate(const std::vector<Eigen::Quaterniond, Eigen::
         std::cout << "# INFO: Before refinement:" << std::endl;
         std::cout << "H_12 = " << std::endl;
         std::cout << H_12 << std::endl;
+        f << "# INFO: Before refinement:" << std::endl;
+        f << "H_12 = " << std::endl;
+        f << H_12 << std::endl << std::endl;
     }
 
     refineEstimate(H_12, quats1, tvecs1, quats2, tvecs2);
@@ -215,6 +223,9 @@ PlanarHandEyeCalibration::estimate(const std::vector<Eigen::Quaterniond, Eigen::
         std::cout << "# INFO: After refinement:" << std::endl;
         std::cout << "H_12 = " << std::endl;
         std::cout << H_12 << std::endl;
+        f << "# INFO: After refinement:" << std::endl;
+        f << "H_12 = " << std::endl;
+        f << H_12 << std::endl << std::endl;
     }
 
     return true;

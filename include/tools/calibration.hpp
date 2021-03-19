@@ -66,7 +66,7 @@ namespace tools
         }
 
         camodocal::PlanarHandEyeCalibration calib;
-        calib.setVerbose(false);
+        calib.setVerbose(true);
 
         std::vector<Eigen::Matrix4d, Eigen::aligned_allocator<Eigen::Matrix4d> > H1, H2;
         bool is_first = true;
@@ -96,7 +96,7 @@ namespace tools
 
     bool HandEyeCalibrator::sync_timestamp(std::vector<PoseTimeStamp>& PTS_0, std::vector<PoseTimeStamp>& PTS_i) {
 
-        if (PTS_0.size() < 30 && PTS_i.size() < 30) {
+        if (PTS_0.size() < 20 && PTS_i.size() < 20) {
             return false;
         }
 

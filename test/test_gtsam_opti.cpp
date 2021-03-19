@@ -13,14 +13,21 @@
 #include <gtsam/slam/PriorFactor.h>
 #include <gtsam/slam/dataset.h>
 #include "calibration_graph.h"
+#include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
+#include <pcl_ros/point_cloud.h>
+#include <pcl_conversions/pcl_conversions.h>
+#include <pcl/common/transforms.h>
 #include "helper.h"
+#include <pcl/visualization/cloud_viewer.h>
+#include <pcl/visualization/pcl_visualizer.h>
 
 #include <gtsam/nonlinear/ISAM2.h>
 
 using namespace std;
 using namespace gtsam;
 using namespace ct;
-
+using PointT = pcl::PointXYZI;
 
 struct Odom {
     size_t index;
@@ -96,25 +103,20 @@ void read_from_file(string pose_raw_filename, string loop_filename, vector<Odom>
 
 int main(int argc, char** argv) {
 
-    if (argc != 2)
-    {
-        std::cerr << "./test_gtsam_opti /path/to/txt_file" << std::endl;
-        std::exit(-1);
-    }
-
-    string path = argv[1];
-    if (path.back() != '/') path += '/';
+    string path = "/home/ziv/mloam/result/building-001/10-2-0.5-0.05/";
 
     vector<Odom> odoms;
     vector<Loop> loops;
+    int current_lidar = 0;
 
-    read_from_file(path + "/pose_fixed_raw.txt", path + "/f_loop.txt", odoms, loops);
-
+    TicToc tic;
+    read_from_file(path + "/lidar"+to_string(current_lidar)+"fixed_poses_raw.txt", path + "/lidar"+to_string(current_lidar)+"f_loop.txt", odoms, loops);
+    cout << "read_from_file: " << tic.toc() << "ms" << endl;
     /// iSAM params
-    ISAM2Params isam2Params;
-    isam2Params.relinearizeThreshold = 0.1;
-    isam2Params.relinearizeSkip = 1;
-    ISAM2 isam(isam2Params);
+//    ISAM2Params isam2Params;
+//    isam2Params.relinearizeThreshold = 0.1;
+//    isam2Params.relinearizeSkip = 1;
+//    ISAM2 isam(isam2Params);
 
     /// noise models
     Vector6 diagonal; diagonal << 1e-6, 1e-6, 1e-6, 1e-6, 1e-6, 1e-6;
@@ -124,54 +126,65 @@ int main(int argc, char** argv) {
     NonlinearFactorGraph new_factors;
     Values new_values, current_estimate;
 
-    for (size_t i = 0; i < odoms.size(); i++)
-    {
-        if (i == 0) 
-        {
-            // add prior
-            new_factors.addPrior<Pose3>(i, odoms[i].pose, prior_model);
-            new_values.insert(i, odoms[i].pose);
-        } 
-        else 
-        {
-            // normal odom
-            auto model = noiseModel::Gaussian::Information(odoms[i].information);
-            new_factors.emplace_shared<BetweenFactor<Pose3>>(i-1, i, odoms[i-1].pose.between(odoms[i].pose), model);
-            new_values.insert(i, odoms[i].pose);
-        }
+    vector<pcl::PointCloud<PointT>::Ptr> pcds;
 
-        bool has_loop = false;
-        // If exist a loop?
-        for (const auto& loop : loops) {
-            if (i == loop.to)
-            {
-                // find a loop
-                auto model = noiseModel::Gaussian::Information(loop.information);
-                new_factors.emplace_shared<BetweenFactor<Pose3>>(loop.from, loop.to, loop.pose, model);
-
-                has_loop = true;
-            }
-        }
-
-        if (has_loop)
-        {
-            // save before optimization
-            isam.getFactorsUnsafe().saveGraph(path + "isam_before_loop.dot", current_estimate);
-            writeG2o(isam.getFactorsUnsafe(), current_estimate, path + "isam_before_loop.g2o");
-        }
-
-        // Do optimization
-        isam.update(new_factors, new_values);
-        isam.update();
-
-        // update values
-        current_estimate = isam.calculateEstimate();
-        new_factors.resize(0);
-        new_values.clear();
+    string pcd_path = path + to_string(current_lidar) + "/";
+    tic.tic();
+    for (int i = 0; i < odoms.size(); i++) {
+        pcl::PointCloud<PointT>::Ptr pcd(new pcl::PointCloud<PointT>);
+        pcl::io::loadPCDFile(pcd_path + to_string(i) + ".pcd", *pcd);
+        pcds.push_back(pcd);
     }
+    cout << "loadPCDFile: " << tic.toc() << "ms" << endl;
 
-    isam.getFactorsUnsafe().saveGraph(path + "isam_final.dot", current_estimate);
-    writeG2o(isam.getFactorsUnsafe(), current_estimate, path + "isam_final.g2o");
+//    for (size_t i = 0; i < odoms.size(); i++)
+//    {
+//        if (i == 0)
+//        {
+//            // add prior
+//            new_factors.addPrior<Pose3>(i, odoms[i].pose, prior_model);
+//            new_values.insert(i, odoms[i].pose);
+//        }
+//        else
+//        {
+//            // normal odom
+//            auto model = noiseModel::Gaussian::Information(odoms[i].information);
+//            new_factors.emplace_shared<BetweenFactor<Pose3>>(i-1, i, odoms[i-1].pose.between(odoms[i].pose), model);
+//            new_values.insert(i, odoms[i].pose);
+//        }
+//
+//        bool has_loop = false;
+//        // If exist a loop?
+//        for (const auto& loop : loops) {
+//            if (i == loop.to)
+//            {
+//                // find a loop
+//                auto model = noiseModel::Gaussian::Information(loop.information);
+//                new_factors.emplace_shared<BetweenFactor<Pose3>>(loop.from, loop.to, loop.pose, model);
+//
+//                has_loop = true;
+//            }
+//        }
+//
+//        if (has_loop)
+//        {
+//            // save before optimization
+//            isam.getFactorsUnsafe().saveGraph(path + "gtsam/lidar0_isam_before_loop.dot", current_estimate);
+//            writeG2o(isam.getFactorsUnsafe(), current_estimate, path + "gtsam/lidar0_isam_before_loop.g2o");
+//        }
+//
+//        // Do optimization
+//        isam.update(new_factors, new_values);
+//        isam.update();
+//
+//        // update values
+//        current_estimate = isam.calculateEstimate();
+//        new_factors.resize(0);
+//        new_values.clear();
+//    }
+//
+//    isam.getFactorsUnsafe().saveGraph(path + "gtsam/lidar0_isam_final.dot", current_estimate);
+//    writeG2o(isam.getFactorsUnsafe(), current_estimate, path + "gtsam/lidar0_isam_final.g2o");
 
 
     //////////////////////////////////////////////  Traditional BA  //////////////////////////////////////////////////
@@ -190,13 +203,11 @@ int main(int argc, char** argv) {
         }
     }
 
-    cg.graph().saveGraph(path + "cg_before_odom_opti.dot");
-    writeG2o(cg.graph(), cg.initial(), path + "cg_before_odom_opti.g2o");
-
     cg.optimize(5);
 
-    cg.graph().saveGraph(path + "cg_after_odom_opti.dot", cg.result());
-    writeG2o(cg.graph(), cg.result(), path + "cg_after_odom_opti_opti.g2o");
+    cg.graph().saveGraph(path + "gtsam/lidar"+to_string(current_lidar)+"_before_raw.dot", cg.result());
+
+    auto raw_res = cg.result();
 
     // Add loop
     for (const auto& loop : loops) {
@@ -204,7 +215,27 @@ int main(int argc, char** argv) {
     }
     cg.optimize(5);
 
-    cg.graph().saveGraph(path + "cg_after_add_loop_opti.dot", cg.result());
-    writeG2o(cg.graph(), cg.result(), path + "cg_after_add_loop_opti.g2o");
+    cg.graph().saveGraph(path + "gtsam/lidar"+to_string(current_lidar)+"after_opti.dot", cg.result());
+
+    auto opti_res = cg.result();
+
+    pcl::PointCloud<PointT>::Ptr global_raw(new pcl::PointCloud<PointT>);
+    pcl::PointCloud<PointT>::Ptr global_opti(new pcl::PointCloud<PointT>);
+
+    pcl::PointCloud<PointT>::Ptr temp(new pcl::PointCloud<PointT>());
+    tic.tic();
+    for (int i = 0; i < raw_res.size(); i++) {
+        pcl::transformPointCloud(*pcds[i], *temp, raw_res.at<Pose3>(i).matrix());
+        *global_raw += *temp;
+    }
+    cout << "global_raw: " << tic.toc() << "ms" << endl;tic.tic();
+    for (int i = 0; i < opti_res.size(); i++) {
+        pcl::transformPointCloud(*pcds[i], *temp, opti_res.at<Pose3>(i).matrix());
+        *global_opti += *temp;
+    }
+    cout << "global_opti: " << tic.toc() << "ms" << endl;
+
+    pcl::io::savePCDFileASCII(pcd_path + "global_raw.pcd", *global_raw);
+    pcl::io::savePCDFileASCII(pcd_path + "global_opti.pcd", *global_opti);
 
 }

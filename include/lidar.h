@@ -67,7 +67,7 @@ public:
 
 class LidarSensor {
 public:
-    explicit LidarSensor();
+    explicit LidarSensor(int i);
 
     inline void set_name(const std::string& lidar_name) { this->lidar_name = lidar_name; }
     inline std::string get_lidar_name() const { return lidar_name; }
@@ -166,6 +166,11 @@ private:
 
     bool is_init = false;
 
+    // plane segment
+//    pcl::NormalEstimationOMP<PointT, NormalT> ne;
+//    pcl::search::KdTree<PointT>::Ptr searchKdtree;
+//    pcl::RegionGrowing<PointT, NormalT> regionGrowing;
+
     // frame-to-submap
     std::mutex submap_mtx;
     pcl::PointCloud<PointT>::Ptr submap_corn;
@@ -211,6 +216,7 @@ public:
 
 
     std::ofstream f_pose_fixed;
+    std::ofstream f_backend_timecost;
 
 
 };

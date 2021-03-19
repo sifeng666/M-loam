@@ -22,7 +22,7 @@ using namespace std;
 using PointT = pcl::PointXYZI;
 
 int main() {
-    string path = "/home/ziv/mloam/building003/";
+    string path = "/home/ziv/mloam/result/building-001/10-2-0.5-0.05/";
 
     vector<gtsam::Pose3> poseVec;
     vector<pcl::PointCloud<PointT>::Ptr> pcdVec;
