@@ -447,6 +447,10 @@ gtsam::Pose3 LidarSensor::update(const ros::Time cloud_in_time,
     down_sampling_voxel(*currEdge, corn_filter_length);
     down_sampling_voxel(*currSurf, surf_filter_length);
 
+    while (current_keyframe->index > plcount + 3) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
     getTransToSubmap(currEdge, currSurf);
 
     handleRegistration();
@@ -741,7 +745,7 @@ void _mkdir(const std::string& filename) {
 LidarSensor::LidarSensor(int i) : opt_lsv(window_size, filter_num, thread_num), loopDetector(i)
 {
 
-    string file_save_path = nh.param<std::string>("file_save_path", "");
+    file_save_path = nh.param<std::string>("file_save_path", "");
     _mkdir(file_save_path+"test.txt");
     f_pose_fixed.open(file_save_path+"lidar"+to_string(i)+"fixed_poses_raw.txt");
     f_backend_timecost.open(file_save_path+ "lidar"+to_string(i) + "backend_timecost.txt");

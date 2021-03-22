@@ -34,6 +34,11 @@ namespace tools
     public:
         LoopDetector(int i) {
             string file_save_path = nh.param<std::string>("file_save_path", "");
+        boost::filesystem::path save_path(file_save_path+"lidar"+to_string(i)+"f_loop.txt");
+        auto folder_path = save_path.parent_path();
+        if (!boost::filesystem::exists(folder_path)) {
+            boost::filesystem::create_directories(folder_path);
+        }
             f_loop.open(file_save_path+"lidar"+to_string(i)+"f_loop.txt");
             cout << "#######################################" << endl;
             cout << "current_lidar: " << i << endl;

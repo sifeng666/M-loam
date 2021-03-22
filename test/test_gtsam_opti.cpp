@@ -103,7 +103,7 @@ void read_from_file(string pose_raw_filename, string loop_filename, vector<Odom>
 
 int main(int argc, char** argv) {
 
-    string path = "/home/ziv/mloam/result/building-001/10-2-0.5-0.05/";
+    string path = "/home/ziv/mloam/result/building-004/12-3-1-0.1/";
 
     vector<Odom> odoms;
     vector<Loop> loops;
@@ -122,6 +122,9 @@ int main(int argc, char** argv) {
     Vector6 diagonal; diagonal << 1e-6, 1e-6, 1e-6, 1e-6, 1e-6, 1e-6;
     auto prior_model = noiseModel::Diagonal::Variances(diagonal);
 
+    auto loop_model = gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(6) << 1e-3, 1e-3, 1e-3, 1e-2, 1e-2, 1e-1).finished());
+    auto odom_model = gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(6) << 1e-2, 1e-2, 1e-2, 5e-2, 5e-2, 5e-1).finished());
+
     /// Factors container
     NonlinearFactorGraph new_factors;
     Values new_values, current_estimate;
@@ -137,55 +140,14 @@ int main(int argc, char** argv) {
     }
     cout << "loadPCDFile: " << tic.toc() << "ms" << endl;
 
-//    for (size_t i = 0; i < odoms.size(); i++)
-//    {
-//        if (i == 0)
-//        {
-//            // add prior
-//            new_factors.addPrior<Pose3>(i, odoms[i].pose, prior_model);
-//            new_values.insert(i, odoms[i].pose);
-//        }
-//        else
-//        {
-//            // normal odom
-//            auto model = noiseModel::Gaussian::Information(odoms[i].information);
-//            new_factors.emplace_shared<BetweenFactor<Pose3>>(i-1, i, odoms[i-1].pose.between(odoms[i].pose), model);
-//            new_values.insert(i, odoms[i].pose);
-//        }
-//
-//        bool has_loop = false;
-//        // If exist a loop?
-//        for (const auto& loop : loops) {
-//            if (i == loop.to)
-//            {
-//                // find a loop
-//                auto model = noiseModel::Gaussian::Information(loop.information);
-//                new_factors.emplace_shared<BetweenFactor<Pose3>>(loop.from, loop.to, loop.pose, model);
-//
-//                has_loop = true;
-//            }
-//        }
-//
-//        if (has_loop)
-//        {
-//            // save before optimization
-//            isam.getFactorsUnsafe().saveGraph(path + "gtsam/lidar0_isam_before_loop.dot", current_estimate);
-//            writeG2o(isam.getFactorsUnsafe(), current_estimate, path + "gtsam/lidar0_isam_before_loop.g2o");
-//        }
-//
-//        // Do optimization
-//        isam.update(new_factors, new_values);
-//        isam.update();
-//
-//        // update values
-//        current_estimate = isam.calculateEstimate();
-//        new_factors.resize(0);
-//        new_values.clear();
+//    pcl::PointCloud<PointT>::Ptr submap(new pcl::PointCloud<PointT>);
+//    pcl::PointCloud<PointT>::Ptr temp1(new pcl::PointCloud<PointT>);
+//    for (int i = 0; i < 10; i++) {
+//        pcl::transformPointCloud(*pcds[i], *temp1, odoms[i].pose.matrix());
+//        *submap += *temp1;
 //    }
-//
-//    isam.getFactorsUnsafe().saveGraph(path + "gtsam/lidar0_isam_final.dot", current_estimate);
-//    writeG2o(isam.getFactorsUnsafe(), current_estimate, path + "gtsam/lidar0_isam_final.g2o");
-
+//    pcl::io::savePCDFileASCII(path + "submap.pcd", *submap);
+//    return 1;
 
     //////////////////////////////////////////////  Traditional BA  //////////////////////////////////////////////////
 
@@ -198,7 +160,7 @@ int main(int argc, char** argv) {
             cg.set_initial(0, odoms[i].pose.matrix());
         } else {
             Eigen::Matrix4d measurement = odoms[i-1].pose.between(odoms[i].pose).matrix();
-            cg.add_edge(i - 1, i, measurement, odoms[i].information);
+            cg.add_edge(i - 1, i, measurement, odoms[i].information, true);
             cg.set_initial(i, odoms[i].pose.matrix());
         }
     }
@@ -211,13 +173,20 @@ int main(int argc, char** argv) {
 
     // Add loop
     for (const auto& loop : loops) {
-        cg.add_edge(loop.from, loop.to, loop.pose.matrix(), loop.information);
+        cg.add_edge(loop.from, loop.to, loop.pose.matrix(), loop.information, true);
+        cout << "!" << endl;
     }
     cg.optimize(5);
 
     cg.graph().saveGraph(path + "gtsam/lidar"+to_string(current_lidar)+"after_opti.dot", cg.result());
 
     auto opti_res = cg.result();
+
+    ofstream f_out(path + "with_info.txt");
+    for (int i = 0; i < opti_res.size(); i++) {
+        f_out << i << endl;
+        f_out << opti_res.at<Pose3>(i).matrix() << endl;
+    }
 
     pcl::PointCloud<PointT>::Ptr global_raw(new pcl::PointCloud<PointT>);
     pcl::PointCloud<PointT>::Ptr global_opti(new pcl::PointCloud<PointT>);
@@ -235,7 +204,7 @@ int main(int argc, char** argv) {
     }
     cout << "global_opti: " << tic.toc() << "ms" << endl;
 
-    pcl::io::savePCDFileASCII(pcd_path + "global_raw.pcd", *global_raw);
-    pcl::io::savePCDFileASCII(pcd_path + "global_opti.pcd", *global_opti);
+//    pcl::io::savePCDFileASCII(pcd_path + "global_raw.pcd", *global_raw);
+    pcl::io::savePCDFileASCII(pcd_path + "global_info_opti.pcd", *global_opti);
 
 }

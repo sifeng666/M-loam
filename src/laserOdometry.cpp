@@ -133,10 +133,10 @@ public:
 
             auto map_full_pub = MapGenerator::generate_cloud(lidarInfo->keyframeVec, 0, lidarInfo->keyframeVec->size(), FeatureType::Full, true);
             if (!map_full_pub) return;
-            down_sampling_voxel(*map_full_pub, save_map_resolution);
+//            down_sampling_voxel(*map_full_pub, save_map_resolution);
 
-            pcl::io::savePCDFileASCII(file_save_path + filename, *map_full_pub);
-            std::cout << "saved map: " << std::to_string(lidarInfo->i) + "!" << std::endl;
+//            pcl::io::savePCDFileASCII(file_save_path + filename, *map_full_pub);
+//            std::cout << "saved map: " << std::to_string(lidarInfo->i) + "!" << std::endl;
             lidarInfo->status->is_end = false;
         }
     }

@@ -11,7 +11,7 @@ add_executable(test_map_gen test_map_gen.cpp ../include/tools/registration.hpp)
 target_link_libraries(test_map_gen ${PCL_LIBRARIES} gtsam)
 
 add_executable(test_global_align test_global_align.cpp ../include/tools/registration.hpp)
-target_link_libraries(test_global_align ${PCL_LIBRARIES} fast_gicp)
+target_link_libraries(test_global_align gtsam ${PCL_LIBRARIES} fast_gicp)
 
 add_executable(test_gtsam_opti test_gtsam_opti.cpp calibration_graph.cpp)
 target_link_libraries(test_gtsam_opti ${PCL_LIBRARIES} gtsam)

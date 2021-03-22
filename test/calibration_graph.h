@@ -40,7 +40,7 @@ namespace ct
         void set_initial(gtsam::Key id, const Eigen::Matrix4d& initial_estimate);
 
         void add_edge(gtsam::Key from, gtsam::Key to, const Eigen::Matrix4d& measurement,
-                      const Matrix6d& information);
+                      const Matrix6d& information, bool use_info = true);
 
         const std::vector<Edge>& get_edges() const { return edges_; }
 

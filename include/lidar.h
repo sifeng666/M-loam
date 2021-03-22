@@ -217,6 +217,7 @@ public:
 
     std::ofstream f_pose_fixed;
     std::ofstream f_backend_timecost;
+    string file_save_path;
 
 
 };

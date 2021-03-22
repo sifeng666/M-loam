@@ -52,9 +52,16 @@ namespace ct
 
 
     void CalibrationGraph::add_edge(gtsam::Key from, gtsam::Key to, const Eigen::Matrix4d &measurement,
-                                    const ct::CalibrationGraph::Matrix6d &information)
+                                    const ct::CalibrationGraph::Matrix6d &information, bool use_info)
     {
-        SharedNoiseModel model = noiseModel::Gaussian::Information(information);
+        SharedNoiseModel model;
+        if (use_info)
+            model = noiseModel::Gaussian::Information(information);
+        else {
+            Vector6 diagonal;
+            diagonal << 1e-3, 1e-3, 1e-3, 1e-2, 1e-2, 1e-1;
+            model = noiseModel::Diagonal::Variances(diagonal);
+        }
 
         if (robustify_)
         {
