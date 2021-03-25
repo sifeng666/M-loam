@@ -211,8 +211,6 @@ PlanarHandEyeCalibration::estimate(const std::vector<Eigen::Quaterniond, Eigen::
         std::cout << "# INFO: Before refinement:" << std::endl;
         std::cout << "H_12 = " << std::endl;
         std::cout << H_12 << std::endl;
-        f << "# INFO: Before refinement:" << std::endl;
-        f << "H_12 = " << std::endl;
         f << H_12 << std::endl << std::endl;
     }
 
@@ -223,8 +221,6 @@ PlanarHandEyeCalibration::estimate(const std::vector<Eigen::Quaterniond, Eigen::
         std::cout << "# INFO: After refinement:" << std::endl;
         std::cout << "H_12 = " << std::endl;
         std::cout << H_12 << std::endl;
-        f << "# INFO: After refinement:" << std::endl;
-        f << "H_12 = " << std::endl;
         f << H_12 << std::endl << std::endl;
     }
 

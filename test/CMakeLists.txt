@@ -25,3 +25,6 @@ find_package(PythonLibs 3.8)
 add_executable(draw_result draw_result.cpp)
 target_include_directories(draw_result PRIVATE ${PYTHON_INCLUDE_DIRS})
 target_link_libraries(draw_result ${PYTHON_LIBRARIES} gtsam)
+
+add_executable(transform_pose transform_pose.cpp)
+target_link_libraries(transform_pose gtsam)

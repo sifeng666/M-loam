@@ -21,6 +21,7 @@
 #include "helper.h"
 #include <pcl/visualization/cloud_viewer.h>
 #include <pcl/visualization/pcl_visualizer.h>
+#include <iomanip>
 
 #include <gtsam/nonlinear/ISAM2.h>
 
@@ -30,8 +31,8 @@ using namespace ct;
 using PointT = pcl::PointXYZI;
 
 struct Odom {
-    size_t index;
     Pose3 pose;
+    double time_stamp;
     Eigen::Matrix6d information;
 };
 
@@ -50,7 +51,7 @@ void read_from_file(string pose_raw_filename, string loop_filename, vector<Odom>
     Eigen::Matrix6d info(Eigen::Matrix6d::Identity());
 
     while (!f_fixed_raw.eof()) {
-        int k;
+        double k;
         f_fixed_raw >> k;
         // Read ceres result
         for (int i = 0; i < 4; i++) {
@@ -66,9 +67,9 @@ void read_from_file(string pose_raw_filename, string loop_filename, vector<Odom>
             }
         }
         Odom odom;
+        odom.time_stamp = k;
         odom.pose = Pose3(pose);
         odom.information = info;
-        odom.index = k;
         odoms.push_back(odom);
     }
 
@@ -103,7 +104,7 @@ void read_from_file(string pose_raw_filename, string loop_filename, vector<Odom>
 
 int main(int argc, char** argv) {
 
-    string path = "/home/ziv/mloam/result/building-004/12-3-1-0.1/";
+    string path = "/home/ziv/mloam/result/dzf-005/";
 
     vector<Odom> odoms;
     vector<Loop> loops;
@@ -112,6 +113,8 @@ int main(int argc, char** argv) {
     TicToc tic;
     read_from_file(path + "/lidar"+to_string(current_lidar)+"fixed_poses_raw.txt", path + "/lidar"+to_string(current_lidar)+"f_loop.txt", odoms, loops);
     cout << "read_from_file: " << tic.toc() << "ms" << endl;
+    cout << odoms.size() << endl;
+//    return 0;
     /// iSAM params
 //    ISAM2Params isam2Params;
 //    isam2Params.relinearizeThreshold = 0.1;
@@ -142,7 +145,8 @@ int main(int argc, char** argv) {
 
 //    pcl::PointCloud<PointT>::Ptr submap(new pcl::PointCloud<PointT>);
 //    pcl::PointCloud<PointT>::Ptr temp1(new pcl::PointCloud<PointT>);
-//    for (int i = 0; i < 10; i++) {
+//    for (int i = 0; i < 15; i++) {
+//        cout << odoms[i].pose.matrix() << endl;
 //        pcl::transformPointCloud(*pcds[i], *temp1, odoms[i].pose.matrix());
 //        *submap += *temp1;
 //    }
@@ -182,10 +186,13 @@ int main(int argc, char** argv) {
 
     auto opti_res = cg.result();
 
-    ofstream f_out(path + "with_info.txt");
+    ofstream f_out(path + "Ours.txt");
     for (int i = 0; i < opti_res.size(); i++) {
-        f_out << i << endl;
-        f_out << opti_res.at<Pose3>(i).matrix() << endl;
+        auto pose = opti_res.at<Pose3>(i);
+        auto q = pose.rotation().toQuaternion();
+        f_out << setprecision(20) << odoms[i].time_stamp/1e9 << " " << pose.x() << " " << pose.y() << " " << pose.z() << " " << q.x() << " " << q.y() << " " << q.z() << " " << q.w() << endl;
+//        f_out << i << endl;
+//        f_out << opti_res.at<Pose3>(i).matrix() << endl;
     }
 
     pcl::PointCloud<PointT>::Ptr global_raw(new pcl::PointCloud<PointT>);
@@ -204,7 +211,7 @@ int main(int argc, char** argv) {
     }
     cout << "global_opti: " << tic.toc() << "ms" << endl;
 
-//    pcl::io::savePCDFileASCII(pcd_path + "global_raw.pcd", *global_raw);
+    pcl::io::savePCDFileASCII(pcd_path + "global_raw.pcd", *global_raw);
     pcl::io::savePCDFileASCII(pcd_path + "global_info_opti.pcd", *global_opti);
 
 }

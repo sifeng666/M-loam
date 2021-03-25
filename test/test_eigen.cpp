@@ -35,19 +35,30 @@ Eigen::Matrix4d fromRotationAndTranslation(const Eigen::Matrix3d& R, const Eigen
 
 int main() {
 
-//    Eigen::Vector3d t(0.21, 0.01, -0.1);
-//    Eigen::Matrix3d R = eularAngleToMatrix(-2.3*M_PI/180, 0*M_PI/180, 0*M_PI/180);
-//    cout << fromRotationAndTranslation(R, t) << endl;
+    Eigen::Vector3d t(0, -0.477, -0.220);
+    Eigen::Matrix3d R = eularAngleToMatrix(0*M_PI/180, 0*M_PI/180, 40*M_PI/180);
+    cout << fromRotationAndTranslation(R, t) << endl;
+//
+//    Eigen::Matrix4d T;
+//    T <<   -0.999998,  0.00150658,  0.00153659,   -0.845645,
+//    0.00149484,    -0.99997, -0.00760869,   0.0114515,
+//    0.001548, -0.00760638,     0.99997,  -0.0350387,
+//    0,           0,           0,           1;
+//
+//
+//
+//    Eigen::Matrix4d TT;
+//    TT << 1.000,	-0.003,	-0.002,	0.007,
+//    0.003,	1.000,	0.001,	-0.020,
+//    0.002,	-0.001,	1.000,	-0.001,
+//    0.000,	0.000,	0.000,	1.000;
+//
+//   cout << TT * T << endl;
 
 
-    Eigen::Matrix4d TT;
-    TT << -0.999997735023, 0.001494844211, 0.00154800422, -0.845576286316,
-        0.001506577595, -0.999970078468, -0.007606379222, 0.009910655208,
-        0.001536586904, -0.007608694024 ,0.999969959259, 0.036424160004,
-        0.0, 0.0, 0.0, 1.0;
 
-    Eigen::Isometry3d T(TT);
-    cout << T.matrix() << endl;
-    cout << T.inverse().matrix() << endl;
+
+
+
 
 }

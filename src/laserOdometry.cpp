@@ -32,6 +32,10 @@ public:
     ros::Subscriber sub_laser_cloud;
     ros::Subscriber sub_laser_cloud_less_edge;
     ros::Subscriber sub_laser_cloud_less_surf;
+
+    ros::Subscriber sub_laser_cloud_edge;
+    ros::Subscriber sub_laser_cloud_surf;
+
     ros::Publisher pub_map;
     ros::Publisher pub_pointcloud_raw;
     ros::Publisher pub_odom_opti;
@@ -126,8 +130,11 @@ public:
     void save_global_map(LidarInfo::Ptr lidarInfo, const std::string& filename) {
         if (lidarInfo->status->is_end) {
             _mkdir(file_save_path + to_string(lidarInfo->i) + "/1.txt");
+            std::ofstream f_mapping_pose(file_save_path + "compare/mloam/mapping_pose.txt");
+            _mkdir(file_save_path + "compare/mloam/mapping_pose.txt");
             for (int i = 0; i < lidarInfo->keyframeVec->size(); i++) {
                 pcl::io::savePCDFileASCII(file_save_path + to_string(lidarInfo->i) + "/" + to_string(i) + ".pcd", *lidarInfo->keyframeVec->at(i)->raw);
+                f_mapping_pose << 1 << ": " << lidarInfo->keyframeVec->at(i)->cloud_in_time.toNSec() << endl << lidarInfo->keyframeVec->at(i)->pose_world_curr.matrix() << endl;
             }
             cout << "save all pcd!: " << lidarInfo->i << endl;
 
@@ -192,6 +199,7 @@ public:
                 pcl::PointCloud<PointT>::Ptr cloud_raw(new pcl::PointCloud<PointT>());
                 pcl::PointCloud<PointT>::Ptr cloud_in_edge(new pcl::PointCloud<PointT>());
                 pcl::PointCloud<PointT>::Ptr cloud_in_surf(new pcl::PointCloud<PointT>());
+
 
                 if (use_lidar0) {
                     lidarInfo0->reader.lock();
@@ -266,15 +274,23 @@ public:
 
     void laser_odometry_base() {
 
+        std::ofstream f_odom_time(file_save_path + "compare/mloam/odom_time.txt");
+        std::ofstream f_odom_pose(file_save_path + "compare/mloam/odom_pose.txt");
+
         while (ros::ok()) {
 
             if (go_fusion) {
                 return;
             }
 
+
+
             if ( !lidarInfo0->reader.pointCloudFullBuf.empty() &&
                  !lidarInfo0->reader.pointCloudLessEdgeBuf.empty() &&
-                 !lidarInfo0->reader.pointCloudLessSurfBuf.empty() ) {
+                 !lidarInfo0->reader.pointCloudLessSurfBuf.empty()
+                 && !lidarInfo0->reader.pointCloudEdgeBuf.empty()
+                 && !lidarInfo0->reader.pointCloudSurfBuf.empty()
+                 ) {
 
 //                Timer t_laser_odometry("laser_odometry: " + lidarSensor0.get_lidar_name());
                 TicToc tic;
@@ -289,25 +305,33 @@ public:
                 pcl::PointCloud<PointT>::Ptr cloud_raw(new pcl::PointCloud<PointT>());
                 pcl::PointCloud<PointT>::Ptr cloud_in_edge(new pcl::PointCloud<PointT>());
                 pcl::PointCloud<PointT>::Ptr cloud_in_surf(new pcl::PointCloud<PointT>());
+                pcl::PointCloud<PointT>::Ptr cloud_in_less_edge(new pcl::PointCloud<PointT>());
+                pcl::PointCloud<PointT>::Ptr cloud_in_less_surf(new pcl::PointCloud<PointT>());
 
                 pcl::fromROSMsg(*lidarInfo0->reader.pointCloudFullBuf.front(), *cloud_raw);
-                pcl::fromROSMsg(*lidarInfo0->reader.pointCloudLessEdgeBuf.front(), *cloud_in_edge);
-                pcl::fromROSMsg(*lidarInfo0->reader.pointCloudLessSurfBuf.front(), *cloud_in_surf);
+                pcl::fromROSMsg(*lidarInfo0->reader.pointCloudLessEdgeBuf.front(), *cloud_in_less_edge);
+                pcl::fromROSMsg(*lidarInfo0->reader.pointCloudLessSurfBuf.front(), *cloud_in_less_surf);
+                pcl::fromROSMsg(*lidarInfo0->reader.pointCloudEdgeBuf.front(), *cloud_in_edge);
+                pcl::fromROSMsg(*lidarInfo0->reader.pointCloudSurfBuf.front(), *cloud_in_surf);
 
                 lidarInfo0->ros_time = lidarInfo0->reader.pointCloudFullBuf.front()->header.stamp;
 
                 lidarInfo0->reader.pointCloudFullBuf.pop();
                 lidarInfo0->reader.pointCloudLessEdgeBuf.pop();
                 lidarInfo0->reader.pointCloudLessSurfBuf.pop();
+                lidarInfo0->reader.pointCloudEdgeBuf.pop();
+                lidarInfo0->reader.pointCloudSurfBuf.pop();
 
                 lidarInfo0->reader.unlock();
 
-                lidarInfo0->odom = lidarSensor0.update(lidarInfo0->ros_time, cloud_in_edge, cloud_in_surf, cloud_raw);
+                lidarInfo0->odom = lidarSensor0.update(lidarInfo0->ros_time, cloud_in_less_edge, cloud_in_less_surf, cloud_raw);
                 pubOptiOdom(lidarInfo0);
                 pubRawPointCloud(lidarInfo0, cloud_raw);
 
 //                t_laser_odometry.count();
                 f_lidar0_timecost << tic.toc() << endl;
+                f_odom_time << 1 << ": " << tic.toc() << endl;
+                f_odom_pose << 1 << ": " << lidarInfo0->ros_time.toNSec() << endl << lidarInfo0->odom.matrix() << endl;
 
             } else {
                 pubOptiOdom(lidarInfo0);
@@ -327,7 +351,10 @@ public:
 
             if ( !lidarInfo1->reader.pointCloudFullBuf.empty() &&
                  !lidarInfo1->reader.pointCloudLessEdgeBuf.empty() &&
-                 !lidarInfo1->reader.pointCloudLessSurfBuf.empty() ) {
+                 !lidarInfo1->reader.pointCloudLessSurfBuf.empty()
+                 && !lidarInfo1->reader.pointCloudEdgeBuf.empty()
+                 && !lidarInfo1->reader.pointCloudSurfBuf.empty()
+                 ) {
 
 //                Timer t_laser_odometry("laser_odometry: " + lidarSensor1.get_lidar_name());
                 TicToc tic;
@@ -342,19 +369,26 @@ public:
                 pcl::PointCloud<PointT>::Ptr cloud_in_edge(new pcl::PointCloud<PointT>());
                 pcl::PointCloud<PointT>::Ptr cloud_in_surf(new pcl::PointCloud<PointT>());
 
+                pcl::PointCloud<PointT>::Ptr cloud_in_less_edge(new pcl::PointCloud<PointT>());
+                pcl::PointCloud<PointT>::Ptr cloud_in_less_surf(new pcl::PointCloud<PointT>());
+
                 pcl::fromROSMsg(*lidarInfo1->reader.pointCloudFullBuf.front(), *cloud_raw);
-                pcl::fromROSMsg(*lidarInfo1->reader.pointCloudLessEdgeBuf.front(), *cloud_in_edge);
-                pcl::fromROSMsg(*lidarInfo1->reader.pointCloudLessSurfBuf.front(), *cloud_in_surf);
+                pcl::fromROSMsg(*lidarInfo1->reader.pointCloudLessEdgeBuf.front(), *cloud_in_less_edge);
+                pcl::fromROSMsg(*lidarInfo1->reader.pointCloudLessSurfBuf.front(), *cloud_in_less_surf);
+                pcl::fromROSMsg(*lidarInfo1->reader.pointCloudEdgeBuf.front(), *cloud_in_edge);
+                pcl::fromROSMsg(*lidarInfo1->reader.pointCloudSurfBuf.front(), *cloud_in_surf);
 
                 lidarInfo1->ros_time = lidarInfo1->reader.pointCloudFullBuf.front()->header.stamp;
 
                 lidarInfo1->reader.pointCloudFullBuf.pop();
                 lidarInfo1->reader.pointCloudLessEdgeBuf.pop();
                 lidarInfo1->reader.pointCloudLessSurfBuf.pop();
+                lidarInfo1->reader.pointCloudEdgeBuf.pop();
+                lidarInfo1->reader.pointCloudSurfBuf.pop();
 
                 lidarInfo1->reader.unlock();
 
-                lidarInfo1->odom = lidarSensor1.update(lidarInfo1->ros_time, cloud_in_edge, cloud_in_surf, cloud_raw);
+                lidarInfo1->odom = lidarSensor1.update(lidarInfo1->ros_time, cloud_in_less_edge, cloud_in_less_surf, cloud_raw);
                 pubOptiOdom(lidarInfo1);
                 pubRawPointCloud(lidarInfo1, cloud_raw);
 
@@ -416,6 +450,7 @@ public:
                 lidarInfo0->status->status_change = false;
                 lidarInfo1->status->status_change = false;
             }
+            cout << "calibra_simple: " << calibra_simple << ", start_calibra_with_loop" << start_calibra_with_loop << endl;
 
             if (!calibra_simple) {
                 gtsam::Pose3 T_0_1;
@@ -423,18 +458,13 @@ public:
                 if (!success) continue;
                 std::cout << "hand eye calibrate convergence result: \n" << T_0_1.matrix() << std::endl;
 
-
-                f_hand_eye_convergence << "Hand-eye count: " << conv_time++ << std::endl;
-                f_hand_eye_convergence << "T_0_1 = " << std::endl;
                 f_hand_eye_convergence << T_0_1.matrix() << std::endl << std::endl;
 
                 set_tz(T_0_1);
 
-                if (T_0_1.equals(last_T, 0.005)) {
+                if (T_0_1.equals(last_T, 0.01)) {
                     calibra_simple = true;
                     std::cout << "simple calibration done!" << std::endl;
-
-                    f_hand_eye_convergence << "### first converge" << endl;
 
                     lidarInfo1->T_0_i = T_0_1;
                 }
@@ -448,14 +478,11 @@ public:
                 bool success = HandEyeCalibrator::calibrate(lidarInfo1->keyframeVec, lidarInfo0->keyframeVec, T_0_1);
                 if (!success) continue;
                 std::cout << "hand eye calibrate fixed result: \n" << T_0_1.matrix() << std::endl;
-
-                f_hand_eye_loop << "LOOP count: " << conv_time++ << std::endl;
-                f_hand_eye_loop << "T_0_1 = " << std::endl;
                 f_hand_eye_loop << T_0_1.matrix() << std::endl << std::endl;
 
                 set_tz(T_0_1);
 
-//                calibra_with_loop = true;
+                calibra_with_loop = true;
                 std::cout << "calibration with loop done!" << std::endl;
                 lidarInfo1->T_0_i = T_0_1;
             }
@@ -554,9 +581,7 @@ public:
 
                     cout << "before T_0_1: \n" << lidarInfo1->T_0_i.matrix() << endl;
                     cout << "after opti: \n"   << pose_w0_w1.matrix() << endl;
-
-                    f_calibration_opti << "before T_0_1: \n" << lidarInfo1->T_0_i.matrix() << endl;
-                    f_calibration_opti << "after opti: \n"   << pose_w0_w1.matrix() << endl;
+                    f_calibration_opti << pose_w0_w1.matrix() << endl;
 
                     printf("gtsam takes %f ms\n", t1.toc());
 
@@ -607,6 +632,8 @@ public:
         lidarInfo1->fixedChannel = lidarSensor1.fixedKeyframeChannel;
 
         lidarInfo0->sub_laser_cloud           = nh.subscribe<sensor_msgs::PointCloud2>("/left/velodyne_points_2",  100, &LidarMsgReader::pointCloudFullHandler, &lidarInfo0->reader);
+        lidarInfo0->sub_laser_cloud_edge = nh.subscribe<sensor_msgs::PointCloud2>("/left/laser_cloud_edge",  100, &LidarMsgReader::pointCloudEdgeHandler, &lidarInfo0->reader);
+        lidarInfo0->sub_laser_cloud_surf = nh.subscribe<sensor_msgs::PointCloud2>("/left/laser_cloud_surf",  100, &LidarMsgReader::pointCloudSurfHandler, &lidarInfo0->reader);
         lidarInfo0->sub_laser_cloud_less_edge = nh.subscribe<sensor_msgs::PointCloud2>("/left/laser_cloud_less_edge",  100, &LidarMsgReader::pointCloudLessEdgeHandler, &lidarInfo0->reader);
         lidarInfo0->sub_laser_cloud_less_surf = nh.subscribe<sensor_msgs::PointCloud2>("/left/laser_cloud_less_surf",  100, &LidarMsgReader::pointCloudLessSurfHandler, &lidarInfo0->reader);
         lidarInfo0->pub_odom_opti             = nh.advertise<nav_msgs::Path>(          "/left/odom_opti", 100);
@@ -614,6 +641,8 @@ public:
         lidarInfo0->pub_pointcloud_raw        = nh.advertise<sensor_msgs::PointCloud2>("/left/raw_points", 10);
 
         lidarInfo1->sub_laser_cloud           = nh.subscribe<sensor_msgs::PointCloud2>("/right/velodyne_points_2",  100, &LidarMsgReader::pointCloudFullHandler, &lidarInfo1->reader);
+        lidarInfo1->sub_laser_cloud_edge = nh.subscribe<sensor_msgs::PointCloud2>("/right/laser_cloud_edge",  100, &LidarMsgReader::pointCloudEdgeHandler, &lidarInfo1->reader);
+        lidarInfo1->sub_laser_cloud_surf = nh.subscribe<sensor_msgs::PointCloud2>("/right/laser_cloud_surf",  100, &LidarMsgReader::pointCloudSurfHandler, &lidarInfo1->reader);
         lidarInfo1->sub_laser_cloud_less_edge = nh.subscribe<sensor_msgs::PointCloud2>("/right/laser_cloud_less_edge", 100, &LidarMsgReader::pointCloudLessEdgeHandler, &lidarInfo1->reader);
         lidarInfo1->sub_laser_cloud_less_surf = nh.subscribe<sensor_msgs::PointCloud2>("/right/laser_cloud_less_surf", 100, &LidarMsgReader::pointCloudLessSurfHandler, &lidarInfo1->reader);
         lidarInfo1->pub_odom_opti             = nh.advertise<nav_msgs::Path>(          "/right/odom_opti", 100);

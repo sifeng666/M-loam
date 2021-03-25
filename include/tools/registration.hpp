@@ -177,7 +177,7 @@ namespace tools
         fast_gicp::FastGICP<PointT, PointT> gicp;
         gicp.setNumThreads(0);
         gicp.setTransformationEpsilon(0.1);
-        gicp.setMaximumIterations(64);
+        gicp.setMaximumIterations(100);
         gicp.setMaxCorrespondenceDistance(max_correspondence_distance);
         gicp.setCorrespondenceRandomness(20);
 

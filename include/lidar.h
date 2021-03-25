@@ -89,7 +89,7 @@ public:
                                   gtsam::NonlinearFactorGraph& factors,
                                   const gtsam::Pose3& point_transform = gtsam::Pose3::identity());
     
-    void updateSubmap(size_t range_from = 0, size_t range_to = 0);
+    void updateSubmap(size_t range_from, size_t range_to);
     bool nextFrameToBeKeyframe();
     void handleRegistration();
     void updatePoses();
@@ -106,6 +106,13 @@ public:
 
     void getTransToSubmap(pcl::PointCloud<PointT>::Ptr currEdge,
                           pcl::PointCloud<PointT>::Ptr currSurf);
+
+    gtsam::Pose3 update(const ros::Time cloud_in_time,
+                        pcl::PointCloud<PointT>::Ptr currEdge,
+                        pcl::PointCloud<PointT>::Ptr currSurf,
+                        pcl::PointCloud<PointT>::Ptr currLessEdge,
+                        pcl::PointCloud<PointT>::Ptr currLessSurf,
+                        pcl::PointCloud<PointT>::Ptr currRaw);
 
     gtsam::Pose3 update(const ros::Time cloud_in_time,
                 pcl::PointCloud<PointT>::Ptr currEdge,
@@ -172,18 +179,21 @@ private:
 //    pcl::RegionGrowing<PointT, NormalT> regionGrowing;
 
     // frame-to-submap
-    std::mutex submap_mtx;
-    pcl::PointCloud<PointT>::Ptr submap_corn;
-    pcl::PointCloud<PointT>::Ptr submap_surf;
+//    std::mutex submap_mtx;
+//    pcl::PointCloud<PointT>::Ptr submap_corn;
+//    pcl::PointCloud<PointT>::Ptr submap_surf;
     pcl::KdTreeFLANN<PointT> kdtree_corn;
     pcl::KdTreeFLANN<PointT> kdtree_surf;
-    pcl::VoxelGrid<PointT> voxelGrid;
+    pcl::VoxelGrid<PointT> voxelGrid_corn;
+    pcl::VoxelGrid<PointT> voxelGrid_surf;
 
     /*********************************************************************
    ** backend BA
    *********************************************************************/
     std::mutex BA_mtx;
     std::queue<Keyframe::Ptr> BAKeyframeBuf;
+
+    Submap::Ptr submap;
 
     // loop
     std::mutex fixed_mtx;
@@ -212,8 +222,6 @@ private:
 public:
     LidarStatus::Ptr status;
     FixedKeyframeChannel::Ptr fixedKeyframeChannel;
-
-
 
     std::ofstream f_pose_fixed;
     std::ofstream f_backend_timecost;

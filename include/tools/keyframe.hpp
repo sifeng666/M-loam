@@ -35,6 +35,20 @@ namespace tools
         Plane = 3
     };
 
+    class Submap {
+    public:
+        using Ptr = std::shared_ptr<Submap>;
+        std::mutex mtx;
+        int from, end;
+        pcl::PointCloud<PointT>::Ptr submap_corn;
+        pcl::PointCloud<PointT>::Ptr submap_surf;
+        Submap() {
+            submap_corn.reset(new pcl::PointCloud<PointT>);
+            submap_surf.reset(new pcl::PointCloud<PointT>);
+        }
+
+    };
+
     class Keyframe {
     public:
         using Ptr = std::shared_ptr<Keyframe>;
