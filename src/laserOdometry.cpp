@@ -278,12 +278,9 @@ public:
         std::ofstream f_odom_pose(file_save_path + "compare/mloam/odom_pose.txt");
 
         while (ros::ok()) {
-
             if (go_fusion) {
                 return;
             }
-
-
 
             if ( !lidarInfo0->reader.pointCloudFullBuf.empty() &&
                  !lidarInfo0->reader.pointCloudLessEdgeBuf.empty() &&

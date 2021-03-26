@@ -1,7 +1,7 @@
 <launch>
     
     <param name="/use_sim_time" value="ture"/>
-    <node pkg="rosbag" type="play" name="playbag" args="--clock /home/ziv/sunshine_dateset/kitti/seq09.bag
+    <node pkg="rosbag" type="play" name="playbag" args="--clock /home/ziv/sunshine_dateset/0309/ziv_bag/out01.bag
          /velodyne_points:=/left/velodyne_points
          /rslidar_points:=/left/velodyne_points
          /ns1/rslidar_points:=/left/velodyne_points
@@ -12,7 +12,7 @@
          /kitti/velo/pointcloud:=/left/velodyne_points
     "/>
 
-    <param name="file_save_path" type="string" value="/home/ziv/mloam/result/kitti-09/10-4-2-0.15/" />
+    <param name="file_save_path" type="string" value="/home/ziv/mloam/result/degen/out01/10-4-1-0.1/" />
 
 <!--    outdoor    -->
 <!--    building-003 10-4-0.8-0.1-->
@@ -20,23 +20,23 @@
     <param name="need_calibra" type="bool" value="false" />
     <param name="go_fusion" type="bool" value="false" />
 
-    <param name="scan_line" type="int" value="64" />
+    <param name="scan_line" type="int" value="16" />
     <param name="min_dis" type="double" value="0.2" />
-    <param name="max_dis" type="double" value="150.0" />
-    <param name="surf_filter_length" type="double" value="0.4"/>
-    <param name="corn_filter_length" type="double" value="0.2"/>
+    <param name="max_dis" type="double" value="100.0" />
+    <param name="surf_filter_length" type="double" value="0.3"/>
+    <param name="corn_filter_length" type="double" value="0.1"/>
     <param name="window_size" type="int" value="10" />
     <param name="margi_size" type="int" value="4" />
-    <param name="keyframe_distance_threshold" type="double" value="2" />
-    <param name="keyframe_angle_threshold" type="double" value="0.15" />
+    <param name="keyframe_distance_threshold" type="double" value="1" />
+    <param name="keyframe_angle_threshold" type="double" value="0.1" />
     <param name="save_map_resolution" type="double" value="0.05" />
-    <param name="show_map_resolution" type="double" value="0.25" />
-    <param name="gicp_fitness_socre" type="double" value="2" />
+    <param name="show_map_resolution" type="double" value="0.01" />
+    <param name="gicp_fitness_socre" type="double" value="1" />
     <!--loop-->
     <param name="need_loop" type="bool" value="true" />
     <param name="loop_submap_length" type="int" value="10" />
-    <param name="loop_detect_distance" type="int" value="40" />
-    <param name="loop_found_sleep" type="int" value="50" />
+    <param name="loop_detect_distance" type="int" value="4" />
+    <param name="loop_found_sleep" type="int" value="10" />
     <param name="loop_skip_last" type="int" value="50" />
 
     <node pkg="mloam" type="laserProcessing" name="laserProcessing" output="screen" />

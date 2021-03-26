@@ -284,7 +284,7 @@ public:
 
     mutex my_mutex;
 
-    std::vector<double> eigen_threshold {3, 3, 3, 50, 300, 500};
+    std::vector<double> eigen_threshold {4, 4, 4, 50, 300, 500};
 
     LM_SLWD_VOXEL(int ss, int fn, int thnum) : slwd_size(ss), filternum(fn), thd_num(thnum)
     {
@@ -747,11 +747,13 @@ public:
                         {
                             V_u.row(m).setZero();
                             is_degenerate[state_idx] = true;
+//                            cout << "is_degenerate!!!!!!!!" << endl;
                         }
                         else break;
                         ++m;
                     }
-
+//                    V_u.row(5).setZero();
+//                    remap[state_idx] = V_f.inverse() * V_u;
                     if (is_degenerate[state_idx])
                     {
                         remap[state_idx] = V_f.inverse() * V_u;
@@ -777,12 +779,12 @@ public:
             {
                 const Eigen::Index block_idx = 6 * (state_idx);
                 Eigen::Matrix<double, 6, 1>  curr_dxi = dxi.block<6, 1>(block_idx, 0);
-
+//                dxi.block<6, 1>(block_idx, 0) = remap[state_idx] * curr_dxi;
                 if (is_degenerate[state_idx])
                 {
 //                    dxi.block<6, 1>(block_idx, 0) = remap[state_idx] * curr_dxi;
                 }
-
+//                dxi.block<6, 1>(block_idx, 0) = remap[state_idx] * curr_dxi;
                 // left multiplication
                 so3_poses_temp[state_idx] = SO3::exp(dxi.block<3, 1>(block_idx, 0)) * so3_poses[state_idx];
                 t_poses_temp[state_idx] = t_poses[state_idx] + dxi.block<3, 1>(block_idx + 3, 0);
