@@ -468,36 +468,26 @@ public:
 
     LaserProcessing() {
 
-        lidar0 = std::make_shared<LaserProcessor>(0);
-        lidar1 = std::make_shared<LaserProcessor>(1);
+        lidar = std::make_shared<LaserProcessor>(0);
 
         MAXIMUN_RANGE   = nh.param<double>("max_dis", 100.0);
         MINIMUM_RANGE   = nh.param<double>("min_dis", 0.1);
         N_SCANS         = nh.param<int>("scan_line", 16);
 
         // lidar 0
-        lidar0->subLaserCloud            = nh.subscribe<sensor_msgs::PointCloud2>("/left/velodyne_points", 100, &LaserProcessor::pointCloudHandler, &(*lidar0));
-        lidar0->pubLaserCloud            = nh.advertise<sensor_msgs::PointCloud2>("/left/velodyne_points_2", 100);
-        lidar0->pubCornerPointsSharp     = nh.advertise<sensor_msgs::PointCloud2>("/left/laser_cloud_edge", 100);
-        lidar0->pubSurfPointsFlat        = nh.advertise<sensor_msgs::PointCloud2>("/left/laser_cloud_surf", 100);
-        lidar0->pubCornerPointsLessSharp = nh.advertise<sensor_msgs::PointCloud2>("/left/laser_cloud_less_edge", 100);
-        lidar0->pubSurfPointsLessFlat    = nh.advertise<sensor_msgs::PointCloud2>("/left/laser_cloud_less_surf", 100);
-
-        // lidar 1
-        lidar1->subLaserCloud            = nh.subscribe<sensor_msgs::PointCloud2>("/right/velodyne_points", 100, &LaserProcessor::pointCloudHandler, &(*lidar1));
-        lidar1->pubLaserCloud            = nh.advertise<sensor_msgs::PointCloud2>("/right/velodyne_points_2", 100);
-        lidar1->pubCornerPointsSharp     = nh.advertise<sensor_msgs::PointCloud2>("/right/laser_cloud_edge", 100);
-        lidar1->pubSurfPointsFlat        = nh.advertise<sensor_msgs::PointCloud2>("/right/laser_cloud_surf", 100);
-        lidar1->pubCornerPointsLessSharp = nh.advertise<sensor_msgs::PointCloud2>("/right/laser_cloud_less_edge", 100);
-        lidar1->pubSurfPointsLessFlat    = nh.advertise<sensor_msgs::PointCloud2>("/right/laser_cloud_less_surf", 100);
+        lidar->subLaserCloud            = nh.subscribe<sensor_msgs::PointCloud2>("/velodyne_points", 100, &LaserProcessor::pointCloudHandler, &(*lidar));
+        lidar->pubLaserCloud            = nh.advertise<sensor_msgs::PointCloud2>("/velodyne_points_2", 100);
+        lidar->pubCornerPointsSharp     = nh.advertise<sensor_msgs::PointCloud2>("/laser_cloud_edge", 100);
+        lidar->pubSurfPointsFlat        = nh.advertise<sensor_msgs::PointCloud2>("/laser_cloud_surf", 100);
+        lidar->pubCornerPointsLessSharp = nh.advertise<sensor_msgs::PointCloud2>("/laser_cloud_less_edge", 100);
+        lidar->pubSurfPointsLessFlat    = nh.advertise<sensor_msgs::PointCloud2>("/laser_cloud_less_surf", 100);
 
     }
 
 private:
 
     ros::NodeHandle nh;
-    LaserProcessor::Ptr lidar0;
-    LaserProcessor::Ptr lidar1;
+    LaserProcessor::Ptr lidar;
 
 };
 

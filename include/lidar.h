@@ -19,50 +19,6 @@
 
 using namespace tools;
 
-// extract from balm back
-static double voxel_size[2] = {1, 1};
-static void cut_voxel(unordered_map<VOXEL_LOC, OCTO_TREE*> &feat_map, pcl::PointCloud<PointT>::Ptr pl_feat, Eigen::Matrix3d R_p, Eigen::Vector3d t_p, int feattype, int fnum, int capacity)
-{
-    uint plsize = pl_feat->size();
-    for(uint i=0; i<plsize; i++)
-    {
-        PointT &p_c = pl_feat->points[i];
-        Eigen::Vector3d pvec_orig(p_c.x, p_c.y, p_c.z);
-        Eigen::Vector3d pvec_tran = R_p*pvec_orig + t_p;
-
-        float loc_xyz[3];
-        for(int j=0; j<3; j++)
-        {
-            loc_xyz[j] = pvec_tran[j] / voxel_size[feattype];
-            if(loc_xyz[j] < 0)
-            {
-                loc_xyz[j] -= 1.0;
-            }
-        }
-
-        VOXEL_LOC position((int64_t)loc_xyz[0], (int64_t)loc_xyz[1], (int64_t)loc_xyz[2]);
-        auto iter = feat_map.find(position);
-        if(iter != feat_map.end())
-        {
-            iter->second->plvec_orig[fnum]->push_back(pvec_orig);
-            iter->second->plvec_tran[fnum]->push_back(pvec_tran);
-            iter->second->is2opt = true;
-        }
-        else
-        {
-            OCTO_TREE *ot = new OCTO_TREE(feattype, capacity);
-            ot->plvec_orig[fnum]->push_back(pvec_orig);
-            ot->plvec_tran[fnum]->push_back(pvec_tran);
-
-            ot->voxel_center[0] = (0.5+position.x) * voxel_size[feattype];
-            ot->voxel_center[1] = (0.5+position.y) * voxel_size[feattype];
-            ot->voxel_center[2] = (0.5+position.z) * voxel_size[feattype];
-            ot->quater_length = voxel_size[feattype] / 4.0;
-            feat_map[position] = ot;
-        }
-    }
-}
-
 class LidarStatus {
 public:
     using Ptr = std::shared_ptr<LidarStatus>;
@@ -137,20 +93,27 @@ public:
     void initParam();
     void initBALMParam();
 
-    pcl::PointCloud<PointT>::Ptr extract_planes(pcl::PointCloud<PointT>::Ptr currSurf);
-
     void update_keyframe(const ros::Time& cloud_in_time,
-                         pcl::PointCloud<PointT>::Ptr currEdge,
-                         pcl::PointCloud<PointT>::Ptr currSurf,
-                         pcl::PointCloud<PointT>::Ptr currFull);
+                         pcl::PointCloud<PointT>::Ptr corn,
+                         pcl::PointCloud<PointT>::Ptr surf,
+                         pcl::PointCloud<PointT>::Ptr full);
 
-    void getTransToSubmap(pcl::PointCloud<PointT>::Ptr currEdge,
-                          pcl::PointCloud<PointT>::Ptr currSurf);
+    void scan2scan(pcl::PointCloud<PointT>::Ptr corn,
+                        pcl::PointCloud<PointT>::Ptr surf,
+                        int n_scans);
+
+    void scan2submap(pcl::PointCloud<PointT>::Ptr corn,
+                        pcl::PointCloud<PointT>::Ptr surf);
+
+    void getTransToSubmap(pcl::PointCloud<PointT>::Ptr corn,
+                          pcl::PointCloud<PointT>::Ptr surf);
 
     gtsam::Pose3 update(const ros::Time cloud_in_time,
-                pcl::PointCloud<PointT>::Ptr currEdge,
-                pcl::PointCloud<PointT>::Ptr currSurf,
-                pcl::PointCloud<PointT>::Ptr currRaw);
+                pcl::PointCloud<PointT>::Ptr corn,
+                pcl::PointCloud<PointT>::Ptr surf,
+                pcl::PointCloud<PointT>::Ptr raw,
+                pcl::PointCloud<PointT>::Ptr less_corn = nullptr,
+                pcl::PointCloud<PointT>::Ptr less_surf = nullptr);
 
     void addOdomFactor(int last_index, int index);
 
@@ -200,9 +163,11 @@ private:
    ** Odometry
    *********************************************************************/
     Keyframe::Ptr current_keyframe;
+
     gtsam::Pose3 odom;      // world to current frame
     gtsam::Pose3 last_odom; // world to last frame
     gtsam::Pose3 delta;     // last frame to current frame
+    gtsam::Pose3 odom_pred;
     gtsam::Pose3 pose_w_c;  // to be optimized
 
     bool is_init = false;
@@ -213,13 +178,9 @@ private:
     pcl::PointCloud<PointT>::Ptr submap_surf;
     pcl::KdTreeFLANN<PointT> kdtree_corn;
     pcl::KdTreeFLANN<PointT> kdtree_surf;
-    pcl::VoxelGrid<PointT> voxelGrid;
 
-    /*********************************************************************
-   ** backend BA
-   *********************************************************************/
-    std::mutex BA_mtx;
-    std::queue<Keyframe::Ptr> BAKeyframeBuf;
+    pcl::VoxelGrid<PointT> ds_corn;
+    pcl::VoxelGrid<PointT> ds_surf;
 
     // loop
     std::mutex fixed_mtx;
@@ -228,26 +189,8 @@ private:
     std::queue<FactorPtr> factorsBuf;
 
 
-    int window_size = 6;
-    int margi_size = 3;
-    const int filter_num = 1;
-    const int thread_num = 4;
-
-
-    LM_SLWD_VOXEL opt_lsv;
-    pcl::PointCloud<PointT>::Ptr pl_corn;
-    pcl::PointCloud<PointT>::Ptr pl_surf;
-    vector<pcl::PointCloud<PointT>::Ptr> pl_full_buf;
-    unordered_map<VOXEL_LOC, OCTO_TREE*> surf_map, corn_map;
-    vector<Eigen::Quaterniond> q_poses;
-    vector<Eigen::Vector3d> t_poses;
-    Eigen::Quaterniond q_odom, q_gather_pose, q_last;
-    Eigen::Vector3d t_odom, t_gather_pose, t_last;
-    int plcount, window_base;
-
 public:
     LidarStatus::Ptr status;
-    FixedKeyframeChannel::Ptr fixedKeyframeChannel;
 };
 
 

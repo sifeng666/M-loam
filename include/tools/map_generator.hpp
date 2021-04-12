@@ -74,7 +74,7 @@ namespace tools
             begin = max(0, begin);
 
             size_t size;
-            if (featureType == FeatureType::Edge) {
+            if (featureType == FeatureType::Corn) {
                 size = keyframeVec->keyframes[begin]->corn_features->size() * (end - begin);
             } else if (featureType == FeatureType::Surf) {
                 size = keyframeVec->keyframes[begin]->surf_features->size() * (end - begin);
@@ -92,7 +92,7 @@ namespace tools
                 Keyframe::Ptr keyframe = keyframeVec->keyframes[i + begin];
                 Eigen::Affine3f pose(Eigen::Matrix4f(poseVec[i].matrix().cast<float>()));
 
-                if (featureType == FeatureType::Edge) {
+                if (featureType == FeatureType::Corn) {
                     for(const auto& src_pt : keyframe->corn_features->points) {
                         cloud->emplace_back(pcl::transformPoint(src_pt, pose));
                     }

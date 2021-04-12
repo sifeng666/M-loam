@@ -29,7 +29,7 @@ using gtsam::symbol_shorthand::X; // state
 namespace tools
 {
     enum class FeatureType {
-        Edge = 0,
+        Corn = 0,
         Surf = 1,
         Full = 2,
         Plane = 3
@@ -126,9 +126,21 @@ namespace tools
             return keyframes[index]->pose_world_curr;
         }
 
-        inline size_t size() const { return keyframes.size(); };
-        inline Keyframe::Ptr& at(size_t index) { return this->keyframes.at(index); }
-        inline const Keyframe::Ptr& at(size_t index) const { return this->keyframes.at(index); }
+        inline size_t size() const {
+            return keyframes.size();
+        }
+        inline Keyframe::Ptr& at(size_t index) {
+            return this->keyframes.at(index);
+        }
+        inline const Keyframe::Ptr& at(size_t index) const {
+            return this->keyframes.at(index);
+        }
+        inline void emplace_back(Keyframe::Ptr keyframe) {
+            this->keyframes.emplace_back(keyframe);
+        }
+        inline void push_back(Keyframe::Ptr keyframe) {
+            this->keyframes.push_back(keyframe);
+        }
     };
 
 }
