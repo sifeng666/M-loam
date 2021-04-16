@@ -44,6 +44,42 @@ public:
     }
 };
 
+class FrameChannel {
+public:
+    using Ptr = std::shared_ptr<FrameChannel>;
+    std::mutex mtx;
+    std::queue<Frame::Ptr> frameBuf;
+    inline void lock() {
+        mtx.lock();
+    }
+    inline void unlock() {
+        mtx.unlock();
+    }
+    inline void push(Frame::Ptr frame) {
+        lock();
+        frameBuf.push(frame);
+        unlock();
+    }
+    inline void clear() {
+        lock();
+        while (!frameBuf.empty()) {
+            frameBuf.pop();
+        }
+        unlock();
+    }
+
+    inline Frame::Ptr get_front() {
+        Frame::Ptr frame = nullptr;
+        if (!frameBuf.empty()) {
+            lock();
+            frame = frameBuf.front();
+            frameBuf.pop();
+            unlock();
+        }
+        return frame;
+    }
+};
+
 class LidarMsgReader {
 public:
     inline void lock()   { pcd_msg_mtx.lock(); }
@@ -71,6 +107,7 @@ public:
     inline void set_name(const std::string& lidar_name) { this->lidar_name = lidar_name; }
     inline std::string get_lidar_name() const { return lidar_name; }
     inline KeyframeVec::Ptr get_keyframeVec() const { return keyframeVec; }
+    inline FrameChannel::Ptr get_frameChannel() const { return frameChannel; }
 
     static void addCornCostFactor(const pcl::PointCloud<PointT>::Ptr& pc_in,
                                   const pcl::PointCloud<PointT>::Ptr& map_in,
@@ -93,34 +130,39 @@ public:
     void initParam();
     void initBALMParam();
 
-    void update_keyframe(const ros::Time& cloud_in_time,
-                         pcl::PointCloud<PointT>::Ptr corn,
-                         pcl::PointCloud<PointT>::Ptr surf,
-                         pcl::PointCloud<PointT>::Ptr full);
+    void feature_based_scan_matching(const pcl::PointCloud<PointT>::Ptr& corn,
+                                     const pcl::PointCloud<PointT>::Ptr& surf,
+                                     const pcl::PointCloud<PointT>::Ptr& corns,
+                                     const pcl::PointCloud<PointT>::Ptr& surfs,
+                                     pcl::KdTreeFLANN<PointT>& kdtree_corn,
+                                     pcl::KdTreeFLANN<PointT>& kdtree_surf,
+                                     gtsam::Pose3& T_w_c);
 
-    void scan2scan(pcl::PointCloud<PointT>::Ptr corn,
-                        pcl::PointCloud<PointT>::Ptr surf,
-                        int n_scans);
+    void point_wise_scan_matching(const pcl::PointCloud<PointT>::Ptr& corn,
+                                  const pcl::PointCloud<PointT>::Ptr& surf,
+                                  const pcl::PointCloud<PointT>::Ptr& corns,
+                                  const pcl::PointCloud<PointT>::Ptr& surfs,
+                                  gtsam::Pose3& T_w_c);
 
-    void scan2submap(pcl::PointCloud<PointT>::Ptr corn,
-                        pcl::PointCloud<PointT>::Ptr surf);
+    void update_keyframe(const ros::Time& cloud_in_time, const pcl::PointCloud<PointT>::Ptr& corn,
+                         const pcl::PointCloud<PointT>::Ptr& surf, const pcl::PointCloud<PointT>::Ptr& full);
 
-    void getTransToSubmap(pcl::PointCloud<PointT>::Ptr corn,
-                          pcl::PointCloud<PointT>::Ptr surf);
+    gtsam::Pose3 scan2scan(const ros::Time& cloud_in_time, const pcl::PointCloud<PointT>::Ptr& corn,
+                           const pcl::PointCloud<PointT>::Ptr& surf, const pcl::PointCloud<PointT>::Ptr& raw);
 
-    gtsam::Pose3 update(const ros::Time cloud_in_time,
-                pcl::PointCloud<PointT>::Ptr corn,
-                pcl::PointCloud<PointT>::Ptr surf,
-                pcl::PointCloud<PointT>::Ptr raw,
-                pcl::PointCloud<PointT>::Ptr less_corn = nullptr,
-                pcl::PointCloud<PointT>::Ptr less_surf = nullptr);
+    gtsam::Pose3 scan2submap(const pcl::PointCloud<PointT>::Ptr& corn, const pcl::PointCloud<PointT>::Ptr& surf,
+                             const gtsam::Pose3& guess, int method = 0);
+
+    gtsam::Pose3 update_odom(const ros::Time& cloud_in_time, const pcl::PointCloud<PointT>::Ptr& corn,
+                             const pcl::PointCloud<PointT>::Ptr& surf, const pcl::PointCloud<PointT>::Ptr& raw);
+
+    gtsam::Pose3 update_mapping(const Frame::Ptr& frame);
 
     void addOdomFactor(int last_index, int index);
 
     void BA_optimization();
 
-    void BALM_backend(const std::vector<Keyframe::Ptr>& keyframes_buf,
-                      std::vector<Keyframe::Ptr>& fixedKeyframes_buf);
+    void factor_graph_opti();
 
     void loop_detect_thread();
 
@@ -164,11 +206,14 @@ private:
    *********************************************************************/
     Keyframe::Ptr current_keyframe;
 
-    gtsam::Pose3 odom;      // world to current frame
-    gtsam::Pose3 last_odom; // world to last frame
-    gtsam::Pose3 delta;     // last frame to current frame
-    gtsam::Pose3 odom_pred;
-    gtsam::Pose3 pose_w_c;  // to be optimized
+    // raw odometry 10Hz
+    gtsam::Pose3 T_w_odomcurr;
+    gtsam::Pose3 T_w_odomlast;
+    gtsam::Pose3 T_last_curr;
+    // finetune odometry
+    gtsam::Pose3 T_odom_map;    // <10Hz
+    gtsam::Pose3 T_w_curr;      // 10Hz
+    gtsam::Pose3 T_w_mapcurr;
 
     bool is_init = false;
 
@@ -176,8 +221,13 @@ private:
     std::mutex submap_mtx;
     pcl::PointCloud<PointT>::Ptr submap_corn;
     pcl::PointCloud<PointT>::Ptr submap_surf;
-    pcl::KdTreeFLANN<PointT> kdtree_corn;
-    pcl::KdTreeFLANN<PointT> kdtree_surf;
+    pcl::KdTreeFLANN<PointT> kdtree_corn_submap;
+    pcl::KdTreeFLANN<PointT> kdtree_surf_submap;
+
+    int n_scans;
+    NScans nscans_gen;
+    pcl::KdTreeFLANN<PointT> kdtree_corn_nscans;
+    pcl::KdTreeFLANN<PointT> kdtree_surf_nscans;
 
     pcl::VoxelGrid<PointT> ds_corn;
     pcl::VoxelGrid<PointT> ds_surf;
@@ -187,6 +237,14 @@ private:
     std::queue<Keyframe::Ptr> FixedKeyframeBuf;
     std::mutex loop_factors_mtx;
     std::queue<FactorPtr> factorsBuf;
+
+    int mapping_method;
+    int submap_len;
+
+    FrameChannel::Ptr frameChannel;
+    Frame::Ptr curr_frame;
+    int frameCount = 0;
+
 
 
 public:

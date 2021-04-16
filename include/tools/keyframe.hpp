@@ -21,6 +21,7 @@
 #include <gtsam/nonlinear/Values.h>
 #include <gtsam/inference/Symbol.h>
 #include <gtsam/nonlinear/ISAM2.h>
+#include <pcl/common/transforms.h>
 
 using gtsam::symbol_shorthand::E; //  edge factor
 using gtsam::symbol_shorthand::P; // plane factor
@@ -35,6 +36,57 @@ namespace tools
         Plane = 3
     };
 
+    class Frame {
+    public:
+        using Ptr = std::shared_ptr<Frame>;
+        int index;
+        ros::Time cloud_in_time;
+        gtsam::Pose3 pose_w_curr;
+        pcl::PointCloud<PointT>::Ptr corn_features;
+        pcl::PointCloud<PointT>::Ptr surf_features;
+        pcl::PointCloud<PointT>::Ptr raw;
+        bool is_keyframe;
+        Frame(int index_, const ros::Time time,
+              const pcl::PointCloud<PointT>::Ptr& corn,
+              const pcl::PointCloud<PointT>::Ptr& surf,
+              const pcl::PointCloud<PointT>::Ptr& raw_,
+              const gtsam::Pose3& pose,
+              bool is_keyframe_ = false) :
+              index(index_), cloud_in_time(time), corn_features(corn),
+              surf_features(surf), raw(raw_), pose_w_curr(pose), is_keyframe(is_keyframe_) {}
+    };
+
+    class NScans {
+    private:
+        std::list<Frame::Ptr> scans;
+        int n;
+    public:
+
+        NScans(int n_ = 6) : n(n_) {}
+
+        void add(Frame::Ptr new_scan) {
+            scans.push_front(new_scan);
+            if (scans.size() > n) {
+                scans.pop_back();
+            }
+        }
+
+        void read(pcl::PointCloud<PointT>::Ptr& corn_scans, pcl::PointCloud<PointT>::Ptr& surf_scans) {
+            assert(corn_scans && surf_scans);
+
+            pcl::PointCloud<PointT>::Ptr corn_tmp(new pcl::PointCloud<PointT>);
+            pcl::PointCloud<PointT>::Ptr surf_tmp(new pcl::PointCloud<PointT>);
+
+            for (const auto& scan : scans) {
+                pcl::transformPointCloud(*scan->corn_features, *corn_tmp, scan->pose_w_curr.matrix());
+                pcl::transformPointCloud(*scan->surf_features, *surf_tmp, scan->pose_w_curr.matrix());
+                *corn_scans += *corn_tmp;
+                *surf_scans += *surf_tmp;
+            }
+        }
+    };
+
+
     class Keyframe {
     public:
         using Ptr = std::shared_ptr<Keyframe>;
@@ -44,7 +96,7 @@ namespace tools
         bool fixed = false;
         int valid_frames = 0;
         ros::Time cloud_in_time;
-        gtsam::Pose3 pose_world_curr;
+        gtsam::Pose3 pose_w_curr;
         // feature point cloud
         pcl::PointCloud<PointT>::Ptr corn_features;
         pcl::PointCloud<PointT>::Ptr surf_features;
@@ -57,12 +109,12 @@ namespace tools
         {
 
         }
-        inline void set_fixed(gtsam::Pose3 pose_world_curr_ = gtsam::Pose3()) {
-            pose_world_curr = pose_world_curr_;
+        inline void set_fixed(gtsam::Pose3 pose_w_curr_ = gtsam::Pose3()) {
+            pose_w_curr = pose_w_curr_;
             fixed = true;
         }
-        void set_init(gtsam::Pose3  pose_world_curr_ = gtsam::Pose3()) {
-            pose_world_curr = pose_world_curr_;
+        void set_init(gtsam::Pose3 pose_w_curr_ = gtsam::Pose3()) {
+            pose_w_curr = pose_w_curr_;
             add_frame();
         }
         inline void fix() {
@@ -100,11 +152,11 @@ namespace tools
             for (size_t i = begin; i < end; i++) {
                 if (need_fixed) {
                     if (keyframes[i]->is_fixed()) {
-                        poseVec.emplace_back(keyframes[i]->pose_world_curr);
+                        poseVec.emplace_back(keyframes[i]->pose_w_curr);
                     }
                 } else {
                     if (keyframes[i]->is_init()) {
-                        poseVec.emplace_back(keyframes[i]->pose_world_curr);
+                        poseVec.emplace_back(keyframes[i]->pose_w_curr);
                     }
                 }
             }
@@ -123,7 +175,7 @@ namespace tools
             }
 
             std::shared_lock<std::shared_mutex> sl(pose_mtx);
-            return keyframes[index]->pose_world_curr;
+            return keyframes[index]->pose_w_curr;
         }
 
         inline size_t size() const {

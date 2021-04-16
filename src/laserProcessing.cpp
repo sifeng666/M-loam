@@ -419,7 +419,7 @@ public:
 
             featureExtraction(laserCloudIn, laserCloud, cornerPointsSharp, cornerPointsLessSharp, surfPointsFlat, surfPointsLessFlat);
 
-            std::string frame_id = "frame" + std::to_string(lidar->i);
+            std::string frame_id = "frame";
 
             sensor_msgs::PointCloud2 laserCloudOutMsg;
             pcl::toROSMsg(*laserCloud, laserCloudOutMsg);
@@ -458,9 +458,8 @@ public:
 
         while (ros::ok()) {
 
-            process(lidar0);
+            process(lidar);
 
-            process(lidar1);
             //sleep 2 ms every time
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
         }
