@@ -15,6 +15,7 @@ static int debug_count = 0;
 namespace tools
 {
     using FactorPtr = gtsam::NonlinearFactor::shared_ptr;
+//    using FactorPtr = gtsam::GaussianFactor::shared_ptr;
 
     class LoopDetector {
     public:
@@ -128,8 +129,8 @@ namespace tools
                         X(closestKeyIdx),
                         X(curr_index),
                         gtsam::Pose3(final),
-//                        loop_model));
-                        gtsam::noiseModel::Diagonal::Information(information)));
+                        loop_model));
+//                        gtsam::noiseModel::Diagonal::Information(information)));
 
                 printf("add loop factor: [%d] and [%d]\n", curr_index, closestKeyIdx);
                 success_loop_count++;

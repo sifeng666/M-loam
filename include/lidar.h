@@ -189,6 +189,7 @@ private:
     int opti_counter;
 
     // gtsam
+//    gtsam::GaussianFactorGraph BAGraph;
     gtsam::NonlinearFactorGraph BAGraph;
     gtsam::Values BAEstimate;
     std::shared_ptr<gtsam::ISAM2> isam;
@@ -214,6 +215,8 @@ private:
     gtsam::Pose3 T_odom_map;    // <10Hz
     gtsam::Pose3 T_w_curr;      // 10Hz
     gtsam::Pose3 T_w_mapcurr;
+    gtsam::Pose3 T_last;
+    gtsam::Pose3 delta;
 
     bool is_init = false;
 
@@ -231,6 +234,9 @@ private:
 
     pcl::VoxelGrid<PointT> ds_corn;
     pcl::VoxelGrid<PointT> ds_surf;
+
+    pcl::VoxelGrid<PointT> ds_corn_submap;
+    pcl::VoxelGrid<PointT> ds_surf_submap;
 
     // loop
     std::mutex fixed_mtx;

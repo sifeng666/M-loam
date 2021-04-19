@@ -1,7 +1,7 @@
 <launch>
     
     <param name="/use_sim_time" value="ture"/>
-    <node pkg="rosbag" type="play" name="playbag" args="--clock -r 2 /home/ziv/sunshine_dateset/0309/ziv_bag/out03.bag
+    <node pkg="rosbag" type="play" name="playbag" args="--clock -r 2 /home/ziv/sunshine_dateset/loop.bag
          /ns1/rslidar_points:=/velodyne_points
          /rslidar_points:=/velodyne_points
          /points_raw:=/velodyne_points
@@ -9,10 +9,10 @@
 
     <param name="file_save_path" type="string" value="/home/ziv/mloam/5g/" />
 
-    <param name="scan_line" type="int" value="16" />
+    <param name="scan_line" type="int" value=" 16" />
     <param name="min_dis" type="double" value="0.1" />
     <param name="max_dis" type="double" value="100.0" />
-    <param name="surf_filter_length" type="double" value="0.3"/>
+    <param name="surf_filter_length" type="double" value="0.4"/>
     <param name="corn_filter_length" type="double" value="0.1"/>
     <param name="keyframe_distance_threshold" type="double" value="1" />
     <param name="keyframe_angle_threshold" type="double" value="0.1" />
@@ -27,8 +27,8 @@
     <param name="loop_skip_last" type="int" value="50" />
 
     <param name="mapping_method" type="int" value="0" />
-    <param name="submap_len" type="int" value="6" />
-    <param name="n_scans" type="int" value="3" />
+    <param name="submap_len" type="int" value="10" />
+    <param name="n_scans" type="int" value="2" />
 
     <node pkg="mloam" type="laserProcessing" name="laserProcessing" output="screen" />
 

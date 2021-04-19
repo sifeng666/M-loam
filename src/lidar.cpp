@@ -220,7 +220,7 @@ void LidarSensor::point_wise_scan_matching(const pcl::PointCloud<PointT>::Ptr& c
     *curr_pcd += *corn;
     *curr_pcd += *surf;
 
-    bool ok = tools::FastGeneralizedRegistration(curr_pcd, submap_pcd, final, T_w_c.matrix());
+    bool ok = tools::FastGeneralizedRegistration(curr_pcd, submap_pcd, final, T_w_c.matrix(), 1.0, 1.0);
     if (ok) {
         T_w_c = gtsam::Pose3(final);
     } else {
@@ -295,6 +295,11 @@ gtsam::Pose3 LidarSensor::scan2submap(const pcl::PointCloud<PointT>::Ptr& corn, 
 
 //    printf("prepare submap: %.3f ms\n", t_gen_submap.toc());
 
+    ds_corn_submap.setInputCloud(submap_corn);
+    ds_surf_submap.setInputCloud(submap_surf);
+    ds_corn_submap.filter(*submap_corn);
+    ds_surf_submap.filter(*submap_surf);
+
     TicToc t_mapping;
     if (method == 0) {          // feature-based
         feature_based_scan_matching(corn, surf, submap_corn, submap_surf,
@@ -318,6 +323,8 @@ void LidarSensor::initParam() {
 
     ds_corn.setLeafSize(corn_filter_length, corn_filter_length, corn_filter_length);
     ds_surf.setLeafSize(surf_filter_length, surf_filter_length, surf_filter_length);
+    ds_corn_submap.setLeafSize(corn_filter_length, corn_filter_length, corn_filter_length);
+    ds_surf_submap.setLeafSize(surf_filter_length, surf_filter_length, surf_filter_length);
 
     opti_counter = 2;
 
@@ -383,13 +390,25 @@ gtsam::Pose3 LidarSensor::update_mapping(const Frame::Ptr& frame) {
         return gtsam::Pose3();
     }
 
-    T_w_mapcurr = scan2submap(frame->corn_features, frame->surf_features,
-                              pose_normalize(frame->pose_w_curr * T_odom_map), mapping_method);
+//    T_w_mapcurr = scan2submap(frame->corn_features, frame->surf_features,
+//                              pose_normalize(frame->pose_w_curr * T_odom_map), mapping_method);
+    T_last = T_w_mapcurr;
+    gtsam::Pose3 T_pred;
+    if (frame->index < 20) {
+        T_pred = pose_normalize(frame->pose_w_curr * T_odom_map);
+    } else {
+        T_pred = T_last * delta;
+    }
+
+    T_w_mapcurr = scan2submap(frame->corn_features, frame->surf_features, T_pred, mapping_method);
 
     if (!current_keyframe->is_init()) {
         current_keyframe->set_init(T_w_mapcurr);
         factor_graph_opti();
     }
+
+
+    delta = pose_normalize(T_last.inverse() * T_w_mapcurr);
 
     T_odom_map = pose_normalize(frame->pose_w_curr.inverse() * T_w_mapcurr);
     is_keyframe_next = nextFrameToBeKeyframe();
@@ -411,16 +430,20 @@ void LidarSensor::addOdomFactor(int last_index, int curr_index) {
     gtsam::Pose3 curr_pose = keyframeVec->read_pose(curr_index);
     gtsam::Pose3 pose_between = last_pose.between(curr_pose);
 
-    auto information = GetInformationMatrixFromPointClouds(keyframeVec->keyframes[curr_index]->raw,
-                                                           keyframeVec->keyframes[last_index]->raw,
-                                                           2.0,
-                                                           pose_between.matrix());
+//    TicToc tic;
+//
+//    auto information = GetInformationMatrixFromPointClouds(keyframeVec->keyframes[curr_index]->raw,
+//                                                           keyframeVec->keyframes[last_index]->raw,
+//                                                           2.0,
+//                                                           pose_between.matrix());
+//    printf("information: %.3f ms\n", tic.toc());
+
 
     BAGraph.emplace_shared<gtsam::BetweenFactor<gtsam::Pose3>>(X(last_index),
                                                             X(curr_index),
                                                             pose_between,
-//                                                            odometry_noise_model);
-                                                            gtsam::noiseModel::Diagonal::Information(information));
+                                                            odometry_noise_model);
+//                                                            gtsam::noiseModel::Diagonal::Information(information));
     BAEstimate.insert(X(curr_index), curr_pose);
     printf("add Odom factor between [%d] and [%d]\n", last_index, curr_index);
 }
@@ -491,7 +514,7 @@ void LidarSensor::factor_graph_opti() {
     }
 
     isamOptimize = isam->calculateEstimate();
-    isam->getFactorsUnsafe().saveGraph("/home/ziv/catkin_loam/src/factor_graph.dot", isamOptimize);
+//    isam->getFactorsUnsafe().saveGraph("/home/ziv/catkin_loam/src/factor_graph.dot", isamOptimize);
 
 
     {   // write lock
@@ -502,14 +525,14 @@ void LidarSensor::factor_graph_opti() {
     }
 
     // debug
-    auto poseVec = keyframeVec->read_poses(0, keyframeVec->size(), true);
-    {
-        std::ofstream f(nh.param<std::string>("file_save_path", "") + "without_loop.txt");
-        for (size_t i = 0; i < poseVec.size(); i++) {
-            f << "i: " << i << "\n" << poseVec[i].matrix() << endl;
-        }
-        f.close();
-    }
+//    auto poseVec = keyframeVec->read_poses(0, keyframeVec->size(), true);
+//    {
+//        std::ofstream f(nh.param<std::string>("file_save_path", "") + "without_loop.txt");
+//        for (size_t i = 0; i < poseVec.size(); i++) {
+//            f << "i: " << i << "\n" << poseVec[i].matrix() << endl;
+//        }
+//        f.close();
+//    }
 
     printf("factor graph opti: %.3f ms\n", t_opti.toc());
 }
