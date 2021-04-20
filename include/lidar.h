@@ -211,12 +211,16 @@ private:
     gtsam::Pose3 T_w_odomcurr;
     gtsam::Pose3 T_w_odomlast;
     gtsam::Pose3 T_last_curr;
+
     // finetune odometry
     gtsam::Pose3 T_odom_map;    // <10Hz
     gtsam::Pose3 T_w_curr;      // 10Hz
     gtsam::Pose3 T_w_mapcurr;
     gtsam::Pose3 T_last;
     gtsam::Pose3 delta;
+
+    // increment
+    gtsam::Pose3 T_w_lastkey;
 
     bool is_init = false;
 
@@ -251,7 +255,8 @@ private:
     Frame::Ptr curr_frame;
     int frameCount = 0;
 
-
+    std::ofstream f_origin;
+    string file_save_path;
 
 public:
     LidarStatus::Ptr status;

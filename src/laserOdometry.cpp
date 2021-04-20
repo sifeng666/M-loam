@@ -208,7 +208,7 @@ public:
                 lidarInfo->odom = lidarSensor.update_odom(lidarInfo->ros_time, cloud_in_less_edge, cloud_in_less_surf, cloud_raw);
                 pubRawOdom(lidarInfo, lidarInfo->odom);
 
-                printf("laser odometry cost: %.3f ms\n", tic.toc());
+//                printf("laser odometry cost: %.3f ms\n", tic.toc());
 
             }
             //sleep 2 ms every time
@@ -237,7 +237,7 @@ public:
 //                frameChannel->get_front();
 //            }
 
-            printf("laser mapping cost: %.3f ms\n", t_mapping.toc());
+//            printf("laser mapping cost: %.3f ms\n", t_mapping.toc());
 
             //sleep 2 ms every time
             std::this_thread::sleep_for(std::chrono::milliseconds(odom_sleep));

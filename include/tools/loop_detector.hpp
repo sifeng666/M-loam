@@ -60,8 +60,8 @@ namespace tools
             candidates.reserve(buffer_size);
 
             // read lock
-            std::vector<gtsam::Pose3> poseVec = keyframeVec->read_poses(0, buffer_size);
-            gtsam::Pose3 curr_pose = keyframeVec->read_pose(curr_index);
+            std::vector<gtsam::Pose3> poseVec = keyframeVec->read_poses(0, buffer_size, true);
+            gtsam::Pose3 curr_pose = keyframeVec->read_pose(curr_index, true);
 
             for (int i = 0; i < buffer_size; i++) {
                 gtsam::Pose3 pose_between = curr_pose.between(poseVec[i]);
