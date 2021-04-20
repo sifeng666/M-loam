@@ -9,26 +9,20 @@
 
 using namespace tools;
 
-static const int odom_sleep = 2;    // 2ms
+static const int odom_sleep = 1;    // 2ms
 
 class LidarInfo {
 public:
     using Ptr = std::shared_ptr<LidarInfo>;
 public:
-    int i;                                  // Lidar i_th
     LidarMsgReader reader;                  // read ros lidar pointcloud msg
-    gtsam::Pose3 odom;                      // latest odom of this lidar, not save history
+    gtsam::Pose3 odom;                      // odom, localization result of the system
+    gtsam::Pose3 odom_raw;                  // raw odom of scan to scan method
     ros::Time ros_time;                     // latest ros timestamp of this lidar, not save history
     KeyframeVec::Ptr keyframeVec;           // including all history keyframes, optimized
     LidarStatus::Ptr status;                // lidar status, communication of lidar.cpp and this cpp
-//    MapGenerator mapGenerator;              // generate global map of this lidar
-    FixedKeyframeChannel::Ptr fixedChannel; // channel that save map to be publish
     FrameChannel::Ptr frameChannel;
     tf::TransformBroadcaster brMapToFrame;  // tf broadcaster, map_i => frame_i
-    tf::TransformBroadcaster brMapToMap;    // tf broadcaster, map   => map_i
-
-    gtsam::Pose3 T_0_i;                     // extrinsic param from L_i to L_base(L_0)
-    bool is_base = false;                   // if i == 0, then is_base = true
 
     // ros msg
     ros::Subscriber sub_laser_cloud;
@@ -37,43 +31,59 @@ public:
     ros::Subscriber sub_laser_cloud_less_edge;
     ros::Subscriber sub_laser_cloud_less_surf;
     ros::Publisher pub_map;
-    ros::Publisher pub_pointcloud_raw;
-    ros::Publisher pub_odom_opti;
-    ros::Publisher pub_odom_raw;
-    nav_msgs::Path parray_path;
-    nav_msgs::Path parray_path_raw;
-    ros::Subscriber sub_save_map;
 
-public:
-    LidarInfo(int i_) : i(i_) {
-        T_0_i = gtsam::Pose3(gtsam::Rot3(), gtsam::Point3(0, 50 * i, 0));
-        if (i == 0) is_base = true;
-    }
+    ros::Publisher pub_pointcloud;
+    ros::Publisher pub_odom_opti;
+    nav_msgs::Path parray_path_opti;
+
+    ros::Publisher pub_odom_raw;
+    nav_msgs::Path parray_path_raw;
+    ros::Publisher pub_odom;
+    nav_msgs::Path parray_path_odom;
+
+    ros::Subscriber sub_save_map;
 };
 
 class LaserOdometry {
 public:
 
-    void pubRawOdom(LidarInfo::Ptr lidarInfo, gtsam::Pose3 raw_odom) {
+    void pubOdomAndRawOdom(LidarInfo::Ptr lidarInfo) {
+
+        // odom
+        auto& parray_path_odom = lidarInfo->parray_path_odom;
+        parray_path_odom.header.stamp = ros::Time::now();
+        parray_path_odom.header.frame_id = "map";
+
+        geometry_msgs::PoseStamped apose;
+        Eigen::Quaterniond q(lidarInfo->odom.rotation().matrix());
+        apose.pose.orientation.w = q.w(); apose.pose.orientation.x = q.x();
+        apose.pose.orientation.y = q.y(); apose.pose.orientation.z = q.z();
+        apose.pose.position.x = lidarInfo->odom.translation().x();
+        apose.pose.position.y = lidarInfo->odom.translation().y();
+        apose.pose.position.z = lidarInfo->odom.translation().z();
+        parray_path_odom.poses.push_back(apose);
+
+        //odom raw
         auto& parray_path_raw = lidarInfo->parray_path_raw;
         parray_path_raw.header.stamp = ros::Time::now();
         parray_path_raw.header.frame_id = "map";
 
-        geometry_msgs::PoseStamped apose;
-        Eigen::Quaterniond q(raw_odom.rotation().matrix());
-        apose.pose.orientation.w = q.w(); apose.pose.orientation.x = q.x();
-        apose.pose.orientation.y = q.y(); apose.pose.orientation.z = q.z();
-        apose.pose.position.x = raw_odom.translation().x();
-        apose.pose.position.y = raw_odom.translation().y();
-        apose.pose.position.z = raw_odom.translation().z();
-        parray_path_raw.poses.push_back(apose);
+        geometry_msgs::PoseStamped apose_raw;
+        Eigen::Quaterniond q_raw(lidarInfo->odom_raw.rotation().matrix());
+        apose_raw.pose.orientation.w = q.w(); apose_raw.pose.orientation.x = q.x();
+        apose_raw.pose.orientation.y = q.y(); apose_raw.pose.orientation.z = q.z();
+        apose_raw.pose.position.x = lidarInfo->odom_raw.translation().x();
+        apose_raw.pose.position.y = lidarInfo->odom_raw.translation().y();
+        apose_raw.pose.position.z = lidarInfo->odom_raw.translation().z();
+        parray_path_raw.poses.push_back(apose_raw);
 
+        lidarInfo->pub_odom.publish(parray_path_odom);
         lidarInfo->pub_odom_raw.publish(parray_path_raw);
     }
 
     void pubOptiOdom(LidarInfo::Ptr lidarInfo) {
         if (lidarInfo->keyframeVec->keyframes.empty()) return;
-        auto& parray_path = lidarInfo->parray_path;
+        auto& parray_path = lidarInfo->parray_path_opti;
         KeyframeVec::Ptr keyframeVec = lidarInfo->keyframeVec;
         // read lock
         std::vector<gtsam::Pose3> poseVec = keyframeVec->read_poses(0, keyframeVec->keyframes.size(), true);
@@ -112,7 +122,7 @@ public:
         pcl::toROSMsg(*cloud_raw, *raw_msg);
         raw_msg->header.stamp = cloud_in_time;
         raw_msg->header.frame_id = child_frame_id;
-        lidarInfo->pub_pointcloud_raw.publish(raw_msg);
+        lidarInfo->pub_pointcloud.publish(raw_msg);
 
         tf::Transform transform;
         transform.setOrigin( tf::Vector3(odom.translation().x(), odom.translation().y(), odom.translation().z()) );
@@ -148,6 +158,7 @@ public:
         } else {
             filename += ".pcd";
         }
+        cout << "save path: " << file_save_path + filename << endl;
         _mkdir(file_save_path + filename);
         auto map = MapGenerator::generate_cloud(lidarInfo->keyframeVec, 0, lidarInfo->keyframeVec->size(), FeatureType::Full, true);
         if (map) {
@@ -205,10 +216,10 @@ public:
 
                 lidarInfo->reader.unlock();
 
-                lidarInfo->odom = lidarSensor.update_odom(lidarInfo->ros_time, cloud_in_less_edge, cloud_in_less_surf, cloud_raw);
-                pubRawOdom(lidarInfo, lidarInfo->odom);
+                lidarInfo->odom = lidarSensor.update_odom(lidarInfo->ros_time, cloud_in_less_edge, cloud_in_less_surf, cloud_raw, lidarInfo->odom_raw);
+                pubOdomAndRawOdom(lidarInfo);
 
-//                printf("laser odometry cost: %.3f ms\n", tic.toc());
+                printf("laser odometry cost: %.3f ms\n", tic.toc());
 
             }
             //sleep 2 ms every time
@@ -232,12 +243,7 @@ public:
             pubOptiOdom(lidarInfo);
             pubRawPointCloud(lidarInfo, odom, frame->raw);
 
-//            int skip = t_mapping.toc() / 100;
-//            while (skip--) {
-//                frameChannel->get_front();
-//            }
-
-//            printf("laser mapping cost: %.3f ms\n", t_mapping.toc());
+            printf("laser mapping cost: %.3f ms\n", t_mapping.toc());
 
             //sleep 2 ms every time
             std::this_thread::sleep_for(std::chrono::milliseconds(odom_sleep));
@@ -254,7 +260,7 @@ public:
 
         // lidar 0 init
         lidarSensor.set_name("Lidar");
-        lidarInfo = std::make_shared<LidarInfo>(0);
+        lidarInfo = std::make_shared<LidarInfo>();
         lidarInfo->keyframeVec = lidarSensor.get_keyframeVec();
         lidarInfo->status = lidarSensor.status;
         lidarInfo->frameChannel = lidarSensor.get_frameChannel();
@@ -266,8 +272,9 @@ public:
         lidarInfo->sub_laser_cloud_less_surf = nh.subscribe<sensor_msgs::PointCloud2>("/laser_cloud_less_surf",  100, &LidarMsgReader::pointCloudLessSurfHandler, &lidarInfo->reader);
         lidarInfo->pub_odom_opti             = nh.advertise<nav_msgs::Path>(          "/odom_opti", 100);
         lidarInfo->pub_map                   = nh.advertise<sensor_msgs::PointCloud2>("/global_map", 5);
-        lidarInfo->pub_pointcloud_raw        = nh.advertise<sensor_msgs::PointCloud2>("/raw_points", 10);
+        lidarInfo->pub_pointcloud            = nh.advertise<sensor_msgs::PointCloud2>("/raw_points", 10);
         lidarInfo->pub_odom_raw              = nh.advertise<nav_msgs::Path>(          "/odom_raw", 100);
+        lidarInfo->pub_odom                  = nh.advertise<nav_msgs::Path>(          "/odom", 100);
 
         lidarInfo->sub_save_map = nh.subscribe<std_msgs::String>("/save_map", 1, &LaserOdometry::save_map_handler, this);
     }

@@ -311,7 +311,7 @@ gtsam::Pose3 LidarSensor::scan2submap(const pcl::PointCloud<PointT>::Ptr& corn, 
         return T_w_c;
     }
 
-    T_odom_map = pose_normalize(T_w_odomcurr.inverse() * T_w_c);
+//    T_odom_map = pose_normalize(T_w_odomcurr.inverse() * T_w_c);
 //    printf("mapping, scan to submap: %.3f ms\n", t_mapping.toc());
     return T_w_c;
 }
@@ -358,7 +358,8 @@ void LidarSensor::update_keyframe(const ros::Time& cloud_in_time, const pcl::Poi
 }
 
 gtsam::Pose3 LidarSensor::update_odom(const ros::Time& cloud_in_time, const pcl::PointCloud<PointT>::Ptr& corn,
-                                      const pcl::PointCloud<PointT>::Ptr& surf, const pcl::PointCloud<PointT>::Ptr& raw) {
+                                      const pcl::PointCloud<PointT>::Ptr& surf, const pcl::PointCloud<PointT>::Ptr& raw,
+                                      gtsam::Pose3& pose_raw) {
 
     if (frameCount == 0) {
         curr_frame = std::make_shared<Frame>(frameCount++, cloud_in_time, corn, surf, raw, gtsam::Pose3());
@@ -370,12 +371,14 @@ gtsam::Pose3 LidarSensor::update_odom(const ros::Time& cloud_in_time, const pcl:
     down_sampling_voxel(*corn, corn_filter_length);
     down_sampling_voxel(*surf, surf_filter_length);
 
-    auto T_w_c = scan2scan(cloud_in_time, corn, surf, raw);
-    T_w_c = pose_normalize(T_w_c);
+    pose_raw = scan2scan(cloud_in_time, corn, surf, raw);
+    pose_raw = pose_normalize(pose_raw);
 
-    curr_frame = std::make_shared<Frame>(frameCount++, cloud_in_time, corn, surf, raw, T_w_c);
+    curr_frame = std::make_shared<Frame>(frameCount++, cloud_in_time, corn, surf, raw, pose_raw);
     frameChannel->push(curr_frame);
-    return T_w_c;
+
+    T_w_curr = pose_normalize(pose_raw * T_odom_map * T_map_fixed); // 10Hz
+    return T_w_curr;
 }
 
 gtsam::Pose3 LidarSensor::update_mapping(const Frame::Ptr& frame) {
@@ -393,36 +396,27 @@ gtsam::Pose3 LidarSensor::update_mapping(const Frame::Ptr& frame) {
     }
 
     T_last = T_w_mapcurr;
-    gtsam::Pose3 T_pred;
-    if (frame->index < 20) {
-        T_pred = pose_normalize(frame->pose_w_curr * T_odom_map);
-    } else {
-        T_pred = T_last * delta;
-    }
+    gtsam::Pose3 T_pred = T_last * delta;
 
     T_w_mapcurr = scan2submap(frame->corn_features, frame->surf_features, T_pred, mapping_method);
     T_w_mapcurr = pose_normalize(T_w_mapcurr);
 
-
     if (!current_keyframe->is_init()) {
-
         current_keyframe->set_increment(T_w_lastkey.between(T_w_mapcurr));
         current_keyframe->set_init(T_w_mapcurr);
-
-        cout << "########################################" << endl;
-        cout << "current index: " << current_keyframe->index << endl;
-        cout << "current_keyframe->pose_last_curr:\n" << current_keyframe->pose_last_curr.matrix() << endl;
-        cout << "odometry pose:\n" << current_keyframe->pose_odom.matrix() << endl;
-
         T_w_lastkey = T_w_mapcurr;
         factor_graph_opti();
+
+        auto T_opti = current_keyframe->pose_fixed;
+
+        T_map_fixed  = pose_normalize(T_w_mapcurr.between(T_opti));
     }
 
     delta = T_last.between(T_w_mapcurr);
-    T_odom_map = frame->pose_w_curr.between(T_w_mapcurr);
     is_keyframe_next = nextFrameToBeKeyframe();
+    T_odom_map = pose_normalize(frame->pose_w_curr.between(T_w_mapcurr));
 
-    return T_w_mapcurr;
+    return T_w_mapcurr * T_map_fixed;
 }
 
 void LidarSensor::addOdomFactor(int last_index, int curr_index) {
@@ -533,21 +527,21 @@ void LidarSensor::factor_graph_opti() {
     }
 
 
-    cout << "opti pose:\n" << keyframeVec->read_pose(curr_index, true).matrix() << endl;
-    cout << "########################################" << endl << endl;
+//    cout << "opti pose:\n" << keyframeVec->read_pose(curr_index, true).matrix() << endl;
+//    cout << "########################################" << endl << endl;
     // debug
-    auto poseVec = keyframeVec->read_poses(0, keyframeVec->size(), true);
-    auto poseVec1 = keyframeVec->read_poses(0, keyframeVec->size(), false);
-    {
-        std::ofstream f(file_save_path + "debug.txt");
-        for (size_t i = 0; i < poseVec.size(); i++) {
-            f << "i: " << i << "\n" << poseVec[i].matrix() << endl;
-        }
-        for (size_t i = 0; i < poseVec1.size(); i++) {
-            f << "i: " << i << "\n" << poseVec1[i].matrix() << endl;
-        }
-        f.close();
-    }
+//    auto poseVec = keyframeVec->read_poses(0, keyframeVec->size(), true);
+//    auto poseVec1 = keyframeVec->read_poses(0, keyframeVec->size(), false);
+//    {
+//        std::ofstream f(file_save_path + "debug.txt");
+//        for (size_t i = 0; i < poseVec.size(); i++) {
+//            f << "i: " << i << "\n" << poseVec[i].matrix() << endl;
+//        }
+//        for (size_t i = 0; i < poseVec1.size(); i++) {
+//            f << "i: " << i << "\n" << poseVec1[i].matrix() << endl;
+//        }
+//        f.close();
+//    }
 
 //    printf("factor graph opti: %.3f ms\n", t_opti.toc());
 }

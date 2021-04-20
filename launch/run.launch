@@ -1,7 +1,7 @@
 <launch>
     
     <param name="/use_sim_time" value="ture"/>
-    <node pkg="rosbag" type="play" name="playbag" args="--clock -r 2 /home/ziv/sunshine_dateset/loop.bag
+    <node pkg="rosbag" type="play" name="playbag" args="--clock /home/ziv/sunshine_dateset/loop.bag
          /ns1/rslidar_points:=/velodyne_points
          /rslidar_points:=/velodyne_points
          /points_raw:=/velodyne_points
@@ -14,10 +14,10 @@
     <param name="max_dis" type="double" value="100.0" />
     <param name="surf_filter_length" type="double" value="0.4"/>
     <param name="corn_filter_length" type="double" value="0.1"/>
-    <param name="keyframe_distance_threshold" type="double" value="1" />
+    <param name="keyframe_distance_threshold" type="double" value="1.2" />
     <param name="keyframe_angle_threshold" type="double" value="0.1" />
     <param name="save_map_resolution" type="double" value="0.05" />
-    <param name="show_map_resolution" type="double" value="0.2" />
+    <param name="show_map_resolution" type="double" value="0.25" />
     <param name="gicp_fitness_socre" type="double" value="0.8" />
     <!--loop-->
     <param name="need_loop" type="bool" value="true" />
@@ -28,7 +28,7 @@
 
     <param name="mapping_method" type="int" value="0" />
     <param name="submap_len" type="int" value="10" />
-    <param name="n_scans" type="int" value="2" />
+    <param name="n_scans" type="int" value="5" />
 
     <node pkg="mloam" type="laserProcessing" name="laserProcessing" output="screen" />
 

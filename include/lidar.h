@@ -154,7 +154,8 @@ public:
                              const gtsam::Pose3& guess, int method = 0);
 
     gtsam::Pose3 update_odom(const ros::Time& cloud_in_time, const pcl::PointCloud<PointT>::Ptr& corn,
-                             const pcl::PointCloud<PointT>::Ptr& surf, const pcl::PointCloud<PointT>::Ptr& raw);
+                             const pcl::PointCloud<PointT>::Ptr& surf, const pcl::PointCloud<PointT>::Ptr& raw,
+                             gtsam::Pose3& pose_out);
 
     gtsam::Pose3 update_mapping(const Frame::Ptr& frame);
 
@@ -212,15 +213,18 @@ private:
     gtsam::Pose3 T_w_odomlast;
     gtsam::Pose3 T_last_curr;
 
-    // finetune odometry
-    gtsam::Pose3 T_odom_map;    // <10Hz
-    gtsam::Pose3 T_w_curr;      // 10Hz
+    // mapping odometry
     gtsam::Pose3 T_w_mapcurr;
     gtsam::Pose3 T_last;
     gtsam::Pose3 delta;
 
     // increment
     gtsam::Pose3 T_w_lastkey;
+
+    // raw odom to pub
+    gtsam::Pose3 T_map_fixed;     // <10Hz
+    gtsam::Pose3 T_odom_map;      // <10Hz
+    gtsam::Pose3 T_w_curr;        //  10Hz, localization result
 
     bool is_init = false;
 
