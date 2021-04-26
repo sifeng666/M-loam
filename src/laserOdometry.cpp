@@ -152,19 +152,27 @@ public:
 
     void save_map_handler(const std_msgs::StringConstPtr& str) {
         TicToc t_save;
-        string filename;
-        if (str->data.size() - str->data.find(".pcd") == 4) {
-            filename = str->data;
+        string data = str->data;
+        cout << "std_msgs string: " << data << endl;
+        if (data.size() - data.find(".pcd") == 4) {
+            data = str->data;
         } else {
-            filename += ".pcd";
+            data += ".pcd";
         }
-        cout << "save path: " << file_save_path + filename << endl;
-        _mkdir(file_save_path + filename);
+        cout << "save path: " << file_save_path + data << endl;
+        _mkdir(file_save_path + data);
         auto map = MapGenerator::generate_cloud(lidarInfo->keyframeVec, 0, lidarInfo->keyframeVec->size(), FeatureType::Full, true);
         if (map) {
-            pcl::io::savePCDFileASCII(file_save_path + filename, *map);
+            pcl::io::savePCDFileASCII(file_save_path + data, *map);
             printf("global map save! cost: %.3f ms\n", t_save.toc());
         }
+
+        _mkdir(file_save_path + "compare/opti_pose.txt");
+        std::ofstream f_mapping_pose(file_save_path + "compare/opti_pose.txt");
+        for (int i = 0; i < lidarInfo->keyframeVec->size(); i++) {
+            f_mapping_pose << 1 << ": " << lidarInfo->keyframeVec->at(i)->cloud_in_time.toNSec() << endl << lidarInfo->keyframeVec->at(i)->pose_fixed.matrix() << endl;
+        }
+
     }
 
     void pub_global_map() {
@@ -218,8 +226,7 @@ public:
 
                 lidarInfo->odom = lidarSensor.update_odom(lidarInfo->ros_time, cloud_in_less_edge, cloud_in_less_surf, cloud_raw, lidarInfo->odom_raw);
                 pubOdomAndRawOdom(lidarInfo);
-
-                printf("laser odometry cost: %.3f ms\n", tic.toc());
+                printf("[Odometry]: %.3f ms\n", tic.toc());
 
             }
             //sleep 2 ms every time
@@ -235,7 +242,7 @@ public:
 
             auto frame = frameChannel->get_front();
             if (!frame) continue;
-//            frameChannel->clear();
+            frameChannel->clear();
 
             TicToc t_mapping;
 
@@ -243,8 +250,7 @@ public:
             pubOptiOdom(lidarInfo);
             pubRawPointCloud(lidarInfo, odom, frame->raw);
 
-            printf("laser mapping cost: %.3f ms\n", t_mapping.toc());
-
+            printf("[Mapping]: %.3f ms\n", t_mapping.toc());
             //sleep 2 ms every time
             std::this_thread::sleep_for(std::chrono::milliseconds(odom_sleep));
         }

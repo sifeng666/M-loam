@@ -406,7 +406,7 @@ public:
     void process(LaserProcessor::Ptr lidar) {
 
         if (!lidar->pointCloudBuf.empty()) {
-
+            TicToc t;
             pcl::PointCloud<PointT> laserCloudIn, cornerPointsSharp, cornerPointsLessSharp, surfPointsFlat, surfPointsLessFlat;
 
             lidar->lock();
@@ -450,16 +450,14 @@ public:
             surfPointsLessFlat2.header.stamp = cloud_in_time;
             surfPointsLessFlat2.header.frame_id = frame_id;
             lidar->pubSurfPointsLessFlat.publish(surfPointsLessFlat2);
-
+            printf("[PreProcessing]: %.3f ms\n", t.toc());
         }
     }
 
     void laser_processing() {
 
         while (ros::ok()) {
-
             process(lidar);
-
             //sleep 2 ms every time
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
         }

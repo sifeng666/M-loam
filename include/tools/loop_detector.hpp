@@ -56,7 +56,7 @@ namespace tools
 
             size_t buffer_size = curr_index - loop_skip_last_;
             // <frameCount, distance>
-            std::vector<pair<int, int>> candidates;
+            std::vector<pair<int, double>> candidates;
             candidates.reserve(buffer_size);
 
             // read lock
@@ -65,7 +65,8 @@ namespace tools
 
             for (int i = 0; i < buffer_size; i++) {
                 gtsam::Pose3 pose_between = curr_pose.between(poseVec[i]);
-                double distance = pose_between.translation().norm();
+//                double distance = pose_between.translation().norm();
+                double distance = std::sqrt(pose_between.translation().x() * pose_between.translation().x() + pose_between.translation().y() * pose_between.translation().y());
                 // too far
                 if (distance > loop_detect_distance_)
                     continue;
@@ -81,56 +82,69 @@ namespace tools
 
             // select 2 closest key
             int success_loop_count = 0;
-            for (int i = 0; i < min(2, int(candidates.size())); i++) {
+            for (int i = 0; i < min(1, int(candidates.size())); i++) {
                 int closestKeyIdx = candidates[i].first;
+                cout << "####################################" << endl;
+                cout << "[loop] detecting: " << curr_index << " and " << closestKeyIdx << ", distance is " << candidates[i].second << endl;
+                cout << "####################################" << endl;
                 int submap_start = max(0, closestKeyIdx - loop_submap_length_);
                 int submap_end   = min(closestKeyIdx + loop_submap_length_, curr_index - loop_skip_last_);
 
                 auto submap_pcd = MapGenerator::generate_cloud(keyframeVec, submap_start, submap_end + 1, FeatureType::Full);
                 pcl::transformPointCloud(*submap_pcd, *submap_pcd, poseVec[closestKeyIdx].inverse().matrix());
-                auto curr_pcd = keyframeVec->keyframes[curr_index]->raw;
+                auto curr_pcd = keyframeVec->keyframes[curr_index]->raw->makeShared();
+
+
+                pcl::VoxelGrid<PointT> f;
+                f.setLeafSize(0.2, 0.2, 0.2);
+                f.setInputCloud(submap_pcd);
+                f.filter(*submap_pcd);
+                f.setInputCloud(curr_pcd);
+                f.filter(*curr_pcd);
 
                 Eigen::Matrix4d init_guess(poseVec[closestKeyIdx].between(curr_pose).matrix());
+                init_guess(14) = 0.0;
                 Eigen::Matrix4d final;
-                bool ok = tools::FastGeneralizedRegistration(curr_pcd, submap_pcd,final, init_guess, 2.0, fitness_thres_);
+//                bool ok = tools::FastGeneralizedRegistration(curr_pcd, submap_pcd,final, init_guess, 2.0, fitness_thres_);
+                bool ok = tools::GeneralizedRegistration(curr_pcd, submap_pcd,final, init_guess, 2.0, fitness_thres_);
 
-//                {
-//                    static string path0 = "/home/ziv/mloam/debug_loop/";
-//                    auto path = path0 + to_string(debug_count) + "/";
-//
-//                    boost::filesystem::path save_path(path + "1.txt");
-//                    auto folder_path = save_path.parent_path();
-//                    if (!boost::filesystem::exists(folder_path)) {
-//                        boost::filesystem::create_directories(folder_path);
-//                    }
-//
-//                    pcl::io::savePCDFileASCII(path + "submap.pcd", *submap_pcd);
-//                    pcl::io::savePCDFileASCII(path + "curr.pcd", *curr_pcd);
-//                    ofstream f(path + "guess.txt");
-//                    f << init_guess << endl;
-//                    f << final << endl;
-//                    if (!ok) {
-//                        f << "false" << endl;
-//                    } else {
-//                        f << "true" << endl;
-//                    }
-//                    f.close();
-//                    debug_count++;
-//                }
+                {
+                    static string path0 = "/home/ziv/mloam/debug_loop/";
+                    auto path = path0 + to_string(debug_count) + "/";
+
+                    boost::filesystem::path save_path(path + "1.txt");
+                    auto folder_path = save_path.parent_path();
+                    if (!boost::filesystem::exists(folder_path)) {
+                        boost::filesystem::create_directories(folder_path);
+                    }
+
+                    pcl::io::savePCDFileASCII(path + "submap.pcd", *submap_pcd);
+                    pcl::io::savePCDFileASCII(path + "curr.pcd", *curr_pcd);
+                    ofstream f(path + "guess.txt");
+                    f << init_guess << endl;
+                    f << final << endl;
+                    if (!ok) {
+                        f << "false" << endl;
+                    } else {
+                        f << "true" << endl;
+                    }
+                    f.close();
+                    debug_count++;
+                }
 
                 if (!ok) {
                     continue;
                 }
 
                 auto information = tools::GetInformationMatrixFromPointClouds(curr_pcd, submap_pcd, 2.0, final);
-                auto loop_model = gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(6) << 1e-3, 1e-3, 1e-3, 1e-2, 1e-2, 1e-1).finished());
-                cout << "loop information:\n" << information << endl;
+//                auto loop_model = gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(6) << 1e-3, 1e-3, 1e-3, 1e-2, 1e-2, 1e-1).finished());
+//                cout << "loop information:\n" << information << endl;
                 loopFactors.emplace_back(new gtsam::BetweenFactor<gtsam::Pose3>(
                         X(closestKeyIdx),
                         X(curr_index),
                         gtsam::Pose3(final),
-                        loop_model));
-//                        gtsam::noiseModel::Diagonal::Information(information)));
+//                        loop_model));
+                        gtsam::noiseModel::Diagonal::Information(information)));
 
                 printf("add loop factor: [%d] and [%d]\n", curr_index, closestKeyIdx);
                 success_loop_count++;

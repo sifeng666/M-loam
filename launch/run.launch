@@ -22,13 +22,13 @@
     <!--loop-->
     <param name="need_loop" type="bool" value="true" />
     <param name="loop_submap_length" type="int" value="10" />
-    <param name="loop_detect_distance" type="int" value="10" />
-    <param name="loop_found_sleep" type="int" value="10" />
+    <param name="loop_detect_distance" type="int" value="15" />
+    <param name="loop_found_sleep" type="int" value="20" />
     <param name="loop_skip_last" type="int" value="50" />
 
     <param name="mapping_method" type="int" value="0" />
     <param name="submap_len" type="int" value="10" />
-    <param name="n_scans" type="int" value="5" />
+    <param name="n_scans" type="int" value="3" />
 
     <node pkg="mloam" type="laserProcessing" name="laserProcessing" output="screen" />
 

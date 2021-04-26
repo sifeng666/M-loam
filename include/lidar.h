@@ -209,22 +209,23 @@ private:
     Keyframe::Ptr current_keyframe;
 
     // raw odometry 10Hz
-    gtsam::Pose3 T_w_odomcurr;
-    gtsam::Pose3 T_w_odomlast;
+    gtsam::Pose3 T_wodom_curr;
+    gtsam::Pose3 T_wodom_last;
     gtsam::Pose3 T_last_curr;
 
     // mapping odometry
-    gtsam::Pose3 T_w_mapcurr;
-    gtsam::Pose3 T_last;
-    gtsam::Pose3 delta;
+    gtsam::Pose3 T_wmap_curr;
+    gtsam::Pose3 T_wmap_last;
+    gtsam::Pose3 T_wmap_delta;
 
     // increment
-    gtsam::Pose3 T_w_lastkey;
+    gtsam::Pose3 T_wmap_lastkey;
 
     // raw odom to pub
-    gtsam::Pose3 T_map_fixed;     // <10Hz
-    gtsam::Pose3 T_odom_map;      // <10Hz
-    gtsam::Pose3 T_w_curr;        //  10Hz, localization result
+    std::mutex T_lock0, T_lock1;
+    gtsam::Pose3 T_w_wmap;          // <10Hz
+    gtsam::Pose3 T_wmap_wodom;      // <10Hz
+    gtsam::Pose3 T_w_curr;          //  10Hz, localization result
 
     bool is_init = false;
 
@@ -242,6 +243,8 @@ private:
 
     pcl::VoxelGrid<PointT> ds_corn;
     pcl::VoxelGrid<PointT> ds_surf;
+    pcl::VoxelGrid<PointT> ds_raw;
+    pcl::VoxelGrid<PointT> ds_surf_2;
 
     pcl::VoxelGrid<PointT> ds_corn_submap;
     pcl::VoxelGrid<PointT> ds_surf_submap;
