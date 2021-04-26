@@ -470,8 +470,8 @@ void LidarSensor::addOdomFactor(int last_index, int curr_index) {
     BAGraph.emplace_shared<gtsam::BetweenFactor<gtsam::Pose3>>(X(last_index),
                                                                 X(curr_index),
                                                                 current_keyframe->pose_last_curr,
-//                                                                odometry_noise_model);
-                                                            gtsam::noiseModel::Diagonal::Information(information));
+                                                                odometry_noise_model);
+//                                                            gtsam::noiseModel::Diagonal::Information(information));
     BAEstimate.insert(X(curr_index), curr_pose);
     printf("add Odom factor between [%d] and [%d]\n", last_index, curr_index);
 }
