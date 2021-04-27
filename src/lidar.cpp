@@ -589,7 +589,7 @@ LidarSensor::LidarSensor()
     nh.param<int>("n_scans", n_scans, 3);
 
     file_save_path = nh.param<std::string>("file_save_path", "");
-    f_origin.open(file_save_path + "origin.txt");
+//    f_origin.open(file_save_path + "origin.txt");
 
     initParam();
 }

@@ -26,6 +26,7 @@
 #include <nav_msgs/Odometry.h>
 #include <nav_msgs/Path.h>
 #include <std_msgs/String.h>
+#include <std_msgs/Int32.h>
 #include <geometry_msgs/PoseArray.h>
 #include <geographic_msgs/GeoPointStamped.h>
 #include <geometry_msgs/TransformStamped.h>

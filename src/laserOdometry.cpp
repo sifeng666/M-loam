@@ -30,6 +30,9 @@ public:
     ros::Subscriber sub_laser_cloud_surf;
     ros::Subscriber sub_laser_cloud_less_edge;
     ros::Subscriber sub_laser_cloud_less_surf;
+
+    ros::Subscriber sub_latency;
+
     ros::Publisher pub_map;
 
     ros::Publisher pub_pointcloud;
@@ -63,6 +66,11 @@ public:
         apose.pose.position.z = lidarInfo->odom.translation().z();
         parray_path_odom.poses.push_back(apose);
 
+        // write to file
+        f_odom << setprecision(20) << double(ros::Time::now().toNSec())/1e9 << " "
+               << lidarInfo->odom.translation().x() << " " << lidarInfo->odom.translation().y()
+               << " " << lidarInfo->odom.translation().z() << " " << q.x()
+               << " " << q.y() << " " << q.z() << " " << q.w() << endl;
         //odom raw
         auto& parray_path_raw = lidarInfo->parray_path_raw;
         parray_path_raw.header.stamp = ros::Time::now();
@@ -170,8 +178,14 @@ public:
         _mkdir(file_save_path + "compare/opti_pose.txt");
         std::ofstream f_mapping_pose(file_save_path + "compare/opti_pose.txt");
         for (int i = 0; i < lidarInfo->keyframeVec->size(); i++) {
-            f_mapping_pose << 1 << ": " << lidarInfo->keyframeVec->at(i)->cloud_in_time.toNSec() << endl << lidarInfo->keyframeVec->at(i)->pose_fixed.matrix() << endl;
+//            f_mapping_pose << 1 << ": " << lidarInfo->keyframeVec->at(i)->cloud_in_time.toNSec() << endl << lidarInfo->keyframeVec->at(i)->pose_fixed.matrix() << endl;
+            Eigen::Quaterniond q(lidarInfo->keyframeVec->at(i)->pose_fixed.rotation().matrix());
+            auto& p = lidarInfo->keyframeVec->at(i)->pose_fixed;
+            f_mapping_pose << setprecision(20) << double(lidarInfo->keyframeVec->at(i)->cloud_in_time.toNSec())/1e9 << " "
+                   << p.translation().x() << " " << p.translation().y() << " " << p.translation().z() << " " << q.x()
+                   << " " << q.y() << " " << q.z() << " " << q.w() << endl;
         }
+        f_mapping_pose.close();
 
     }
 
@@ -262,6 +276,8 @@ public:
         save_map_resolution = nh.param<double>("save_map_resolution", 0.1);
         show_map_resolution = nh.param<double>("show_map_resolution", 0.2);
         file_save_path = nh.param<std::string>("file_save_path", "");
+        set_latency = nh.param<bool>("set_latency", false);
+
         global_map = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>);
 
         // lidar 0 init
@@ -283,6 +299,11 @@ public:
         lidarInfo->pub_odom                  = nh.advertise<nav_msgs::Path>(          "/odom", 100);
 
         lidarInfo->sub_save_map = nh.subscribe<std_msgs::String>("/save_map", 1, &LaserOdometry::save_map_handler, this);
+        lidarInfo->sub_latency = nh.subscribe<std_msgs::Int>();
+
+        _mkdir(file_save_path + "compare/odom.txt");
+        f_odom.open(file_save_path + "compare/odom.txt");
+
     }
 
 public:
@@ -300,6 +321,8 @@ private:
     double save_map_resolution;
     double show_map_resolution;
     std::string file_save_path;
+    bool set_latency;
+    std::ofstream f_odom;
 
 };
 
@@ -313,7 +336,6 @@ int main(int argc, char **argv) {
     std::thread laser_mapping_thread_0{&LaserOdometry::laser_mapping, &laserOdometry};
     std::thread backend_loop_detector_0{&LidarSensor::loop_detect_thread, &laserOdometry.lidarSensor};
     std::thread global_map_publisher{&LaserOdometry::pub_global_map, &laserOdometry};
-
 
     ros::spin();
 

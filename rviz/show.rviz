@@ -72,9 +72,9 @@ Visualization Manager:
       Enabled: true
       Invert Rainbow: false
       Max Color: 255; 255; 255
-      Max Intensity: 50.113059997558594
+      Max Intensity: 15.100000381469727
       Min Color: 0; 0; 0
-      Min Intensity: -0.022519830614328384
+      Min Intensity: 0.0002204360207542777
       Name: left_map
       Position Transformer: XYZ
       Queue Size: 10
@@ -85,7 +85,7 @@ Visualization Manager:
       Topic: /global_map
       Unreliable: true
       Use Fixed Frame: true
-      Use rainbow: true
+      Use rainbow: false
       Value: true
     - Alpha: 1
       Autocompute Intensity Bounds: true
@@ -102,9 +102,9 @@ Visualization Manager:
       Enabled: true
       Invert Rainbow: false
       Max Color: 255; 255; 255
-      Max Intensity: 50.12359619140625
+      Max Intensity: 15.095964431762695
       Min Color: 0; 0; 0
-      Min Intensity: -0.007717140018939972
+      Min Intensity: 8.270412945421413e-05
       Name: left_raw
       Position Transformer: XYZ
       Queue Size: 10
@@ -217,7 +217,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 153.8550567626953
+      Distance: 242.09390258789062
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -233,9 +233,9 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 1.1697967052459717
+      Pitch: 1.5697963237762451
       Target Frame: <Fixed Frame>
-      Yaw: 3.1767044067382812
+      Yaw: 3.181704521179199
     Saved: ~
 Window Geometry:
   Displays:
