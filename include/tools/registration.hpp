@@ -10,6 +10,7 @@
 #include <pcl/common/transforms.h>
 #include <pcl/search/pcl_search.h>
 #include <fast_gicp/gicp/fast_gicp.hpp>
+#include <pcl/registration/gicp.h>
 
 namespace Eigen
 {
@@ -176,10 +177,46 @@ namespace tools
 
         fast_gicp::FastGICP<PointT, PointT> gicp;
         gicp.setNumThreads(0);
-        gicp.setTransformationEpsilon(0.1);
-        gicp.setMaximumIterations(100);
+        gicp.setTransformationEpsilon(0.01);
+        gicp.setMaximumIterations(64);
         gicp.setMaxCorrespondenceDistance(max_correspondence_distance);
         gicp.setCorrespondenceRandomness(20);
+
+        // Align clouds
+        gicp.setInputSource(source);
+        gicp.setInputTarget(target);
+
+        pcl::PointCloud<PointT>::Ptr unused_result(new pcl::PointCloud<PointT>());
+        gicp.align(*unused_result, init_guess.cast<float>());
+
+        if (!gicp.hasConverged()) {
+            return false;
+        }
+        printf("fitness score: %f\n", gicp.getFitnessScore());
+
+        if (gicp.getFitnessScore() > fitness_thres) {
+            return false;
+        }
+
+        final = gicp.getFinalTransformation().cast<double>();
+        return true;
+    }
+
+    static bool GeneralizedRegistration(
+            pcl::PointCloud<PointT>::Ptr source,
+            pcl::PointCloud<PointT>::Ptr target,
+            Eigen::Matrix4d& final,
+            const Eigen::Matrix4d& init_guess = Eigen::Matrix4d::Identity(),
+            double max_correspondence_distance = 0.5,
+            double fitness_thres = 0.8) {
+
+        pcl::GeneralizedIterativeClosestPoint<PointT, PointT> gicp;
+        gicp.setTransformationEpsilon(0.01);
+        gicp.setMaximumIterations(64);
+        gicp.setMaxCorrespondenceDistance(max_correspondence_distance);
+        gicp.setUseReciprocalCorrespondences(false);
+        gicp.setCorrespondenceRandomness(20);
+        gicp.setMaximumOptimizerIterations(20);
 
         // Align clouds
         gicp.setInputSource(source);

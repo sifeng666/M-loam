@@ -15,6 +15,7 @@ static int debug_count = 0;
 namespace tools
 {
     using FactorPtr = gtsam::NonlinearFactor::shared_ptr;
+//    using FactorPtr = gtsam::GaussianFactor::shared_ptr;
 
     class LoopDetector {
     public:
@@ -39,12 +40,12 @@ namespace tools
         if (!boost::filesystem::exists(folder_path)) {
             boost::filesystem::create_directories(folder_path);
         }
-            f_loop.open(file_save_path+"lidar"+to_string(i)+"f_loop.txt");
-            cout << "#######################################" << endl;
-            cout << "current_lidar: " << i << endl;
-            cout << "f_loop path: " << file_save_path+"lidar"+to_string(i)+"f_loop.txt" << endl;
-            cout << "f_loop isopen? " << f_loop.is_open() << endl;
-            cout << "#######################################" << endl;
+            // f_loop.open(file_save_path+"lidar"+to_string(i)+"f_loop.txt");
+            // cout << "#######################################" << endl;
+            // cout << "current_lidar: " << i << endl;
+            // cout << "f_loop path: " << file_save_path+"lidar"+to_string(i)+"f_loop.txt" << endl;
+            // cout << "f_loop isopen? " << f_loop.is_open() << endl;
+            // cout << "#######################################" << endl;
             loop_detect_distance_ = nh.param<int>("loop_detect_distance", 15);
             loop_found_sleep_     = nh.param<int>("loop_found_sleep", 20);
             loop_submap_length_   = nh.param<int>("loop_submap_length", 10);
@@ -69,16 +70,17 @@ namespace tools
 
             size_t buffer_size = curr_index - loop_skip_last_;
             // <frameCount, distance>
-            std::vector<pair<int, int>> candidates;
+            std::vector<pair<int, double>> candidates;
             candidates.reserve(buffer_size);
 
             // read lock
-            std::vector<gtsam::Pose3> poseVec = keyframeVec->read_poses(0, buffer_size);
-            gtsam::Pose3 curr_pose = keyframeVec->read_pose(curr_index);
+            std::vector<gtsam::Pose3> poseVec = keyframeVec->read_poses(0, buffer_size, true);
+            gtsam::Pose3 curr_pose = keyframeVec->read_pose(curr_index, true);
 
             for (int i = 0; i < buffer_size; i++) {
                 gtsam::Pose3 pose_between = curr_pose.between(poseVec[i]);
-                double distance = pose_between.translation().norm();
+//                double distance = pose_between.translation().norm();
+                double distance = std::sqrt(pose_between.translation().x() * pose_between.translation().x() + pose_between.translation().y() * pose_between.translation().y());
                 // too far
                 if (distance > loop_detect_distance_)
                     continue;
@@ -94,54 +96,70 @@ namespace tools
 
             // select 2 closest key
             int success_loop_count = 0;
-            for (int i = 0; i < min(2, int(candidates.size())); i++) {
+            for (int i = 0; i < min(1, int(candidates.size())); i++) {
                 int closestKeyIdx = candidates[i].first;
+                cout << "####################################" << endl;
+                cout << "[loop] detecting: " << curr_index << " and " << closestKeyIdx << ", distance is " << candidates[i].second << endl;
+                cout << "####################################" << endl;
                 int submap_start = max(0, closestKeyIdx - loop_submap_length_);
                 int submap_end   = min(closestKeyIdx + loop_submap_length_, curr_index - loop_skip_last_);
 
                 auto submap_pcd = MapGenerator::generate_cloud(keyframeVec, submap_start, submap_end + 1, FeatureType::Full);
                 pcl::transformPointCloud(*submap_pcd, *submap_pcd, poseVec[closestKeyIdx].inverse().matrix());
-                auto curr_pcd = keyframeVec->keyframes[curr_index]->raw;
+                auto curr_pcd = keyframeVec->keyframes[curr_index]->raw->makeShared();
+
+
+                pcl::VoxelGrid<PointT> f;
+                f.setLeafSize(0.2, 0.2, 0.2);
+                f.setInputCloud(submap_pcd);
+                f.filter(*submap_pcd);
+                f.setInputCloud(curr_pcd);
+                f.filter(*curr_pcd);
 
                 Eigen::Matrix4d pose_closest_curr(poseVec[closestKeyIdx].between(curr_pose).matrix());
+                // pose_closest_curr(14) = 0.0; // planar assumption
                 Eigen::Matrix4d pose_closest_curr_final;
+                // fast gicp, refer to "Voxelized GICP for fast and accurate 3D point cloud registration, ICRA2021", this version is faster by using multiple CPU, but result is not as good as normal one
                 bool ok = tools::FastGeneralizedRegistration(curr_pcd, submap_pcd, pose_closest_curr_final, pose_closest_curr, 2.0, fitness_thres_);
+                // // gicp from PCL standard library, using one CPU, not that slow but resulting better
+                // bool ok = tools::GeneralizedRegistration(curr_pcd, submap_pcd, pose_closest_curr_final, pose_closest_curr, 2.0, fitness_thres_);
 
-//                {
-//                    static string path0 = "/home/ziv/mloam/debug_loop/";
-//                    auto path = path0 + to_string(debug_count) + "/";
-//
-//                    boost::filesystem::path save_path(path + "1.txt");
-//                    auto folder_path = save_path.parent_path();
-//                    if (!boost::filesystem::exists(folder_path)) {
-//                        boost::filesystem::create_directories(folder_path);
-//                    }
-//
-//                    pcl::io::savePCDFileASCII(path + "submap.pcd", *submap_pcd);
-//                    pcl::io::savePCDFileASCII(path + "curr.pcd", *curr_pcd);
-//                    ofstream f(path + "guess.txt");
-//                    f << init_guess << endl;
-//                    f << final << endl;
-//                    if (!ok) {
-//                        f << "false" << endl;
-//                    } else {
-//                        f << "true" << endl;
-//                    }
-//                    f.close();
-//                    debug_count++;
-//                }
+                // // debug, save all probable loop pcds
+                // {
+                //     static string path0 = "/home/ziv/mloam/debug_loop/";
+                //     auto path = path0 + to_string(debug_count) + "/";
 
-                if (!ok) {
-                    continue;
-                }
+                //     boost::filesystem::path save_path(path + "1.txt");
+                //     auto folder_path = save_path.parent_path();
+                //     if (!boost::filesystem::exists(folder_path)) {
+                //         boost::filesystem::create_directories(folder_path);
+                //     }
+
+                //     pcl::io::savePCDFileASCII(path + "submap.pcd", *submap_pcd);
+                //     pcl::io::savePCDFileASCII(path + "curr.pcd", *curr_pcd);
+                //     ofstream f(path + "guess.txt");
+                //     f << init_guess << endl;
+                //     f << final << endl;
+                //     if (!ok) {
+                //         f << "false" << endl;
+                //     } else {
+                //         f << "true" << endl;
+                //     }
+                //     f.close();
+                //     debug_count++;
+                // }
+
+                // if (!ok) {
+                //     continue;
+                // }
 
                 auto information = tools::GetInformationMatrixFromPointClouds(curr_pcd, submap_pcd, 2.0, pose_closest_curr_final);
-                auto loop_model = gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(6) << 1e-3, 1e-3, 1e-3, 1e-2, 1e-2, 1e-1).finished());
-                cout << "loop information:\n" << information << endl;
+                // auto loop_model = gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(6) << 1e-3, 1e-3, 1e-3, 1e-2, 1e-2, 1e-1).finished());
+                // cout << "loop information:\n" << information << endl;
 
-                f_loop << closestKeyIdx << " " << curr_index << endl;
-                f_loop << pose_closest_curr_final << endl;
-                f_loop << information << endl;
+                // f_loop << closestKeyIdx << " " << curr_index << endl;
+                // f_loop << pose_closest_curr_final << endl;
+                // f_loop << information << endl;
 
                 loopFactors.emplace_back(new gtsam::BetweenFactor<gtsam::Pose3>(
                         X(closestKeyIdx),
