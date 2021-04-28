@@ -1,7 +1,7 @@
 <launch>
     
     <param name="/use_sim_time" value="ture"/>
-    <node pkg="rosbag" type="play" name="playbag" args="--clock /home/ziv/sunshine_dateset/0309/ziv_bag/out01.bag
+    <node pkg="rosbag" type="play" name="playbag" args="--clock /home/ziv/sunshine_dateset/whole_2020-07-19-18-00-52.bag
          /velodyne_points:=/left/velodyne_points
          /rslidar_points:=/left/velodyne_points
          /ns1/rslidar_points:=/left/velodyne_points
@@ -12,7 +12,7 @@
          /kitti/velo/pointcloud:=/left/velodyne_points
     "/>
 
-    <param name="file_save_path" type="string" value="/home/ziv/mloam/result/degen/out01/10-4-1-0.1/" />
+    <param name="file_save_path" type="string" value="/home/ziv/mloam/result/5g/temp/" />
 
 <!--    outdoor    -->
 <!--    building-003 10-4-0.8-0.1-->
@@ -30,7 +30,7 @@
     <param name="keyframe_distance_threshold" type="double" value="1" />
     <param name="keyframe_angle_threshold" type="double" value="0.1" />
     <param name="save_map_resolution" type="double" value="0.05" />
-    <param name="show_map_resolution" type="double" value="0.01" />
+    <param name="show_map_resolution" type="double" value="0.2" />
     <param name="gicp_fitness_socre" type="double" value="1" />
     <!--loop-->
     <param name="need_loop" type="bool" value="true" />

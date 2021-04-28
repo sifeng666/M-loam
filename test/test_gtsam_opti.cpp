@@ -104,7 +104,7 @@ void read_from_file(string pose_raw_filename, string loop_filename, vector<Odom>
 
 int main(int argc, char** argv) {
 
-    string path = "/home/ziv/mloam/result/dzf-005/";
+    string path = "/home/ziv/mloam/result/5g/temp/";
 
     vector<Odom> odoms;
     vector<Loop> loops;

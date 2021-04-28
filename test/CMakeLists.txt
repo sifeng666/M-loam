@@ -28,3 +28,6 @@ target_link_libraries(draw_result ${PYTHON_LIBRARIES} gtsam)
 
 add_executable(transform_pose transform_pose.cpp)
 target_link_libraries(transform_pose gtsam)
+
+add_executable(test_pcl test_pcl.cpp)
+target_link_libraries(test_pcl ${PCL_LIBRARIES})

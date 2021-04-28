@@ -71,14 +71,14 @@ Visualization Manager:
       Enabled: true
       Invert Rainbow: false
       Max Color: 255; 255; 255
-      Max Intensity: -999999
+      Max Intensity: 13.100000381469727
       Min Color: 0; 0; 0
-      Min Intensity: 999999
+      Min Intensity: -3.792231861865503e-09
       Name: left_map
       Position Transformer: XYZ
       Queue Size: 10
       Selectable: true
-      Size (Pixels): 1
+      Size (Pixels): 2
       Size (m): 0.009999999776482582
       Style: Points
       Topic: /left/global_map
@@ -131,7 +131,7 @@ Visualization Manager:
       Enabled: true
       Invert Rainbow: false
       Max Color: 255; 255; 255
-      Max Intensity: 15.125040054321289
+      Max Intensity: 13.100000381469727
       Min Color: 0; 0; 0
       Min Intensity: 0
       Name: left_raw
@@ -252,7 +252,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 137.49234008789062
+      Distance: 108.76713562011719
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -260,17 +260,17 @@ Visualization Manager:
         Value: false
       Field of View: 0.7853981852531433
       Focal Point:
-        X: 16.154983520507812
-        Y: 28.32929039001465
-        Z: -13.422330856323242
+        X: 152.65321350097656
+        Y: -26.287151336669922
+        Z: 7.528911590576172
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 1.5697963237762451
+      Pitch: 1.1553981304168701
       Target Frame: <Fixed Frame>
-      Yaw: 3.223597288131714
+      Yaw: 4.283581256866455
     Saved: ~
 Window Geometry:
   Displays:
