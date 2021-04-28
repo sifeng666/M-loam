@@ -20,7 +20,7 @@
     <param name="show_map_resolution" type="double" value="0.25" />
     <param name="gicp_fitness_socre" type="double" value="0.8" />
     <!--loop-->
-    <param name="need_loop" type="bool" value="true" />
+    <param name="need_loop" type="bool" value="false" />
     <param name="loop_submap_length" type="int" value="10" />
     <param name="loop_detect_distance" type="int" value="15" />
     <param name="loop_found_sleep" type="int" value="20" />
@@ -35,6 +35,8 @@
     <node pkg="mloam" type="laserProcessing" name="laserProcessing" output="screen" />
 
     <node pkg="mloam" type="laserOdometry" name="laserOdometry" output="screen" />
+
+    <node pkg="mloam" type="latencyMaker" name="latencyMaker" output="screen" />
 
     <arg name="rviz" default="true" />
     <group if="$(arg rviz)">

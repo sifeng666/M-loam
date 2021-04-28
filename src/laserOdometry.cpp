@@ -11,6 +11,29 @@ using namespace tools;
 
 static const int odom_sleep = 1;    // 2ms
 
+class LatencyBuf {
+private:
+    mutable std::mutex mtx;
+    std::queue<int> buf;
+public:
+    inline void push(int a) {
+        std::lock_guard lg(mtx);
+        buf.push(a);
+    }
+    inline bool empty() const {
+        std::lock_guard lg(mtx);
+        return buf.empty();
+    }
+    inline int get() {
+        std::lock_guard lg(mtx);
+        if (buf.empty())
+            return -1;
+        int ret = buf.front();
+        buf.pop();
+        return ret;
+    }
+};
+
 class LidarInfo {
 public:
     using Ptr = std::shared_ptr<LidarInfo>;
@@ -67,7 +90,7 @@ public:
         parray_path_odom.poses.push_back(apose);
 
         // write to file
-        f_odom << setprecision(20) << double(ros::Time::now().toNSec())/1e9 << " "
+        f_odom << setprecision(20) << double(lidarInfo->ros_time.toNSec())/1e9 << " "
                << lidarInfo->odom.translation().x() << " " << lidarInfo->odom.translation().y()
                << " " << lidarInfo->odom.translation().z() << " " << q.x()
                << " " << q.y() << " " << q.z() << " " << q.w() << endl;
@@ -264,11 +287,24 @@ public:
             pubOptiOdom(lidarInfo);
             pubRawPointCloud(lidarInfo, odom, frame->raw);
 
-            printf("[Mapping]: %.3f ms\n", t_mapping.toc());
-            //sleep 2 ms every time
-            std::this_thread::sleep_for(std::chrono::milliseconds(odom_sleep));
+            double time_cost = t_mapping.toc();
+            printf("[Mapping]: %.3f ms\n", time_cost);
+
+            if (set_latency && !latencyBuf.empty()) {
+                int latency = latencyBuf.get();
+                cout << "############## bad conection, stop mapping ############" << endl;
+                std::this_thread::sleep_for(std::chrono::milliseconds(latency));
+                cout << "############## good conection, go mapping #############" << endl;
+            } else {
+                //sleep 1 ms every time
+                std::this_thread::sleep_for(std::chrono::milliseconds(odom_sleep));
+            }
         }
 
+    }
+
+    void latency_handler(const std_msgs::Int32ConstPtr &latency) {
+        latencyBuf.push(int(latency->data));
     }
 
     LaserOdometry() {
@@ -299,7 +335,7 @@ public:
         lidarInfo->pub_odom                  = nh.advertise<nav_msgs::Path>(          "/odom", 100);
 
         lidarInfo->sub_save_map = nh.subscribe<std_msgs::String>("/save_map", 1, &LaserOdometry::save_map_handler, this);
-        lidarInfo->sub_latency = nh.subscribe<std_msgs::Int>();
+        lidarInfo->sub_latency = nh.subscribe<std_msgs::Int32>  ("/latency", 1, &LaserOdometry::latency_handler, this);
 
         _mkdir(file_save_path + "compare/odom.txt");
         f_odom.open(file_save_path + "compare/odom.txt");
@@ -322,6 +358,7 @@ private:
     double show_map_resolution;
     std::string file_save_path;
     bool set_latency;
+    LatencyBuf latencyBuf;
     std::ofstream f_odom;
 
 };

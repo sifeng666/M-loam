@@ -71,3 +71,6 @@ add_executable(laserOdometry
         include/tools/myso3/myso3.hpp
 )
 target_link_libraries(laserOdometry ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES} gtsam)
+
+add_executable(latencyMaker src/latencyMaker.cpp)
+target_link_libraries(latencyMaker ${catkin_LIBRARIES})

@@ -382,7 +382,7 @@ gtsam::Pose3 LidarSensor::update_odom(const ros::Time& cloud_in_time, const pcl:
     ds_raw.setInputCloud(raw);
     ds_raw.filter(*raw);
     c = tic.toc(); tic.tic();
-    printf("Downsampling corn: %.3f ms, surf: %.3f ms, raw: %.3f ms\n", a, b, c);
+//    printf("Downsampling corn: %.3f ms, surf: %.3f ms, raw: %.3f ms\n", a, b, c);
 
     pcl::PointCloud<PointT>::Ptr surf_ds2(new pcl::PointCloud<PointT>);
     ds_surf_2.setInputCloud(surf);
@@ -473,7 +473,7 @@ void LidarSensor::addOdomFactor(int last_index, int curr_index) {
                                                                 odometry_noise_model);
 //                                                            gtsam::noiseModel::Diagonal::Information(information));
     BAEstimate.insert(X(curr_index), curr_pose);
-    printf("add Odom factor between [%d] and [%d]\n", last_index, curr_index);
+//    printf("add Odom factor between [%d] and [%d]\n", last_index, curr_index);
 }
 
 void LidarSensor::loop_detect_thread() {

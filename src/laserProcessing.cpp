@@ -450,7 +450,7 @@ public:
             surfPointsLessFlat2.header.stamp = cloud_in_time;
             surfPointsLessFlat2.header.frame_id = frame_id;
             lidar->pubSurfPointsLessFlat.publish(surfPointsLessFlat2);
-            printf("[PreProcessing]: %.3f ms\n", t.toc());
+//            printf("[PreProcessing]: %.3f ms\n", t.toc());
         }
     }
 

@@ -102,9 +102,9 @@ Visualization Manager:
       Enabled: true
       Invert Rainbow: false
       Max Color: 255; 255; 255
-      Max Intensity: 15.095964431762695
+      Max Intensity: 15.100000381469727
       Min Color: 0; 0; 0
-      Min Intensity: 8.270412945421413e-05
+      Min Intensity: 0.0009040373843163252
       Name: left_raw
       Position Transformer: XYZ
       Queue Size: 10
@@ -145,7 +145,7 @@ Visualization Manager:
       Buffer Length: 1
       Class: rviz/Path
       Color: 239; 41; 41
-      Enabled: false
+      Enabled: true
       Head Diameter: 0.30000001192092896
       Head Length: 0.20000000298023224
       Length: 0.30000001192092896
@@ -164,7 +164,7 @@ Visualization Manager:
       Shaft Length: 0.10000000149011612
       Topic: /odom_raw
       Unreliable: false
-      Value: false
+      Value: true
     - Alpha: 1
       Buffer Length: 1
       Class: rviz/Path
@@ -217,7 +217,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 242.09390258789062
+      Distance: 379.6515197753906
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -225,9 +225,9 @@ Visualization Manager:
         Value: false
       Field of View: 0.7853981852531433
       Focal Point:
-        X: 18.74390411376953
-        Y: 2.6287355422973633
-        Z: -62.27228546142578
+        X: 52.01725769042969
+        Y: 4.138492584228516
+        Z: -62.23897933959961
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
@@ -235,7 +235,7 @@ Visualization Manager:
       Near Clip Distance: 0.009999999776482582
       Pitch: 1.5697963237762451
       Target Frame: <Fixed Frame>
-      Yaw: 3.181704521179199
+      Yaw: 1.701698660850525
     Saved: ~
 Window Geometry:
   Displays:
