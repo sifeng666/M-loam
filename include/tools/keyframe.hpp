@@ -31,8 +31,13 @@ namespace tools {
     enum class FeatureType {
         Corn = 0,
         Surf = 1,
-        Full = 2,
-        Plane = 3
+        Full = 2
+    };
+
+    enum class Type {
+        Odom = 0,
+        Opti = 1,
+        Delta = 2
     };
 
     class Submap {
@@ -51,7 +56,8 @@ namespace tools {
         pcl::PointCloud<PointT>::Ptr merge() const {
             pcl::PointCloud<PointT>::Ptr ret(new pcl::PointCloud<PointT>);
             std::lock_guard lg(mtx);
-            *ret += *submap_corn; *ret += *submap_surf;
+            *ret += *submap_corn;
+            *ret += *submap_surf;
             return ret;
         }
 
@@ -125,9 +131,10 @@ namespace tools {
                 buf.pop();
             }
             unlock();
+            return vec;
         }
 
-        inline bool empty() const {
+        inline bool empty() {
             std::lock_guard lg(mtx);
             return buf.empty();
         }
@@ -162,7 +169,6 @@ namespace tools {
             }
         }
     };
-
 
     class Keyframe {
     public:
@@ -243,6 +249,36 @@ namespace tools {
             }
 
             return poseVec;
+        }
+
+        // read pose that is inited, not require fixed
+        gtsam::Pose3 read_pose(size_t index, Type type) const {
+            if (index > keyframes.size()) {
+                std::cerr << "read_pose invalid range: " << index << ", but size is " <<
+                keyframes.size() << std::endl;
+                return gtsam::Pose3();
+            }
+
+            if (type == Type::Odom) {
+                if (keyframes[index]->is_init()) {
+                    std::shared_lock<std::shared_mutex> sl(pose_mtx);
+                    return keyframes[index]->pose_odom;
+                } else {
+                    std::cerr << "read pose_odom fail, pose not init!" << std::endl;
+                    return gtsam::Pose3();
+                }
+            } else if (type == Type::Opti) {
+                if (keyframes[index]->is_fixed()) {
+                    std::shared_lock<std::shared_mutex> sl(pose_mtx);
+                    return keyframes[index]->pose_fixed;
+                } else {
+                    std::cerr << "read pose_opti, pose not fixed!" << std::endl;
+                    return gtsam::Pose3();
+                }
+            } else {
+                std::shared_lock<std::shared_mutex> sl(pose_mtx);
+                return keyframes[index]->pose_last_curr;
+            }
         }
 
         // read pose that is inited, not require fixed

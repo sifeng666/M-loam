@@ -8,7 +8,6 @@ int OCTO_TREE::voxel_windowsize;
 gtsam::SharedNoiseModel LidarSensor::edge_noise_model;
 gtsam::SharedNoiseModel LidarSensor::surf_noise_model;
 static const int backend_sleep = 5;    // 5ms
-static const int end_signal = 20000;   // 20000ms
 
 // extract from balm back
 static double voxel_size[2] = {1, 1};
@@ -355,16 +354,18 @@ LidarSensor::scan2submap(const pcl::PointCloud<PointT>::Ptr &corn, const pcl::Po
 
     auto T_w_c = guess; // T_w_mapcurr
 
+    if (opti_counter > 2) opti_counter--;
+
     if (!corn || !surf) {
         std::cerr << "Error nullptr corn or surf" << std::endl;
         return T_w_c;
     }
 
-//    TicToc t_gen_submap;
-//    // MapGenerator::generate_cloud gen pcd range from: [begin, end), so need to add 1
-//    int c_index = current_keyframe->index + 1;
-//    updateSubmap(c_index - window_size, c_index);
-//    printf("prepare submap: %.3f ms\n", t_gen_submap.toc());
+    TicToc t_gen_submap;
+    // MapGenerator::generate_cloud gen pcd range from: [begin, end), so need to add 1
+    int c_index = current_keyframe->index + 1;
+    updateSubmap(c_index - window_size, c_index);
+    printf("prepare submap: %.3f ms\n", t_gen_submap.toc());
 
     submap->mtx.lock();
     auto submapCorn_copy = submap->submap_corn->makeShared();
@@ -382,7 +383,6 @@ LidarSensor::scan2submap(const pcl::PointCloud<PointT>::Ptr &corn, const pcl::Po
         return T_w_c;
     }
 
-//    T_odom_map = pose_normalize(T_w_odomcurr.inverse() * T_w_c);
 //    printf("mapping, scan to submap: %.3f ms\n", t_mapping.toc());
     return T_w_c;
 }
@@ -412,7 +412,7 @@ gtsam::Pose3 LidarSensor::update_odom(const ros::Time &cloud_in_time, const pcl:
     ds_raw.filter(*raw);
     c = tic.toc();
     tic.tic();
-    printf("Downsampling corn: %.3f ms, surf: %.3f ms, raw: %.3f ms\n", a, b, c);
+//    printf("Downsampling corn: %.3f ms, surf: %.3f ms, raw: %.3f ms\n", a, b, c);
 
     pcl::PointCloud<PointT>::Ptr surf_ds2(new pcl::PointCloud<PointT>);
     ds_surf_2.setInputCloud(surf);
@@ -437,8 +437,9 @@ gtsam::Pose3 LidarSensor::update_mapping(const Frame::Ptr &frame) {
 
     if (!is_init) {
         current_keyframe->set_init(gtsam::Pose3());
+        current_keyframe->set_fixed(gtsam::Pose3());
         T_wmap_lastkey = gtsam::Pose3();
-        updateSubmap(0, 1);
+//        updateSubmap(0, 1);
         BAKeyframeChannel->push(current_keyframe);
 //        factor_graph_opti();
         is_init = true;
@@ -449,23 +450,28 @@ gtsam::Pose3 LidarSensor::update_mapping(const Frame::Ptr &frame) {
 //    gtsam::Pose3 T_pred = T_wmap_last * T_wmap_delta;
     gtsam::Pose3 T_pred = T_wmap_wodom * frame->pose_w_curr;
 
-    while (current_keyframe->index > submap->end + 2 && current_keyframe->index > window_base + 10) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
+//    while (current_keyframe->index > submap->end + 2 && current_keyframe->index > window_base + 10) {
+//        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+//    }
 
     T_wmap_curr = scan2submap(frame->corn_features, frame->surf_features, T_pred, mapping_method);
     T_wmap_curr = pose_normalize(T_wmap_curr);
 
+//    cout << "T_wmap_curr:\n" << T_wmap_curr.matrix() << endl;
+
     if (!current_keyframe->is_init()) {
         current_keyframe->set_increment(T_wmap_lastkey.between(T_wmap_curr));
         current_keyframe->set_init(T_wmap_curr);
+
+//        cout << "keyframe!!!! " << current_keyframe->index << ", T_wmap_curr:\n" << T_wmap_curr.matrix() << endl;
+        f_backend_timecost << T_wmap_curr.matrix() << endl;
         T_wmap_lastkey = T_wmap_curr;
 
         BAKeyframeChannel->push(current_keyframe);
 
-        if (current_keyframe->index < window_size) {
-            updateSubmap(0, current_keyframe->index);
-        }
+//        if (current_keyframe->index < window_size) {
+//            updateSubmap(0, current_keyframe->index);
+//        }
     }
 
 //    if (!current_keyframe->is_init()) {
@@ -527,7 +533,10 @@ void LidarSensor::initParam() {
     keyframeVec = std::make_shared<KeyframeVec>();
     keyframeVec->keyframes.reserve(200);
     status = std::make_shared<LidarStatus>();
-    fixedKeyframeChannel = boost::make_shared<FixedKeyframeChannel>();
+    frameChannel = std::make_shared<Channel<Frame::Ptr>>();
+    BAKeyframeChannel = std::make_shared<Channel<Keyframe::Ptr>>();
+    MargiKeyframeChannel = std::make_shared<Channel<Keyframe::Ptr>>();
+    factorsChannel = std::make_shared<Channel<FactorPtr>>();
 
     auto edge_gaussian_model = gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(3) << 0.2, 0.2, 0.2).finished());
     auto surf_gaussian_model = gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(1) << 0.2).finished());
@@ -613,30 +622,35 @@ void LidarSensor::addOdomFactor(int last_index, int curr_index) {
     if (last_index < 0) {
         BAGraph.addPrior(X(0), Pose3::identity(), prior_noise_model);
         BAEstimate.insert(X(0), Pose3::identity());
-        f_pose_fixed << 0 << endl << Pose3().matrix() << endl;
+        f_pose_fixed << Eigen::Matrix4d::Identity() << endl;
+//        pcl::io::savePCDFile(file_save_path + "0.pcd", *keyframeVec->keyframes[curr_index]->raw);
         std::cout << "init Odom factor!" << std::endl;
         return;
     }
 
     // read lock
-    Pose3 last_pose = keyframeVec->read_pose(last_index);
-    Pose3 curr_pose = keyframeVec->read_pose(curr_index);
-    Pose3 pose_curr_last = last_pose.between(curr_pose);
+    gtsam::Pose3 pose_last = keyframeVec->read_pose(last_index, Type::Opti);
+    gtsam::Pose3 pose_delta = keyframeVec->read_pose(curr_index, Type::Delta);
+    gtsam::Pose3 pose_curr = pose_last * pose_delta;
+    keyframeVec->at(curr_index)->set_fixed(pose_curr);
+
+    printf("add Odom factor between [%d] and [%d]\n", last_index, curr_index);
+//    cout << "last_pose:\n" << pose_last.matrix() << endl;
+//    cout << "curr pose:\n" << pose_curr.matrix() << endl;
 
     auto information = GetInformationMatrixFromPointClouds(keyframeVec->keyframes[curr_index]->raw,
                                                            keyframeVec->keyframes[last_index]->raw,
                                                            2.0,
-                                                           pose_curr_last.matrix());
+                                                           pose_delta.matrix());
 
-    f_pose_fixed << keyframeVec->keyframes[curr_index]->cloud_in_time.toNSec() << endl << curr_pose.matrix() << endl
-                 << endl;
-    f_pose_fixed << information << endl << endl;
+    f_pose_fixed << pose_curr.matrix() << endl;
+//    pcl::io::savePCDFile(file_save_path + to_string(curr_index) + ".pcd", *keyframeVec->keyframes[curr_index]->raw);
+//    f_pose_fixed << information << endl << endl;
 
-    BAGraph.emplace_shared<BetweenFactor<Pose3>>(X(last_index), X(curr_index), pose_curr_last,
-//                                                            odometry_noise_model);
-                                                 noiseModel::Gaussian::Information(information));
-    BAEstimate.insert(X(curr_index), curr_pose);
-    printf("add Odom factor between [%d] and [%d]\n", last_index, curr_index);
+    BAGraph.emplace_shared<BetweenFactor<Pose3>>(X(last_index), X(curr_index),
+                                                 pose_delta, noiseModel::Gaussian::Information(information));
+    BAEstimate.insert(X(curr_index), pose_curr);
+//    printf("add Odom factor between [%d] and [%d]\n", last_index, curr_index);
 
 }
 
@@ -644,8 +658,8 @@ void LidarSensor::BALM_backend(const std::vector<Keyframe::Ptr> &keyframes_buf,
                                std::vector<Keyframe::Ptr> &fixedKeyframes_buf) {
 
     for (const auto &keyframe : keyframes_buf) {
-        Timer t_BALM("BALM keyframe_" + std::to_string(keyframe->index));
-        TicToc tic;
+//        Timer t_BALM("BALM keyframe_" + std::to_string(keyframe->index));
+//        TicToc tic;
 
         gtsam::Pose3 curr_pose = keyframe->pose_odom;
         q_odom = Eigen::Quaterniond(curr_pose.rotation().matrix());
@@ -724,20 +738,25 @@ void LidarSensor::BALM_backend(const std::vector<Keyframe::Ptr> &keyframes_buf,
                     t_poses[window_base + i] = opt_lsv.t_poses[i];
                     keyframeVec->keyframes[window_base + i]->pose_odom = toPose3(q_poses[window_base + i],
                                                                                  t_poses[window_base + i]);
+
+                    f_balm << keyframeVec->keyframes[window_base + i]->pose_odom.matrix() << endl;
+
                 }
 
                 // optimized pose value
                 for (int i = 0; i < margi_size; i++) {
                     auto keyframe = keyframeVec->keyframes[window_base + i];
-                    auto last_pose_odom = keyframeVec->at(keyframe->index - 1)->pose_odom;
-                    auto curr_pose_odom = keyframeVec->at(keyframe->index)->pose_odom;
-                    keyframe->set_increment(last_pose_odom.between(curr_pose_odom));
+                    if (keyframe->index > 0) {
+                        auto last_pose_odom = keyframeVec->at(keyframe->index - 1)->pose_odom;
+                        auto curr_pose_odom = keyframeVec->at(keyframe->index)->pose_odom;
+                        keyframe->set_increment(pose_normalize(last_pose_odom.between(curr_pose_odom)));
+                    }
                     fixedKeyframes_buf.push_back(keyframe);
                 }
             }
 
             // update submap here, front end will use
-            updateSubmap(window_base, window_base + window_size);
+//            updateSubmap(window_base, window_base + window_size);
 
             for (auto iter = surf_map.begin(); iter != surf_map.end(); ++iter) {
                 if (iter->second->is2opt) {
@@ -756,8 +775,8 @@ void LidarSensor::BALM_backend(const std::vector<Keyframe::Ptr> &keyframes_buf,
             window_base += margi_size;
             opt_lsv.free_voxel();
         }
-        t_BALM.count();
-        f_backend_timecost << tic.toc() << endl;
+//        t_BALM.count();
+//        f_backend_timecost << tic.toc() << endl;
     }
 }
 
@@ -767,20 +786,14 @@ void LidarSensor::loop_detect_thread() {
 
     while (ros::ok()) {
 
-        std::vector<Keyframe::Ptr> fixedKeyframes_buf;
-        {
-            std::lock_guard<std::mutex> lg(fixed_mtx);
-            while (!FixedKeyframeBuf.empty()) {
-                fixedKeyframes_buf.push_back(FixedKeyframeBuf.front());
-                FixedKeyframeBuf.pop();
-            }
-        }
+        std::vector<Keyframe::Ptr> fixedKeyframes_buf = MargiKeyframeChannel->get_all();
+
         std::vector<FactorPtr> factors;
         for (const auto &keyframe: fixedKeyframes_buf) {
-            if (loopDetector.loop_detector(keyframeVec, keyframe, factors, last_loop_found_index)) {
-                std::lock_guard<std::mutex> lg(loop_factors_mtx);
+            if (loopDetector.loop_detector(keyframeVec, keyframe, factors,
+                                           last_loop_found_index)) {
                 for (const auto &factor: factors) {
-                    factorsBuf.push(factor);
+                    factorsChannel->push(factor);
                 }
                 status->last_loop_found_index = max(status->last_loop_found_index, last_loop_found_index);
             }
@@ -790,33 +803,6 @@ void LidarSensor::loop_detect_thread() {
         std::this_thread::sleep_for(std::chrono::milliseconds(backend_sleep));
     }
 
-}
-
-void LidarSensor::updateISAM() {
-
-//    std::cout << "Calibration Graph Optimization start!" << std::endl;
-//
-//    TicToc tic_toc; tic_toc.tic();
-//
-//    gtsam::LevenbergMarquardtParams params;
-//    params.maxIterations = 5;
-//    gtsam::LevenbergMarquardtOptimizer optimizer(BAGraph, BAEstimate, params);
-//
-//    BAEstimate = optimizer.optimize();
-//
-//    std::cout << "Calibration Graph Optimization done! cost " << tic_toc.toc() <<"ms.\n";
-//
-//    isamOptimize = BAEstimate;
-//
-//    return;
-
-    // isam update
-    isam->update(BAGraph, BAEstimate);
-    isam->update();
-    isamOptimize = isam->calculateEstimate();
-
-    BAGraph.resize(0);
-    BAEstimate.clear();
 }
 
 void LidarSensor::BA_optimization() {
@@ -846,7 +832,7 @@ void LidarSensor::BA_optimization() {
             bool has_loop = false;
             if (!factorsChannel->empty()) {
                 auto vec = factorsChannel->get_all();
-                for (const auto& factor : vec) {
+                for (const auto &factor : vec) {
                     BAGraph.add(factor);
                 }
                 has_loop = true;
@@ -867,10 +853,14 @@ void LidarSensor::BA_optimization() {
             {   // write lock
                 std::unique_lock<std::shared_mutex> ul(keyframeVec->pose_mtx);
                 for (size_t i = 0; i < isamOptimize.size(); i++) {
-                    keyframeVec->keyframes[i]->set_fixed(isamOptimize.at<gtsam::Pose3>(X(i)));
+                    keyframeVec->at(i)->set_fixed(isamOptimize.at<gtsam::Pose3>(X(i)));
                 }
             }
-
+            auto T_opti = keyframeVec->read_pose(isamOptimize.size() - 1, true);
+            auto T_before = keyframeVec->read_pose(isamOptimize.size() - 1, false);
+            T_lock0.lock();
+            T_w_wmap = pose_normalize(T_opti * T_before.inverse());
+            T_lock0.unlock();
             // debug
 //            auto poseVec = keyframeVec->read_poses(0, keyframeVec->size(), true);
 //            {
@@ -901,13 +891,14 @@ LidarSensor::LidarSensor(int i) : opt_lsv(window_size, filter_num, thread_num), 
     _mkdir(file_save_path + "test.txt");
     f_pose_fixed.open(file_save_path + "lidar" + to_string(i) + "fixed_poses_raw.txt");
     f_backend_timecost.open(file_save_path + "lidar" + to_string(i) + "backend_timecost.txt");
-    cout << "#######################################" << endl;
-    cout << "current_lidar: " << i << endl;
-    cout << "f_pose_fixed path: " << file_save_path + "lidar" + to_string(i) + "fixed_poses_raw.txt" << endl;
-    cout << "f_pose_fixed isopen? " << f_pose_fixed.is_open() << endl;
-    cout << "f_backend_timecost path: " << "lidar" + to_string(i) + "backend_timecost.txt" << endl;
-    cout << "f_backend_timecost isopen? " << f_backend_timecost.is_open() << endl;
-    cout << "#######################################" << endl;
+    f_balm.open(file_save_path + "lidar" + to_string(i) + "balm.txt");
+//    cout << "#######################################" << endl;
+//    cout << "current_lidar: " << i << endl;
+//    cout << "f_pose_fixed path: " << file_save_path + "lidar" + to_string(i) + "fixed_poses_raw.txt" << endl;
+//    cout << "f_pose_fixed isopen? " << f_pose_fixed.is_open() << endl;
+//    cout << "f_backend_timecost path: " << "lidar" + to_string(i) + "backend_timecost.txt" << endl;
+//    cout << "f_backend_timecost isopen? " << f_backend_timecost.is_open() << endl;
+//    cout << "#######################################" << endl;
 
 
     nh.param<bool>("need_loop", need_loop, true);
@@ -917,6 +908,9 @@ LidarSensor::LidarSensor(int i) : opt_lsv(window_size, filter_num, thread_num), 
     nh.param<int>("margi_size", margi_size, 3);
     nh.param<double>("surf_filter_length", surf_filter_length, 0.4);
     nh.param<double>("corn_filter_length", corn_filter_length, 0.2);
+
+    nh.param<int>("mapping_method", mapping_method, 0);
+    nh.param<int>("n_scans", n_scans, 3);
 
     opt_lsv.set_window_size(window_size);
     initParam();

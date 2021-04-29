@@ -35,11 +35,11 @@ namespace tools
     public:
         LoopDetector(int i) {
             string file_save_path = nh.param<std::string>("file_save_path", "");
-        boost::filesystem::path save_path(file_save_path+"lidar"+to_string(i)+"f_loop.txt");
-        auto folder_path = save_path.parent_path();
-        if (!boost::filesystem::exists(folder_path)) {
-            boost::filesystem::create_directories(folder_path);
-        }
+//            boost::filesystem::path save_path(file_save_path+"lidar"+to_string(i)+"f_loop.txt");
+//            auto folder_path = save_path.parent_path();
+//            if (!boost::filesystem::exists(folder_path)) {
+//                boost::filesystem::create_directories(folder_path);
+//            }
             // f_loop.open(file_save_path+"lidar"+to_string(i)+"f_loop.txt");
             // cout << "#######################################" << endl;
             // cout << "current_lidar: " << i << endl;
@@ -117,7 +117,7 @@ namespace tools
                 f.filter(*curr_pcd);
 
                 Eigen::Matrix4d pose_closest_curr(poseVec[closestKeyIdx].between(curr_pose).matrix());
-                // pose_closest_curr(14) = 0.0; // planar assumption
+                pose_closest_curr(14) = 0.0; // planar assumption
                 Eigen::Matrix4d pose_closest_curr_final;
                 // fast gicp, refer to "Voxelized GICP for fast and accurate 3D point cloud registration, ICRA2021", this version is faster by using multiple CPU, but result is not as good as normal one
                 bool ok = tools::FastGeneralizedRegistration(curr_pcd, submap_pcd, pose_closest_curr_final, pose_closest_curr, 2.0, fitness_thres_);
@@ -149,9 +149,9 @@ namespace tools
                 //     debug_count++;
                 // }
 
-                // if (!ok) {
-                //     continue;
-                // }
+                 if (!ok) {
+                     continue;
+                 }
 
                 auto information = tools::GetInformationMatrixFromPointClouds(curr_pcd, submap_pcd, 2.0, pose_closest_curr_final);
                 // auto loop_model = gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(6) << 1e-3, 1e-3, 1e-3, 1e-2, 1e-2, 1e-1).finished());

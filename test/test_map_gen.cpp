@@ -22,60 +22,69 @@ using namespace std;
 using PointT = pcl::PointXYZI;
 
 int main() {
-    string path = "/home/ziv/mloam/result/building-001/10-2-0.5-0.05/";
+    string path = "/home/ziv/mloam/result/test/debug/";
 
     vector<gtsam::Pose3> poseVec;
+    vector<gtsam::Pose3> poseVec1;
     vector<pcl::PointCloud<PointT>::Ptr> pcdVec;
-    fstream tmp_result (path + "without_loop.txt");
-    for (int i = 0; i < 10; i++) {
+    fstream tmp_result(path + "lidar0fixed_poses_raw.txt");
+    fstream tmp_result2(path + "lidar0backend_timecost.txt");
+    fstream tmp_result3(path + "lidar0balm.txt");
+
+    int count = 8;
+
+    for (int i = 0; i < count; i++) {
         pcl::PointCloud<PointT>::Ptr temp(new pcl::PointCloud<PointT>());
         pcl::io::loadPCDFile(path + to_string(i) + ".pcd", *temp);
         Eigen::Matrix4d pose(Eigen::Matrix4d::Identity());
-        string drop1, drop2;
-        tmp_result >> drop1 >> drop2;
         // Read ceres result
         for (int i = 0; i < 4; i++) {
             for (int j = 0; j < 4; j++) {
-                tmp_result >> *(pose.data() + i+j*4);
+                tmp_result2 >> *(pose.data() + i+j*4);
             }
         }
+        cout << "pose:\n" << pose.matrix() << endl;
         poseVec.push_back(gtsam::Pose3(pose));
         pcdVec.push_back(temp);
     }
 
-
-
-    for (int i = 1; i < 10; i++) {
-        auto poseBet = poseVec[i-1].between(poseVec[i]);
-        cout << poseBet << endl;
-        pcl::PointCloud<PointT>::Ptr temp(new pcl::PointCloud<PointT>());
-        pcl::transformPointCloud(*pcdVec[i], *temp, poseBet.matrix());
-
-        pcl::visualization::PCLVisualizer::Ptr viewer(new pcl::visualization::PCLVisualizer ("3D Viewer"));
-
-        viewer->setBackgroundColor (0, 0, 0);
-        pcl::visualization::PointCloudColorHandlerCustom<PointT> white(pcdVec[i - 1], 255, 255, 255);
-        viewer->addPointCloud<PointT> (pcdVec[i - 1], white, "1");
-        viewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, "1");
-
-//    pcl::visualization::PointCloudColorHandlerCustom<PointT> green(curr, 0, 255, 0);
-//    viewer->addPointCloud<PointT> (curr, green, "target");
-//    viewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, "target");
-
-        pcl::visualization::PointCloudColorHandlerCustom<PointT> blue(temp, 255, 0, 0);
-        viewer->addPointCloud<PointT> (temp, blue, "2");
-        viewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, "2");
-
-        pcl::visualization::PointCloudColorHandlerCustom<PointT> green(pcdVec[i], 0, 255, 0);
-        viewer->addPointCloud<PointT> (pcdVec[i], green, "3");
-        viewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, "3");
-
-        viewer->addCoordinateSystem (1.0);
-        while (!viewer->wasStopped ())
-        {
-            viewer->spinOnce (100);
+    for (int i = 0; i < count; i++) {
+        Eigen::Matrix4d pose(Eigen::Matrix4d::Identity());
+        // Read ceres result
+        for (int i = 0; i < 4; i++) {
+            for (int j = 0; j < 4; j++) {
+                tmp_result3 >> *(pose.data() + i+j*4);
+            }
         }
+        cout << "pose:\n" << pose.matrix() << endl;
+        poseVec1.push_back(gtsam::Pose3(pose));
+    }
 
+    pcl::PointCloud<PointT>::Ptr map1(new pcl::PointCloud<PointT>());
+    pcl::PointCloud<PointT>::Ptr map2(new pcl::PointCloud<PointT>());
+    pcl::PointCloud<PointT>::Ptr tmp(new pcl::PointCloud<PointT>());
+    for (int i = 0; i < count; i++) {
+        pcl::transformPointCloud(*pcdVec[i], *tmp, poseVec[i].matrix());
+        *map1 += *tmp;
+        pcl::transformPointCloud(*pcdVec[i], *tmp, poseVec1[i].matrix());
+        *map2 += *tmp;
+    }
+
+
+    pcl::visualization::PCLVisualizer::Ptr viewer(new pcl::visualization::PCLVisualizer ("3D Viewer"));
+    viewer->setBackgroundColor (0, 0, 0);
+    pcl::visualization::PointCloudColorHandlerCustom<PointT> white(map1, 255, 255, 255);
+    viewer->addPointCloud<PointT> (map1, white, "1");
+    viewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, "1");
+
+    pcl::visualization::PointCloudColorHandlerCustom<PointT> red(map1, 255, 0, 0);
+    viewer->addPointCloud<PointT> (map2, red, "2");
+    viewer->setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, "2");
+
+    viewer->addCoordinateSystem (1.0);
+    while (!viewer->wasStopped ())
+    {
+        viewer->spinOnce (100);
     }
 
 }

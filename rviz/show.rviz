@@ -10,6 +10,7 @@ Panels:
         - /right_map1
         - /left_path1
         - /right_path1
+        - /Path1
       Splitter Ratio: 0.5
     Tree Height: 979
   - Class: rviz/Selection
@@ -71,9 +72,9 @@ Visualization Manager:
       Enabled: true
       Invert Rainbow: false
       Max Color: 255; 255; 255
-      Max Intensity: 13.100000381469727
+      Max Intensity: 15.12496566772461
       Min Color: 0; 0; 0
-      Min Intensity: -3.792231861865503e-09
+      Min Intensity: 0.0006917652790434659
       Name: left_map
       Position Transformer: XYZ
       Queue Size: 10
@@ -131,9 +132,9 @@ Visualization Manager:
       Enabled: true
       Invert Rainbow: false
       Max Color: 255; 255; 255
-      Max Intensity: 13.100000381469727
+      Max Intensity: 15.124967575073242
       Min Color: 0; 0; 0
-      Min Intensity: 0
+      Min Intensity: 0.0008015535422600806
       Name: left_raw
       Position Transformer: XYZ
       Queue Size: 10
@@ -192,7 +193,7 @@ Visualization Manager:
         Y: 0
         Z: 0
       Pose Color: 204; 0; 0
-      Pose Style: Arrows
+      Pose Style: Axes
       Queue Size: 10
       Radius: 0.10000000149011612
       Shaft Diameter: 0.05000000074505806
@@ -216,12 +217,36 @@ Visualization Manager:
         Y: 0
         Z: 0
       Pose Color: 115; 210; 22
-      Pose Style: Arrows
+      Pose Style: Axes
       Queue Size: 10
       Radius: 0.10000000149011612
       Shaft Diameter: 0.05000000074505806
       Shaft Length: 0.20000000298023224
       Topic: /right/odom_opti
+      Unreliable: false
+      Value: true
+    - Alpha: 1
+      Buffer Length: 1
+      Class: rviz/Path
+      Color: 25; 255; 0
+      Enabled: true
+      Head Diameter: 0.30000001192092896
+      Head Length: 0.20000000298023224
+      Length: 0.30000001192092896
+      Line Style: Billboards
+      Line Width: 0.029999999329447746
+      Name: Path
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0
+      Pose Color: 255; 85; 255
+      Pose Style: None
+      Queue Size: 10
+      Radius: 0.029999999329447746
+      Shaft Diameter: 0.10000000149011612
+      Shaft Length: 0.10000000149011612
+      Topic: /left/odom_mapping
       Unreliable: false
       Value: true
   Enabled: true
@@ -252,7 +277,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 108.76713562011719
+      Distance: 108.8197250366211
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -260,17 +285,17 @@ Visualization Manager:
         Value: false
       Field of View: 0.7853981852531433
       Focal Point:
-        X: 152.65321350097656
-        Y: -26.287151336669922
-        Z: 7.528911590576172
+        X: 12.237334251403809
+        Y: -2.6753265857696533
+        Z: 6.016349792480469
       Focal Shape Fixed Size: false
       Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 1.1553981304168701
+      Pitch: 0.639797031879425
       Target Frame: <Fixed Frame>
-      Yaw: 4.283581256866455
+      Yaw: 2.9685819149017334
     Saved: ~
 Window Geometry:
   Displays:
