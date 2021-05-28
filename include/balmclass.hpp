@@ -1,4 +1,4 @@
-#ifndef BALMCLASS
+ #ifndef BALMCLASS
 #define BALMCLASS
 
 #include <ros/ros.h>

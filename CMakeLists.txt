@@ -35,7 +35,7 @@ include_directories(
     include
     ${catkin_INCLUDE_DIRS}
     ${PCL_INCLUDE_DIRS}
-    ${OpenCV_INCLUDE_DIRS}
+    #${OpenCV_INCLUDE_DIRS}
     ${GTSAM_INCLUDE_DIR}
     ${EIGEN3_INCLUDE_DIR}
     ${CERES_INCLUDE_DIRS}
@@ -73,4 +73,4 @@ add_executable(laserOdometry
 )
 target_link_libraries(laserOdometry ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES} gtsam)
 
-add_subdirectory(test)
+#add_subdirectory(test)

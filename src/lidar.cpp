@@ -90,8 +90,12 @@ LidarSensor::addCornCostFactor(const pcl::PointCloud<PointT>::Ptr &pc_in, const 
     PointT point_temp, point_transformed;
     std::vector<int> pointSearchInd;
     std::vector<float> pointSearchSqDis;
-    Eigen::Affine3d odom_(odom.matrix());
-    Eigen::Affine3d point_transform_(point_transform.matrix());
+    //the pcl::transformPoint in PCL1.8 use affine3f, so here should be changed
+    //Eigen::Affine3d odom_(odom.matrix());
+    //Eigen::Affine3d point_transform_(point_transform.matrix());
+    Eigen::Affine3f odom_(odom.matrix().cast<float>());
+    Eigen::Affine3f point_transform_(point_transform.matrix().cast<float>());
+
     bool need_transform = !point_transform.equals(gtsam::Pose3::identity());
 
     for (int i = 0; i < (int) pc_in->points.size(); i++) {
@@ -153,8 +157,11 @@ LidarSensor::addSurfCostFactor(const pcl::PointCloud<PointT>::Ptr &pc_in, const 
     PointT point_temp, point_transformed;
     std::vector<int> pointSearchInd;
     std::vector<float> pointSearchSqDis;
-    Eigen::Affine3d odom_(odom.matrix());
-    Eigen::Affine3d point_transform_(point_transform.matrix());
+    //the pcl::transformPoint in PCL1.8 use affine3f, so here should be changed
+    //Eigen::Affine3d odom_(odom.matrix());
+    //Eigen::Affine3d point_transform_(point_transform.matrix());
+    Eigen::Affine3f odom_(odom.matrix().cast<float>());
+    Eigen::Affine3f point_transform_(point_transform.matrix().cast<float>());
     bool need_transform = !point_transform.equals(gtsam::Pose3::identity());
 
     for (int i = 0; i < (int) pc_in->points.size(); i++) {

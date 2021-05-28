@@ -49,7 +49,7 @@ namespace tools
                 Eigen::Affine3f pose(Eigen::Matrix4f(poseVec[i].matrix().cast<float>()));
 
                 for(const auto& src_pt : keyframe->raw->points) {
-                    map->emplace_back(pcl::transformPoint(src_pt, pose));
+                    map->push_back(pcl::transformPoint(src_pt, pose));
                 }
             }
         }
@@ -94,16 +94,16 @@ namespace tools
 
                 if (featureType == FeatureType::Corn) {
                     for(const auto& src_pt : keyframe->corn_features->points) {
-                        cloud->emplace_back(pcl::transformPoint(src_pt, pose));
+                        cloud->push_back(pcl::transformPoint(src_pt, pose));
                     }
                 }
                 else if (featureType == FeatureType::Surf) {
                     for(const auto& src_pt : keyframe->surf_features->points) {
-                        cloud->emplace_back(pcl::transformPoint(src_pt, pose));
+                        cloud->push_back(pcl::transformPoint(src_pt, pose));
                     }
                 } else {
                     for(const auto& src_pt : keyframe->raw->points) {
-                        cloud->emplace_back(pcl::transformPoint(src_pt, pose));
+                        cloud->push_back(pcl::transformPoint(src_pt, pose));
                     }
                 }
             }

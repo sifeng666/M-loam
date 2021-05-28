@@ -1,7 +1,16 @@
 <launch>
     
     <param name="/use_sim_time" value="ture"/>
-    <node pkg="rosbag" type="play" name="playbag" args="--clock /home/ziv/sunshine_dateset/0309/ziv_bag/out05.bag
+    <!--node pkg="rosbag" type="play" name="playbag" args="-clock /home/cps/datasets/walking_dataset.bag
+         /velodyne_points:=/left/velodyne_points
+         /rslidar_points:=/left/velodyne_points
+         /ns1/rslidar_points:=/left/velodyne_points
+         /ns2/rslidar_points:=/right/velodyne_points
+         /ns1/velodyne_points:=/left/velodyne_points
+         /ns2/velodyne_points:=/right/velodyne_points
+         /points_raw:=/left/velodyne_points
+    "/-->
+    <node pkg="rosbag" type="play" name="playbag" args="--clock /home/cps/datasets/campus_small_dataset.bag
          /velodyne_points:=/left/velodyne_points
          /rslidar_points:=/left/velodyne_points
          /ns1/rslidar_points:=/left/velodyne_points
@@ -11,7 +20,7 @@
          /points_raw:=/left/velodyne_points
     "/>
 
-    <param name="file_save_path" type="string" value="/home/ziv/mloam/result/" />
+    <param name="file_save_path" type="string" value="/home/cps/baloam_map/" />
 
     <param name="need_calibra" type="bool" value="false" />
 
