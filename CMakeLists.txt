@@ -10,6 +10,8 @@ endif ()
 set(CMAKE_CXX_FLAGS "-Wall -g")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 
+include_directories("/home/cps/catkin_baloam/src/fast_gicp")
+
 find_package(catkin REQUIRED COMPONENTS
     geometry_msgs
     nav_msgs
@@ -70,7 +72,7 @@ add_executable(laserOdometry
         include/tools/camodocal/src/PlanarHandEyeCalibration.cc
         include/tools/myso3/myso3.cpp
         include/tools/myso3/myso3.hpp
-)
+        include/imu.h)
 target_link_libraries(laserOdometry ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES} gtsam)
 
 #add_subdirectory(test)

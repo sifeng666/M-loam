@@ -51,6 +51,7 @@ public:
 
 class LaserOdometry {
 public:
+    //
     void pubOptiOdom(LidarInfo::Ptr lidarInfo) {
         if (lidarInfo->keyframeVec->keyframes.empty()) return;
         auto &parray_path = lidarInfo->parray_path_opti;
@@ -63,7 +64,7 @@ public:
 
         for (size_t i = 0; i < poseVec.size(); i++) {
             Eigen::Quaterniond q(poseVec[i].rotation().matrix());
-            if (i < parray_path.poses.size()) {
+            if (i < parray_path.poses.size()) { //parray_path with the size
                 parray_path.poses[i].pose.orientation.w = q.w();
                 parray_path.poses[i].pose.orientation.x = q.x();
                 parray_path.poses[i].pose.orientation.y = q.y();
@@ -80,7 +81,7 @@ public:
                 apose.pose.position.x = poseVec[i].translation().x();
                 apose.pose.position.y = poseVec[i].translation().y();
                 apose.pose.position.z = poseVec[i].translation().z();
-                parray_path.poses.push_back(apose);
+                parray_path.poses.push_back(apose);  //if oversize, new a apose and push it to the back of parray_path
             }
         }
 

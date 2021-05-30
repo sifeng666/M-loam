@@ -37,6 +37,10 @@
     <param name="show_map_resolution" type="double" value="0.2" />
     <param name="gicp_fitness_socre" type="double" value="0.8" />
 
+    <!--imu-->
+    <param name="imuTopic" type="string" value="imu_correct" />
+    <param name="odomTpoic" type="string" value="odomTopic" />
+
     <!--loop-->
     <param name="need_loop" type="bool" value="true" />
     <param name="loop_submap_length" type="int" value="10" />
