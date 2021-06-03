@@ -75,4 +75,7 @@ add_executable(laserOdometry
         include/imu.h)
 target_link_libraries(laserOdometry ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES} gtsam)
 
+add_executable(imuPreintegration  include/imu.h src/imuPreintegration.cpp)
+target_link_libraries(imuPreintegration ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${CERES_LIBRARIES} gtsam)
+
 #add_subdirectory(test)

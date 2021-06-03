@@ -37,16 +37,13 @@ public:
     //put the new msg into the buff
     void IMUMsgHandler(const sensor_msgs::Imu & imuMsg){
         std::lock_guard lg(imu_msg_mtx);
-        imuMsgBuf.push_back(imuMsg);
+        imuMsgBuf.push(imuMsg);
     }
-
-
 private:
     std::mutex imu_msg_mtx;
 public:
     // queue of ros pointcloud msg
     std::queue<sensor_msgs::Imu> imuMsgBuf;
-
 };
 
 

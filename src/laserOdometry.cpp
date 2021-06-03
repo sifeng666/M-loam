@@ -5,6 +5,7 @@
 #include "helper.h"
 #include "utils.h"
 #include "lidar.h"
+#include "imu.h"
 #include "tools/calibration.hpp"
 
 using namespace tools;
@@ -43,6 +44,9 @@ public:
     ros::Publisher pub_odom_mapping;
     nav_msgs::Path parray_path_mapping;
 
+    //add for imu
+    ros::Publisher pub_odometry_type;
+
 public:
     LidarInfo(int i_) : i(i_) {
         T_0_i = gtsam::Pose3(gtsam::Rot3(), gtsam::Point3(0, 50 * i, 0));
@@ -62,6 +66,7 @@ public:
         parray_path.header.stamp = ros::Time::now();
         parray_path.header.frame_id = "map" + std::to_string(lidarInfo->i);
 
+        //add all the pose before into parray_path including the current pose, then publish the newest parray_path
         for (size_t i = 0; i < poseVec.size(); i++) {
             Eigen::Quaterniond q(poseVec[i].rotation().matrix());
             if (i < parray_path.poses.size()) { //parray_path with the size
@@ -125,6 +130,8 @@ public:
         parray_path.poses.push_back(apose);
 
         lidarInfo->pub_odom_mapping.publish(parray_path);
+
+        //pub raw odomtry for imu
     }
 
     void full_map_handler(LidarInfo::Ptr lidarInfo) {
