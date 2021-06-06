@@ -12,6 +12,7 @@ static const int backend_sleep = 5;    // 5ms
 // extract from balm back
 static double voxel_size[2] = {1, 1};
 
+
 static void
 cut_voxel(unordered_map<VOXEL_LOC, OCTO_TREE *> &feat_map, pcl::PointCloud<PointT>::Ptr pl_feat, Eigen::Matrix3d R_p,
           Eigen::Vector3d t_p, int feattype, int fnum, int capacity) {
@@ -82,6 +83,7 @@ void LidarMsgReader::pointCloudLessEdgeHandler(const sensor_msgs::PointCloud2Con
     pointCloudLessEdgeBuf.push(laserCloudMsg);
 }
 
+//add the corn factor to the Graph factors
 void
 LidarSensor::addCornCostFactor(const pcl::PointCloud<PointT>::Ptr &pc_in, const pcl::PointCloud<PointT>::Ptr &map_in,
                                const pcl::KdTreeFLANN<PointT> &kdtree_corn, const gtsam::Pose3 &odom,
@@ -96,16 +98,19 @@ LidarSensor::addCornCostFactor(const pcl::PointCloud<PointT>::Ptr &pc_in, const 
     Eigen::Affine3f odom_(odom.matrix().cast<float>());
     Eigen::Affine3f point_transform_(point_transform.matrix().cast<float>());
 
-    bool need_transform = !point_transform.equals(gtsam::Pose3::identity());
-
+    bool need_transform = !point_transform.equals(gtsam::Pose3::identity()); //judge whether the point is need transform
+    //each point find nearest
     for (int i = 0; i < (int) pc_in->points.size(); i++) {
 
         point_temp = pcl::transformPoint(pc_in->points[i], odom_);
+        //find 5 nearest point to this point_temp
         kdtree_corn.nearestKSearch(point_temp, 5, pointSearchInd, pointSearchSqDis);
 
+        //all 5 points are closed to point_temp than 1.0
         if (pointSearchSqDis[4] < 1.0) {
             std::vector<Eigen::Vector3d> nearCorners;
             Eigen::Vector3d center(0, 0, 0);
+
             for (int j = 0; j < 5; j++) {
                 Eigen::Vector3d tmp(map_in->points[pointSearchInd[j]].x,
                                     map_in->points[pointSearchInd[j]].y,
@@ -220,7 +225,9 @@ LidarSensor::addSurfCostFactor(const pcl::PointCloud<PointT>::Ptr &pc_in, const 
         printf("not enough correct points\n");
     }
 }
-
+//update the submap(used to match) by 2 frame id
+//get the frames between time(range_from) to the time(range to) and create the new submap
+//then assign the new submap to the lidar class member [submap]
 void LidarSensor::updateSubmap(size_t range_from, size_t range_to) {
 
     std::lock_guard<std::mutex> lg(submap->mtx);
@@ -245,6 +252,9 @@ void LidarSensor::updateSubmap(size_t range_from, size_t range_to) {
     submap->end = range_to;
 }
 
+//judge whether the nextFrame is a keyFrame
+//use two global variance T_wmap_lastkey and the T_wmap_curr
+//keyframe_angle_thres is a assigned variance, default value is 0.1
 bool LidarSensor::nextFrameToBeKeyframe() {
     Eigen::Isometry3d T_delta(pose_normalize(T_wmap_lastkey.between(T_wmap_curr)).matrix());
     Eigen::Quaterniond q_delta(T_delta.rotation().matrix());
@@ -257,7 +267,8 @@ bool LidarSensor::nextFrameToBeKeyframe() {
                       T_delta.translation().norm() > keyframe_distance_thres;
     return isKeyframe;
 }
-
+//input: cornFrame,surfFrame,cornMap,surfMap,kdTree * 2, T_w_c(current)
+//
 void LidarSensor::feature_based_scan_matching(const pcl::PointCloud<PointT>::Ptr &corn,
                                               const pcl::PointCloud<PointT>::Ptr &surf,
                                               const pcl::PointCloud<PointT>::Ptr &corns,
@@ -265,8 +276,8 @@ void LidarSensor::feature_based_scan_matching(const pcl::PointCloud<PointT>::Ptr
                                               pcl::KdTreeFLANN<PointT> &kdtree_corn,
                                               pcl::KdTreeFLANN<PointT> &kdtree_surf,
                                               gtsam::Pose3 &T_w_c) {
-    kdtree_corn.setInputCloud(corns);
-    kdtree_surf.setInputCloud(surfs);
+    kdtree_corn.setInputCloud(corns); //input is current corns map
+    kdtree_surf.setInputCloud(surfs); //input is current surfs map
 
     for (int j = 0; j < opti_counter; j++) {
         gtsam::NonlinearFactorGraph factors;
@@ -355,6 +366,7 @@ gtsam::Pose3 LidarSensor::scan2scan(const ros::Time &cloud_in_time, const pcl::P
     return T_w_c;
 }
 
+//input current frame of corn&surf pointcloud, output is current frame to the submap's pose
 gtsam::Pose3
 LidarSensor::scan2submap(const pcl::PointCloud<PointT>::Ptr &corn, const pcl::PointCloud<PointT>::Ptr &surf,
                          const gtsam::Pose3 &guess, int method) {
