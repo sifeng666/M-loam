@@ -202,7 +202,7 @@ private:
     pcl::KdTreeFLANN<PointT> kdtree_corn_submap;
     pcl::KdTreeFLANN<PointT> kdtree_surf_submap;
 
-    pcl::VoxelGrid<PointT> ds_corn;
+    pcl::VoxelGrid<PointT> ds_corn; //体素珊格滤波器，可用于对点云下采样，减少点云点的数量
     pcl::VoxelGrid<PointT> ds_surf;
     pcl::VoxelGrid<PointT> ds_raw;
     pcl::VoxelGrid<PointT> ds_surf_2;

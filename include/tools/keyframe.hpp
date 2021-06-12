@@ -39,20 +39,21 @@ namespace tools {
         Opti = 1,
         Delta = 2
     };
-
+    //子地图的数据结构
     class Submap {
     public:
-        using Ptr = std::shared_ptr<Submap>;
-        mutable std::mutex mtx;
-        int from, end;
-        pcl::PointCloud<PointT>::Ptr submap_corn;
-        pcl::PointCloud<PointT>::Ptr submap_surf;
+        using Ptr = std::shared_ptr<Submap>; //指针别名
+        mutable std::mutex mtx; //锁
+        int from, end; //应该是子地图对应的初始帧和结束帧的序号
+        pcl::PointCloud<PointT>::Ptr submap_corn; //角特征点云
+        pcl::PointCloud<PointT>::Ptr submap_surf; //面特征点云
 
         Submap() {
+            //初始化
             submap_corn.reset(new pcl::PointCloud<PointT>);
             submap_surf.reset(new pcl::PointCloud<PointT>);
         }
-
+        //将面特征和角特征的点云融合返回
         pcl::PointCloud<PointT>::Ptr merge() const {
             pcl::PointCloud<PointT>::Ptr ret(new pcl::PointCloud<PointT>);
             std::lock_guard lg(mtx);
@@ -62,16 +63,16 @@ namespace tools {
         }
 
     };
-
+    //激光帧的数据结构
     class Frame {
     public:
-        using Ptr = std::shared_ptr<Frame>;
-        int index;
-        ros::Time cloud_in_time;
-        gtsam::Pose3 pose_w_curr;
-        pcl::PointCloud<PointT>::Ptr corn_features;
-        pcl::PointCloud<PointT>::Ptr surf_features;
-        pcl::PointCloud<PointT>::Ptr raw;
+        using Ptr = std::shared_ptr<Frame>; //using是定义别名，即将一个类型代替其他别名，跟typedef的用法类似
+        int index; //序号
+        ros::Time cloud_in_time; //激光帧的时间戳
+        gtsam::Pose3 pose_w_curr; //当前坐标系的位姿
+        pcl::PointCloud<PointT>::Ptr corn_features; //角特征点云
+        pcl::PointCloud<PointT>::Ptr surf_features; //面特征点云
+        pcl::PointCloud<PointT>::Ptr raw; //原始点云
 
         Frame(int index_, const ros::Time time,
               const pcl::PointCloud<PointT>::Ptr &corn,
@@ -139,7 +140,7 @@ namespace tools {
             return buf.empty();
         }
     };
-
+    //存储最近N帧的数据结构
     class NScans {
     private:
         std::list<Frame::Ptr> scans;
@@ -147,14 +148,14 @@ namespace tools {
     public:
 
         NScans(int n_ = 6) : n(n_) {}
-
+        //插入最新帧，满了则pop掉最旧的帧
         void add(Frame::Ptr new_scan) {
             scans.push_front(new_scan);
             if (scans.size() > n) {
                 scans.pop_back();
             }
         }
-
+        //读取最近N帧，并累加成角特征的点云和面特征的点云
         void read(pcl::PointCloud<PointT>::Ptr &corn_scans, pcl::PointCloud<PointT>::Ptr &surf_scans) {
             assert(corn_scans && surf_scans);
 
@@ -180,7 +181,7 @@ namespace tools {
         int valid_frames = 0;
         ros::Time cloud_in_time;
         gtsam::Pose3 pose_odom;      // for odom and mapping
-        gtsam::Pose3 pose_last_curr; // increment of pose_odom
+        gtsam::Pose3 pose_last_curr; // increment（增量） of pose_odom
         gtsam::Pose3 pose_fixed;     // for global path and map
         // feature point cloud
         pcl::PointCloud<PointT>::Ptr corn_features;
@@ -201,7 +202,7 @@ namespace tools {
             pose_odom = std::move(pose_);
             add_frame();
         }
-
+        //将输入的pose的值转移给pose_last_curr（增量）
         inline void set_increment(gtsam::Pose3 pose_) {
             pose_last_curr = std::move(pose_);
         }
@@ -213,7 +214,7 @@ namespace tools {
         inline bool is_fixed() const {
             return fixed;
         }
-
+        //判断是否init的依据是有效的帧数量是否大于0
         inline bool is_init() const {
             return valid_frames > 0;
         }

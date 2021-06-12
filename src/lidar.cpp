@@ -154,6 +154,7 @@ LidarSensor::addCornCostFactor(const pcl::PointCloud<PointT>::Ptr &pc_in, const 
     }
 }
 
+//add the surface factor to the graph
 void
 LidarSensor::addSurfCostFactor(const pcl::PointCloud<PointT>::Ptr &pc_in, const pcl::PointCloud<PointT>::Ptr &map_in,
                                const pcl::KdTreeFLANN<PointT> &kdtree_surf, const gtsam::Pose3 &odom,
@@ -225,7 +226,7 @@ LidarSensor::addSurfCostFactor(const pcl::PointCloud<PointT>::Ptr &pc_in, const 
         printf("not enough correct points\n");
     }
 }
-//update the submap(used to match) by 2 frame id
+//update the submap(used to match) by 2 frame id 通过两个frameid来更新子地图，之后赋值给全局变量submap
 //get the frames between time(range_from) to the time(range to) and create the new submap
 //then assign the new submap to the lidar class member [submap]
 void LidarSensor::updateSubmap(size_t range_from, size_t range_to) {
@@ -252,7 +253,7 @@ void LidarSensor::updateSubmap(size_t range_from, size_t range_to) {
     submap->end = range_to;
 }
 
-//judge whether the nextFrame is a keyFrame
+//judge whether the nextFrame is a keyFrame  判断下一帧是否关键帧
 //use two global variance T_wmap_lastkey and the T_wmap_curr
 //keyframe_angle_thres is a assigned variance, default value is 0.1
 bool LidarSensor::nextFrameToBeKeyframe() {
@@ -268,7 +269,7 @@ bool LidarSensor::nextFrameToBeKeyframe() {
     return isKeyframe;
 }
 //input: cornFrame,surfFrame,cornMap,surfMap,kdTree * 2, T_w_c(current)
-//
+//基于面特征和角特征点的matching，使用LM算法进行优化，最终优化的输出是位姿T_w_c
 void LidarSensor::feature_based_scan_matching(const pcl::PointCloud<PointT>::Ptr &corn,
                                               const pcl::PointCloud<PointT>::Ptr &surf,
                                               const pcl::PointCloud<PointT>::Ptr &corns,
@@ -279,24 +280,25 @@ void LidarSensor::feature_based_scan_matching(const pcl::PointCloud<PointT>::Ptr
     kdtree_corn.setInputCloud(corns); //input is current corns map
     kdtree_surf.setInputCloud(surfs); //input is current surfs map
 
-    for (int j = 0; j < opti_counter; j++) {
-        gtsam::NonlinearFactorGraph factors;
+    for (int j = 0; j < opti_counter; j++) {  //opti = optimizer 优化
+        gtsam::NonlinearFactorGraph factors; //用于优化的非线性因子图 by gtsam
         gtsam::Values init_values;
         init_values.insert(X(0), T_w_c);
 
-        addCornCostFactor(corn, corns, kdtree_corn, T_w_c, factors);
-        addSurfCostFactor(surf, surfs, kdtree_surf, T_w_c, factors);
+        addCornCostFactor(corn, corns, kdtree_corn, T_w_c, factors); //在因子图中加入角特征点
+        addSurfCostFactor(surf, surfs, kdtree_surf, T_w_c, factors); //在因子图中加入面特征点
 
-        gtsam::LevenbergMarquardtParams params;
-        params.setLinearSolverType("MULTIFRONTAL_CHOLESKY");
-        params.setRelativeErrorTol(1e-3);
-        params.maxIterations = 4;
-
+        gtsam::LevenbergMarquardtParams params; //构建LM算法参数类(相当于g2o options)
+        params.setLinearSolverType("MULTIFRONTAL_CHOLESKY");//设置分解算法
+        params.setRelativeErrorTol(1e-3);//迭代变化量小于1e-3则退出，收敛值
+        params.maxIterations = 4; //最大迭代次数，会影响速度?
+        //使用LM算法进行优化，输入包括带有特征的因子图（factors），初始值（init_values）以及参数（params）
         auto result = gtsam::LevenbergMarquardtOptimizer(factors, init_values, params).optimize();
-        T_w_c = result.at<gtsam::Pose3>(X(0));
+        T_w_c = result.at<gtsam::Pose3>(X(0));//result赋值给T_w_c，是一个变换矩阵？
     }
 }
 
+//输入包括新的角特征和面特征点云，总的角特征和面特征点云；输出是当前帧到累积点云的位姿T_w_c
 void LidarSensor::point_wise_scan_matching(const pcl::PointCloud<PointT>::Ptr &corn,
                                            const pcl::PointCloud<PointT>::Ptr &surf,
                                            const pcl::PointCloud<PointT>::Ptr &corns,
@@ -304,48 +306,54 @@ void LidarSensor::point_wise_scan_matching(const pcl::PointCloud<PointT>::Ptr &c
                                            gtsam::Pose3 &T_w_c) {
     Eigen::Matrix4d final;
 
+    //基于目前总的角特征和面特征构造一个总的点云图
     pcl::PointCloud<PointT>::Ptr submap_pcd(new pcl::PointCloud<PointT>);
     *submap_pcd += *corns;
     *submap_pcd += *surfs;
+    //基于当前帧的角特征和面特征构造一个点云图
     pcl::PointCloud<PointT>::Ptr curr_pcd(new pcl::PointCloud<PointT>);
     *curr_pcd += *corn;
     *curr_pcd += *surf;
-
+    //调用GICP来进行两帧点云的配准，配准得到的变换矩阵赋值给final；输入的参数包括配准的两帧点云；变换矩阵final；indentity；两点之间的最大距离；阈值；
     bool ok = tools::FastGeneralizedRegistration(curr_pcd, submap_pcd, final, T_w_c.matrix(), 1.0, 1.0);
     if (ok) {
-        T_w_c = gtsam::Pose3(final);
-    } else {
+        T_w_c = gtsam::Pose3(final);//转换为gtsam的pose3格式
+    } else { //如果调用GICP匹配失败
         std::cout << "GICP fail to match! Use feature-based method!" << std::endl;
         pcl::KdTreeFLANN<PointT> kdtree_corn_submap;
         pcl::KdTreeFLANN<PointT> kdtree_surf_submap;
+        //采用gtsam中的LM优化来进行求解
         feature_based_scan_matching(corn, surf, corns, surfs, kdtree_corn_submap, kdtree_surf_submap, T_w_c);
     }
 }
 
+//输入的是当前的角特征点云和面特征点云，以及原始点云；生成一个新的当前帧，并计算当前位姿T_w_c作为输出；生成的新的帧插入到N_scans容器中（最近N帧)
 gtsam::Pose3 LidarSensor::scan2scan(const ros::Time &cloud_in_time, const pcl::PointCloud<PointT>::Ptr &corn,
                                     const pcl::PointCloud<PointT>::Ptr &surf, const pcl::PointCloud<PointT>::Ptr &raw) {
 
-    auto T_w_c = pose_normalize(T_wodom_curr * T_last_curr);
-
+    //pose_normalize = return gtsam::Pose3(pose.rotation().normalized(), pose.translation());
+    auto T_w_c = pose_normalize(T_wodom_curr * T_last_curr);//进行简单的初值计算，curr位姿 = last位姿*变换矩阵
+    //异常处理，当输入的角特征点云/面特征点云为空时返回上一帧的简单预测
     if (!corn || !surf) {
         std::cerr << "Error nullptr corn or surf" << std::endl;
         return T_w_c;
     }
 
-    TicToc t_gen_scans;
+    TicToc t_gen_scans;//tictoc计时
 
     pcl::PointCloud<PointT>::Ptr corn_scans(new pcl::PointCloud<PointT>);
     pcl::PointCloud<PointT>::Ptr surf_scans(new pcl::PointCloud<PointT>);
 
-    nscans_gen.read(corn_scans, surf_scans);
+    nscans_gen.read(corn_scans, surf_scans); //从最近N帧中读到角特征的点云和面特征的点云
 
+    //ds = downsample，ds_corn是一个voxel_grid体素珊格滤波器，对点云进行下采样，减少点的数量
     ds_corn.setInputCloud(corn_scans);
     ds_corn.filter(*corn_scans);
     ds_surf.setInputCloud(surf_scans);
     ds_surf.filter(*surf_scans);
 
 //    printf("prepare %d scans: %.3f ms\n", n_scans, t_gen_scans.toc());
-
+    //角特征点小于20个或者是面特征点小于100个，则认为特征点太小；返回粗略估计的位姿
     if (corn_scans->size() < 20 || surf_scans->size() < 100) {
         printf("too less features! corn = [%d], surf = [%d], exit!\n", int(corn_scans->size()),
                int(surf_scans->size()));
@@ -353,13 +361,14 @@ gtsam::Pose3 LidarSensor::scan2scan(const ros::Time &cloud_in_time, const pcl::P
     }
 
     TicToc t_odom;
-
+    //基于gtsam的因子图优化。使用LM方法求解T_w_c
     feature_based_scan_matching(corn, surf, corn_scans, surf_scans,
                                 kdtree_corn_nscans, kdtree_surf_nscans, T_w_c);
-
+    //更新全局中存储位姿变量
     T_wodom_last = T_wodom_curr;
     T_wodom_curr = T_w_c;
     T_last_curr = pose_normalize(T_wodom_last.between(T_wodom_curr));
+    //基于最新的点云信息构建最新的帧，并加入到最近N帧数据结构nscans_gen中
     nscans_gen.add(std::make_shared<Frame>(frameCount++, cloud_in_time, corn, surf, raw, T_wodom_curr));
 
 //    printf("odom, scan to %d scans: %.3f ms\n", n_scans, t_odom.toc());
@@ -367,6 +376,7 @@ gtsam::Pose3 LidarSensor::scan2scan(const ros::Time &cloud_in_time, const pcl::P
 }
 
 //input current frame of corn&surf pointcloud, output is current frame to the submap's pose
+//求解当前角面特征点云对应的帧到submap的变换矩阵
 gtsam::Pose3
 LidarSensor::scan2submap(const pcl::PointCloud<PointT>::Ptr &corn, const pcl::PointCloud<PointT>::Ptr &surf,
                          const gtsam::Pose3 &guess, int method) {
@@ -381,17 +391,18 @@ LidarSensor::scan2submap(const pcl::PointCloud<PointT>::Ptr &corn, const pcl::Po
     }
 
     TicToc t_gen_submap;
-    // MapGenerator::generate_cloud gen pcd range from: [begin, end), so need to add 1
+    // MapGenerator::generate_cloud generate pcd range from: [begin, end), so need to add 1
     int c_index = current_keyframe->index + 1;
     updateSubmap(c_index - window_size, c_index);
     printf("prepare submap: %.3f ms\n", t_gen_submap.toc());
 
-    submap->mtx.lock();
+    submap->mtx.lock(); //加锁保证submap读写一致性
     auto submapCorn_copy = submap->submap_corn->makeShared();
     auto submapSurf_copy = submap->submap_surf->makeShared();
     submap->mtx.unlock();
 
     TicToc t_mapping;
+    //通过method值选择进行T_w_c求解的方法，0是基于特征匹配，1是使用GICP方法
     if (method == 0) {          // feature-based
         feature_based_scan_matching(corn, surf, submapCorn_copy, submapSurf_copy,
                                     kdtree_corn_submap, kdtree_surf_submap, T_w_c);
@@ -406,87 +417,92 @@ LidarSensor::scan2submap(const pcl::PointCloud<PointT>::Ptr &corn, const pcl::Po
     return T_w_c;
 }
 
+//更新odom的位姿，频率为10hz，原始数据得到，无优化，可以加松耦合的IMU作为初值
 gtsam::Pose3 LidarSensor::update_odom(const ros::Time &cloud_in_time, const pcl::PointCloud<PointT>::Ptr &corn,
                                       const pcl::PointCloud<PointT>::Ptr &surf, const pcl::PointCloud<PointT>::Ptr &raw,
                                       gtsam::Pose3 &pose_raw) {
 
+    //当前没有帧
     if (frameCount == 0) {
         curr_frame = std::make_shared<Frame>(frameCount++, cloud_in_time, corn, surf, raw, gtsam::Pose3());
-        frameChannel->push(curr_frame);
-        nscans_gen.add(curr_frame);
-        return gtsam::Pose3();
+        frameChannel->push(curr_frame); //frame channel 是用来进行 odom to mapping 的帧的集合
+        nscans_gen.add(curr_frame); //前n帧的集合（默认是6）
+        return gtsam::Pose3(); //返回一个初始值的位姿
     }
 
     double a, b, c;
     TicToc tic;
-    ds_corn.setInputCloud(corn);
+    ds_corn.setInputCloud(corn); //输入的角特征点云进行下采样
     ds_corn.filter(*corn);
-    a = tic.toc();
+    a = tic.toc(); //用于下面输出降采样使用时间的计时，不是暂停
     tic.tic();
-    ds_surf.setInputCloud(surf);
+    ds_surf.setInputCloud(surf); //输入的面特征点云进行下采样
     ds_surf.filter(*surf);
     b = tic.toc();
     tic.tic();
-    ds_raw.setInputCloud(raw);
+    ds_raw.setInputCloud(raw); //输入的原始点云进行下采样
     ds_raw.filter(*raw);
     c = tic.toc();
     tic.tic();
 //    printf("Downsampling corn: %.3f ms, surf: %.3f ms, raw: %.3f ms\n", a, b, c);
 
     pcl::PointCloud<PointT>::Ptr surf_ds2(new pcl::PointCloud<PointT>);
-    ds_surf_2.setInputCloud(surf);
+    ds_surf_2.setInputCloud(surf); //面特征点云进行第二次降采样
     ds_surf_2.filter(*surf_ds2);
 
-    pose_raw = scan2scan(cloud_in_time, corn, surf_ds2, raw);
-    pose_raw = pose_normalize(pose_raw);
+    pose_raw = scan2scan(cloud_in_time, corn, surf_ds2, raw); //基于降采样的面特征、点特征和原始点云来求解最新的位姿
+    pose_raw = pose_normalize(pose_raw); //正则化
 
-    curr_frame = std::make_shared<Frame>(frameCount++, cloud_in_time, corn, surf, raw, pose_raw);
-    frameChannel->push(curr_frame);
+    curr_frame = std::make_shared<Frame>(frameCount++, cloud_in_time, corn, surf, raw, pose_raw);//构造新帧
+    frameChannel->push(curr_frame); //frame channel 是用来进行 odom to mapping 的帧的集合
 
-    std::lock_guard<std::mutex> lg0(T_lock0), lg1(T_lock1);
+    std::lock_guard<std::mutex> lg0(T_lock0), lg1(T_lock1); //构造两个mutex类，传入的mutex对象直接被当前线程锁住
     T_w_curr = pose_normalize(T_w_wmap * T_wmap_wodom * pose_raw); // 10Hz
     return T_w_curr;
 }
 
+//更新T_wmap_curr，频率小于10hz，由odom加balm得到，用于加了balm的mapping
 gtsam::Pose3 LidarSensor::update_mapping(const Frame::Ptr &frame) {
 
+    //判断下一帧（即将处理的帧）是否是关键帧，如果是的话调用update_keyframe，将当前关键帧插入到关键帧vector中
     if (is_keyframe_next) {
         update_keyframe(frame->cloud_in_time, frame->corn_features, frame->surf_features, frame->raw);
     }
-
+    //没有初始化则进行初始化
     if (!is_init) {
-        current_keyframe->set_init(gtsam::Pose3());
+        current_keyframe->set_init(gtsam::Pose3()); //初始位姿是默认0值
         current_keyframe->set_fixed(gtsam::Pose3());
-        T_wmap_lastkey = gtsam::Pose3();
+        T_wmap_lastkey = gtsam::Pose3(); //T_wmap由odm的位姿+balm优化后得到，频率<10hz，mapping
 //        updateSubmap(0, 1);
-        BAKeyframeChannel->push(current_keyframe);
+        BAKeyframeChannel->push(current_keyframe); //BAKeyframeChannel是用于mapping to BALM
 //        factor_graph_opti();
-        is_init = true;
-        return gtsam::Pose3();
+        is_init = true; //初始化标志
+        return gtsam::Pose3(); //返回默认值的位姿
     }
 
-    T_wmap_last = T_wmap_curr;
+    T_wmap_last = T_wmap_curr; //更新T_wmap_last
 //    gtsam::Pose3 T_pred = T_wmap_last * T_wmap_delta;
-    gtsam::Pose3 T_pred = T_wmap_wodom * frame->pose_w_curr;
+    gtsam::Pose3 T_pred = T_wmap_wodom * frame->pose_w_curr; //基于odom的变换矩阵预测一个变换T_pred
 
 //    while (current_keyframe->index > submap->end + 2 && current_keyframe->index > window_base + 10) {
 //        std::this_thread::sleep_for(std::chrono::milliseconds(1));
 //    }
-
+    //调用scan2submap来计算T_wmap_curr
     T_wmap_curr = scan2submap(frame->corn_features, frame->surf_features, T_pred, mapping_method);
     T_wmap_curr = pose_normalize(T_wmap_curr);
 
 //    cout << "T_wmap_curr:\n" << T_wmap_curr.matrix() << endl;
-
+    //如果current_keyframe没有初始化（判断依据是valid_frame的数量是否大于0）
     if (!current_keyframe->is_init()) {
-        current_keyframe->set_increment(T_wmap_lastkey.between(T_wmap_curr));
-        current_keyframe->set_init(T_wmap_curr);
+        //set_increment函数调用move函数，将pose_的值赋值给pose_last_curr，pose_last_curr = std::move(pose_);
+        current_keyframe->set_increment(T_wmap_lastkey.between(T_wmap_curr));//设置增量（变化量）？
+        current_keyframe->set_init(T_wmap_curr);//设置初始值
 
 //        cout << "keyframe!!!! " << current_keyframe->index << ", T_wmap_curr:\n" << T_wmap_curr.matrix() << endl;
-        f_backend_timecost << T_wmap_curr.matrix() << endl;
-        T_wmap_lastkey = T_wmap_curr;
+        f_backend_timecost << T_wmap_curr.matrix() << endl; //f_backend_timecost是std::ofstream，文件输出
+        T_wmap_lastkey = T_wmap_curr; //更新新的关键帧，lastkeyt是increment（增量）
 
-        BAKeyframeChannel->push(current_keyframe);
+        BAKeyframeChannel->push(current_keyframe);//BAKeyframeChannel插入新的关键帧
 
 //        if (current_keyframe->index < window_size) {
 //            updateSubmap(0, current_keyframe->index);
@@ -507,17 +523,18 @@ gtsam::Pose3 LidarSensor::update_mapping(const Frame::Ptr &frame) {
 //        }
 //    }
 
-    T_wmap_delta = T_wmap_last.between(T_wmap_curr);
-    is_keyframe_next = nextFrameToBeKeyframe();
+    T_wmap_delta = T_wmap_last.between(T_wmap_curr); //T_wmap_delta应该是变化量，求解last到curr的之间T_wamp（加了balm的odom）的变化量
+    is_keyframe_next = nextFrameToBeKeyframe(); //判断下一帧是否是关键帧
     {
-        T_lock1.lock();
-        T_wmap_wodom = pose_normalize(T_wmap_curr * frame->pose_w_curr.inverse());
+        T_lock1.lock();//加锁保证操作原子性
+        T_wmap_wodom = pose_normalize(T_wmap_curr * frame->pose_w_curr.inverse()); //计算odom
         T_lock1.unlock();
     }
 
-    return T_w_wmap * T_wmap_curr;
+    return T_w_wmap * T_wmap_curr;//计算加了balm后的odom的位姿并返回
 }
 
+//BALM参数的初始化
 void LidarSensor::initBALMParam() {
     // balm init
     q_odom.setIdentity();
@@ -536,9 +553,11 @@ void LidarSensor::initBALMParam() {
     window_base = 0;
 }
 
+//雷达大类初始化
 void LidarSensor::initParam() {
 
-    submap = std::make_shared<Submap>();
+    submap = std::make_shared<Submap>();//构建智能指针
+    //降采样的体素过滤器设置参数setLeafSize，即分辨率，数值越小表示voxel的体积越小，密度越大，点的数量越多
     ds_corn.setLeafSize(corn_filter_length, corn_filter_length, corn_filter_length);
     ds_surf.setLeafSize(surf_filter_length, surf_filter_length, surf_filter_length);
     ds_surf_2.setLeafSize(surf_filter_length * 2, surf_filter_length * 2, surf_filter_length * 2);
@@ -547,32 +566,34 @@ void LidarSensor::initParam() {
     ds_corn_submap.setLeafSize(corn_filter_length, corn_filter_length, corn_filter_length);
     ds_surf_submap.setLeafSize(surf_filter_length, surf_filter_length, surf_filter_length);
 
-    opti_counter = 10;
+    opti_counter = 10; //优化的次数？
 
-    keyframeVec = std::make_shared<KeyframeVec>();
-    keyframeVec->keyframes.reserve(200);
+    keyframeVec = std::make_shared<KeyframeVec>(); //智能指针
+    keyframeVec->keyframes.reserve(200);//增加vector的capacity而不是size
     status = std::make_shared<LidarStatus>();
-    frameChannel = std::make_shared<Channel<Frame::Ptr>>();
-    BAKeyframeChannel = std::make_shared<Channel<Keyframe::Ptr>>();
-    MargiKeyframeChannel = std::make_shared<Channel<Keyframe::Ptr>>();
-    factorsChannel = std::make_shared<Channel<FactorPtr>>();
+    frameChannel = std::make_shared<Channel<Frame::Ptr>>(); //原始数据下odom
+    BAKeyframeChannel = std::make_shared<Channel<Keyframe::Ptr>>();//加了BA的odom
+    MargiKeyframeChannel = std::make_shared<Channel<Keyframe::Ptr>>();//BALM to loopfactor & gtsam 加了回环检测？
+    factorsChannel = std::make_shared<Channel<FactorPtr>>();//loopfactor to gtsam
 
+    //边和平面的高斯模型
     auto edge_gaussian_model = gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(3) << 0.2, 0.2, 0.2).finished());
     auto surf_gaussian_model = gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(1) << 0.2).finished());
-
+    //边和平面的噪声模型
     edge_noise_model = gtsam::noiseModel::Robust::Create(gtsam::noiseModel::mEstimator::Huber::Create(0.58),
                                                          edge_gaussian_model);
     surf_noise_model = gtsam::noiseModel::Robust::Create(gtsam::noiseModel::mEstimator::Huber::Create(0.02),
-                                                         surf_gaussian_model);
+    //？？的噪声模型                                                     surf_gaussian_model);
     prior_noise_model = gtsam::noiseModel::Diagonal::Variances(
             (gtsam::Vector(6) << 1e-6, 1e-6, 1e-6, 1e-6, 1e-6, 1e-6).finished());
 
+    //isam2优化参数设置
     gtsam::ISAM2Params isam2Params;
     isam2Params.relinearizeThreshold = 0.1;
     isam2Params.relinearizeSkip = 1;
     isam = std::make_shared<gtsam::ISAM2>(isam2Params);
 
-    initBALMParam();
+    initBALMParam(); //初始化BALM的参数
 
 }
 
@@ -624,6 +645,8 @@ void LidarSensor::initParam() {
 //    return planes;
 //}
 
+//更新关键帧函数（假定输入的已经判断是关键帧）
+//将当前的点面特征和原始点云构建新的帧，并插入到keyframeVec中，同时将is_keyframe_next
 void LidarSensor::update_keyframe(const ros::Time &cloud_in_time,
                                   pcl::PointCloud<PointT>::Ptr currEdge,
                                   pcl::PointCloud<PointT>::Ptr currSurf,
@@ -633,11 +656,12 @@ void LidarSensor::update_keyframe(const ros::Time &cloud_in_time,
     keyframeVec->keyframes.emplace_back(current_keyframe);
     is_keyframe_next = false;
 }
-
+//往BA的图优化中插入odom的因子？
 void LidarSensor::addOdomFactor(int last_index, int curr_index) {
 
     using namespace gtsam;
-
+    //为什么last_index会是0？因为第一帧？
+    //可能是初始化
     if (last_index < 0) {
         BAGraph.addPrior(X(0), Pose3::identity(), prior_noise_model);
         BAEstimate.insert(X(0), Pose3::identity());
@@ -657,12 +681,13 @@ void LidarSensor::addOdomFactor(int last_index, int curr_index) {
 //    cout << "last_pose:\n" << pose_last.matrix() << endl;
 //    cout << "curr pose:\n" << pose_curr.matrix() << endl;
 
+    //GetInformationMatrixFromPointClouds函数在registration.hpp中，作用应该是提取两帧点云中的矩阵？
     auto information = GetInformationMatrixFromPointClouds(keyframeVec->keyframes[curr_index]->raw,
                                                            keyframeVec->keyframes[last_index]->raw,
                                                            2.0,
                                                            pose_delta.matrix());
 
-    f_pose_fixed << pose_curr.matrix() << endl;
+    f_pose_fixed << pose_curr.matrix() << endl; //文件输出
 //    pcl::io::savePCDFile(file_save_path + to_string(curr_index) + ".pcd", *keyframeVec->keyframes[curr_index]->raw);
 //    f_pose_fixed << information << endl << endl;
 
@@ -673,6 +698,7 @@ void LidarSensor::addOdomFactor(int last_index, int curr_index) {
 
 }
 
+//BALM的后端
 void LidarSensor::BALM_backend(const std::vector<Keyframe::Ptr> &keyframes_buf,
                                std::vector<Keyframe::Ptr> &fixedKeyframes_buf) {
 
@@ -798,7 +824,7 @@ void LidarSensor::BALM_backend(const std::vector<Keyframe::Ptr> &keyframes_buf,
 //        f_backend_timecost << tic.toc() << endl;
     }
 }
-
+//回环检测，基于loop_detector.hpp函数进行回环检测，可优化？
 void LidarSensor::loop_detect_thread() {
 
     int last_loop_found_index = -1;
@@ -824,6 +850,7 @@ void LidarSensor::loop_detect_thread() {
 
 }
 
+//BA优化
 void LidarSensor::BA_optimization() {
 
     int last_index = -1;
@@ -904,6 +931,7 @@ void _mkdir(const std::string &filename) {
     }
 }
 
+//lidarSensor的初始化函数
 LidarSensor::LidarSensor(int i) : opt_lsv(window_size, filter_num, thread_num), loopDetector(i) {
 
     file_save_path = nh.param<std::string>("file_save_path", "");

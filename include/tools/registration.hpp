@@ -166,7 +166,8 @@ namespace tools
 #endif
         return GTG;
     }
-
+    //快速通用配准，应该是应用于两个点云进行配准
+    //
     static bool FastGeneralizedRegistration(
             pcl::PointCloud<PointT>::Ptr source,
             pcl::PointCloud<PointT>::Ptr target,
@@ -175,12 +176,12 @@ namespace tools
             double max_correspondence_distance = 0.5,
             double fitness_thres = 0.8) {
 
-        fast_gicp::FastGICP<PointT, PointT> gicp;
-        gicp.setNumThreads(0);
-        gicp.setTransformationEpsilon(0.01);
-        gicp.setMaximumIterations(64);
-        gicp.setMaxCorrespondenceDistance(max_correspondence_distance);
-        gicp.setCorrespondenceRandomness(20);
+        fast_gicp::FastGICP<PointT, PointT> gicp; //快速精确的体素三维点云配准算法fast_gicp
+        gicp.setNumThreads(0); //线程数量
+        gicp.setTransformationEpsilon(0.01); //判定终止条件，即最小转换差异为0.01，小于0.01自动停止
+        gicp.setMaximumIterations(64);//最大迭代次数
+        gicp.setMaxCorrespondenceDistance(max_correspondence_distance);//对应点对之间的最大距离
+        gicp.setCorrespondenceRandomness(20);//设定用于计算一个点的方差所用的点数，此处设置为20，即用周围随机20个点来计算方差
 
         // Align clouds
         gicp.setInputSource(source);
@@ -189,16 +190,16 @@ namespace tools
         pcl::PointCloud<PointT>::Ptr unused_result(new pcl::PointCloud<PointT>());
         gicp.align(*unused_result, init_guess.cast<float>());
 
-        if (!gicp.hasConverged()) {
+        if (!gicp.hasConverged()) { //获取GICP匹配得到的变换矩阵T
             return false;
         }
         printf("fitness score: %f\n", gicp.getFitnessScore());
 
-        if (gicp.getFitnessScore() > fitness_thres) {
+        if (gicp.getFitnessScore() > fitness_thres) { //阈值，设置成0.8
             return false;
         }
 
-        final = gicp.getFinalTransformation().cast<double>();
+        final = gicp.getFinalTransformation().cast<double>();//获得变换矩阵并赋值给final
         return true;
     }
 
