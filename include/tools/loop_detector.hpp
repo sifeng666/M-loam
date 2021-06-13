@@ -14,9 +14,9 @@ static int debug_count = 0;
 
 namespace tools
 {
-    using FactorPtr = gtsam::NonlinearFactor::shared_ptr;
+    using FactorPtr = gtsam::NonlinearFactor::shared_ptr;//非线性优化因子的智能指针
 //    using FactorPtr = gtsam::GaussianFactor::shared_ptr;
-
+    //回环检测类
     class LoopDetector {
     public:
         ros::NodeHandle nh;
@@ -25,9 +25,11 @@ namespace tools
 
         // loop hyper parameter
         double fitness_thres_;
-        int loop_detect_distance_;
-        int loop_found_sleep_;
-        int loop_submap_length_;
+        int loop_detect_distance_; //回环检测距离，小于这个值则有可能产生回环
+        int loop_found_sleep_; //距离上次回环检测的间隔，比如10和2中找到了回环，10后面的10帧都跳过回环检测
+        int loop_submap_length_;//规定子图的大小，用于跳过靠近的帧之间的回环检测
+        //skip last是一个trick
+        //就是30不跟10:30内的找回环，最近k个不找，否则10和9也有回环
         int loop_skip_last_;
 
         std::ofstream f_loop;
@@ -57,45 +59,48 @@ namespace tools
 //                         Keyframe::Ptr latestKeyframe,
 //                         std::vector<FactorPtr>& loopFactors);
 
-        bool loop_detector(KeyframeVec::Ptr keyframeVec,
-                           Keyframe::Ptr curr_keyframe,
-                           vector<FactorPtr>& loopFactors,
-                           int& last_found_index)
+        bool loop_detector(KeyframeVec::Ptr keyframeVec, //关键帧的vector
+                           Keyframe::Ptr curr_keyframe, //当前关键帧
+                           vector<FactorPtr>& loopFactors, //回环因子？
+                           int& last_found_index) //最后找到回环的index
         {
-            int curr_index = curr_keyframe->index;
-            if (curr_index < loop_skip_last_ + 1)
+            int curr_index = curr_keyframe->index;  //当前的index
+            if (curr_index < loop_skip_last_ + 1)  //帧数还没有到达找回环检测的数量
                 return false;
-            if (last_loop_found_index > 0 && curr_index <= last_loop_found_index + loop_found_sleep_)
+            if (last_loop_found_index > 0 && curr_index <= last_loop_found_index + loop_found_sleep_) //当前帧与上一次找到回环的帧过于接近
                 return false;
 
             size_t buffer_size = curr_index - loop_skip_last_;
             // <frameCount, distance>
-            std::vector<pair<int, double>> candidates;
-            candidates.reserve(buffer_size);
+            std::vector<pair<int, double>> candidates; //候选帧
+            candidates.reserve(buffer_size); //重制长度
 
             // read lock
-            std::vector<gtsam::Pose3> poseVec = keyframeVec->read_poses(0, buffer_size, true);
-            gtsam::Pose3 curr_pose = keyframeVec->read_pose(curr_index, true);
+            std::vector<gtsam::Pose3> poseVec = keyframeVec->read_poses(0, buffer_size, true); //读取【0，buffer_size】里面的所有位姿
+            gtsam::Pose3 curr_pose = keyframeVec->read_pose(curr_index, true); //读取curr_index对应的位姿
 
+            //遍历范围内的所有帧，判断可能有与当前帧判断可以产生回环的，插入到候选帧中
             for (int i = 0; i < buffer_size; i++) {
-                gtsam::Pose3 pose_between = curr_pose.between(poseVec[i]);
+                gtsam::Pose3 pose_between = curr_pose.between(poseVec[i]); //计算两帧位姿之间的变化量
 //                double distance = pose_between.translation().norm();
                 double distance = std::sqrt(pose_between.translation().x() * pose_between.translation().x() + pose_between.translation().y() * pose_between.translation().y());
                 // too far
                 if (distance > loop_detect_distance_)
                     continue;
-                candidates.emplace_back(i, distance);
+                candidates.emplace_back(i, distance); //距离小于给定阈值，则插入到候选帧中
             }
 
-            if (candidates.empty())
+            if (candidates.empty()) //候选帧为空，直接返回false
                 return false;
 
+            //按照距离从小到大排序
             std::sort(candidates.begin(), candidates.end(), [](const auto& p1, const auto& p2) {
                 return p1.second < p2.second;
             });
 
             // select 2 closest key
             int success_loop_count = 0;
+            //min的作用是当candidates矩阵为空时跳过for循环?否则也是只遍历一次，即只取最前面（距离最小）的帧
             for (int i = 0; i < min(1, int(candidates.size())); i++) {
                 int closestKeyIdx = candidates[i].first;
                 cout << "####################################" << endl;

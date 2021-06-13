@@ -663,25 +663,28 @@ void LidarSensor::addOdomFactor(int last_index, int curr_index) {
     //为什么last_index会是0？因为第一帧？
     //可能是初始化
     if (last_index < 0) {
+        //BAGraph类型为gtsam::NonlinearFactorGraph，插入Prior
         BAGraph.addPrior(X(0), Pose3::identity(), prior_noise_model);
+        //BAEstimate类型为gtsam::Values
         BAEstimate.insert(X(0), Pose3::identity());
-        f_pose_fixed << Eigen::Matrix4d::Identity() << endl;
+        f_pose_fixed << Eigen::Matrix4d::Identity() << endl; //文件输出
 //        pcl::io::savePCDFile(file_save_path + "0.pcd", *keyframeVec->keyframes[curr_index]->raw);
         std::cout << "init Odom factor!" << std::endl;
         return;
     }
 
     // read lock
-    gtsam::Pose3 pose_last = keyframeVec->read_pose(last_index, Type::Opti);
-    gtsam::Pose3 pose_delta = keyframeVec->read_pose(curr_index, Type::Delta);
-    gtsam::Pose3 pose_curr = pose_last * pose_delta;
-    keyframeVec->at(curr_index)->set_fixed(pose_curr);
+    gtsam::Pose3 pose_last = keyframeVec->read_pose(last_index, Type::Opti); //读取上一帧优化后的位姿（last）
+    gtsam::Pose3 pose_delta = keyframeVec->read_pose(curr_index, Type::Delta);//读取位姿之间的变化量
+    gtsam::Pose3 pose_curr = pose_last * pose_delta; //通过优化后的上一帧位姿和到当前位姿的变化量，求解当前位姿
+    keyframeVec->at(curr_index)->set_fixed(pose_curr); //将pose_curr赋值给index为currindex的帧中的pose_fixed,并将该关键帧设置为is_fixed
 
-    printf("add Odom factor between [%d] and [%d]\n", last_index, curr_index);
+    printf("add Odom factor between [%d] and [%d]\n", last_index, curr_index); //没看懂输出
 //    cout << "last_pose:\n" << pose_last.matrix() << endl;
 //    cout << "curr pose:\n" << pose_curr.matrix() << endl;
 
-    //GetInformationMatrixFromPointClouds函数在registration.hpp中，作用应该是提取两帧点云中的矩阵？
+    //GetInformationMatrixFromPointClouds函数在registration.hpp中，作用应该是提取两帧点云中的信息矩阵
+    //得到图优化中的信息矩阵，格式为Eigen::Matrix6d，作为参数输入到下面的BAGraph（gtsam中的非线性因子图）中
     auto information = GetInformationMatrixFromPointClouds(keyframeVec->keyframes[curr_index]->raw,
                                                            keyframeVec->keyframes[last_index]->raw,
                                                            2.0,
@@ -698,18 +701,19 @@ void LidarSensor::addOdomFactor(int last_index, int curr_index) {
 
 }
 
-//BALM的后端
+//BALM的后端，应该是将keyframes_buf中的所有帧都优化，并输入到fixedKeyframes_buf中去
 void LidarSensor::BALM_backend(const std::vector<Keyframe::Ptr> &keyframes_buf,
                                std::vector<Keyframe::Ptr> &fixedKeyframes_buf) {
-
+    //遍历所有帧并处理
     for (const auto &keyframe : keyframes_buf) {
 //        Timer t_BALM("BALM keyframe_" + std::to_string(keyframe->index));
 //        TicToc tic;
 
-        gtsam::Pose3 curr_pose = keyframe->pose_odom;
-        q_odom = Eigen::Quaterniond(curr_pose.rotation().matrix());
-        t_odom = Eigen::Vector3d(curr_pose.translation());
+        gtsam::Pose3 curr_pose = keyframe->pose_odom; //当前帧未优化的位姿
+        q_odom = Eigen::Quaterniond(curr_pose.rotation().matrix()); //转换成四元式
+        t_odom = Eigen::Vector3d(curr_pose.translation()); //变换矩阵格式？
 
+        //变化量，并更新q和t
         Eigen::Vector3d delta_t(q_last.matrix().transpose() * (t_odom - t_last));
         Eigen::Quaterniond delta_q(q_last.matrix().transpose() * q_odom.matrix());
         q_last = q_odom;
@@ -830,7 +834,7 @@ void LidarSensor::loop_detect_thread() {
     int last_loop_found_index = -1;
 
     while (ros::ok()) {
-
+        ////fixedKeyframes_buf是BALM to loopfactor & gtsam
         std::vector<Keyframe::Ptr> fixedKeyframes_buf = MargiKeyframeChannel->get_all();
 
         std::vector<FactorPtr> factors;

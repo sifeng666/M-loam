@@ -170,34 +170,35 @@ namespace tools {
             }
         }
     };
-
+    //单帧关键帧的数据结构
     class Keyframe {
     public:
-        using Ptr = std::shared_ptr<Keyframe>;
-        using PointCloudPtr = pcl::PointCloud<PointT>::Ptr;
+        using Ptr = std::shared_ptr<Keyframe>; //keyframe的指针
+        using PointCloudPtr = pcl::PointCloud<PointT>::Ptr; //点云的指针
     public:
-        int index;
-        bool fixed = false;
-        int valid_frames = 0;
-        ros::Time cloud_in_time;
+        int index; //序号
+        bool fixed = false; //是否被optimized过
+        int valid_frames = 0; //有效的帧数
+        ros::Time cloud_in_time; //时间戳
         gtsam::Pose3 pose_odom;      // for odom and mapping
-        gtsam::Pose3 pose_last_curr; // increment（增量） of pose_odom
+        gtsam::Pose3 pose_last_curr; // increment of pose_odom  odom中相对上一帧的变化量
         gtsam::Pose3 pose_fixed;     // for global path and map
         // feature point cloud
-        pcl::PointCloud<PointT>::Ptr corn_features;
-        pcl::PointCloud<PointT>::Ptr surf_features;
-        pcl::PointCloud<PointT>::Ptr raw;
+        pcl::PointCloud<PointT>::Ptr corn_features; //角特征点云
+        pcl::PointCloud<PointT>::Ptr surf_features; //面特征点云
+        pcl::PointCloud<PointT>::Ptr raw; //原始点云
     public:
         Keyframe(int index_, const ros::Time &time,
                  PointCloudPtr EF, PointCloudPtr PF, PointCloudPtr RAW) :
                 index(index_), cloud_in_time(time),
                 corn_features(EF), surf_features(PF), raw(RAW) {}
-
+        //将输入的pose通过move转移到pose_fixed中，并将该帧的fixed状态设置成true
         inline void set_fixed(gtsam::Pose3 pose_) {
             pose_fixed = std::move(pose_);
             fixed = true;
         }
-
+        //将初始化的pose通过move转移给pose_odom，并调用add_frame()函数，将valid_frame（记录有效帧的值）+1
+        //这里是不是应该用一个static变量记录valid_frames？
         inline void set_init(gtsam::Pose3 pose_) {
             pose_odom = std::move(pose_);
             add_frame();
@@ -210,7 +211,7 @@ namespace tools {
         inline void add_frame() {
             ++valid_frames;
         }
-
+        //判断本帧是否经过优化
         inline bool is_fixed() const {
             return fixed;
         }
@@ -219,30 +220,33 @@ namespace tools {
             return valid_frames > 0;
         }
     };
-
+    //关键帧vector数据结构，存储所有的关键帧；此处的fixed是指关键帧的位姿已经被optimized过了
     class KeyframeVec {
     public:
-        using Ptr = std::shared_ptr<KeyframeVec>;
+        using Ptr = std::shared_ptr<KeyframeVec>; //别名，typedef
     public:
-        mutable std::shared_mutex pose_mtx;
-        std::vector<Keyframe::Ptr> keyframes;
+        mutable std::shared_mutex pose_mtx; //mutable修饰的变量永远可变，即使在一个const函数当中
+        std::vector<Keyframe::Ptr> keyframes; //存储所有关键帧的vector
     public:
         // read poses that are inited or fixed
+        //给定begin和end两个序号，读取之间的所有pose
         std::vector<gtsam::Pose3> read_poses(size_t begin, size_t end, bool need_fixed = false) const {
+            //取值范围异常处理
             if (begin >= end || end > keyframes.size()) {
 //                std::cerr << "read_poses invalid range" << std::endl;
                 return {};
             }
-
+            //位姿存储vector
             std::vector<gtsam::Pose3> poseVec;
-
+            //加锁
             std::shared_lock<std::shared_mutex> sl(pose_mtx);
+            //循环遍历
             for (size_t i = begin; i < end; i++) {
-                if (need_fixed) {
+                if (need_fixed) { //需要pose是Optimize过的，只插入is_fixed（被优化过）为true的关键帧
                     if (keyframes[i]->is_fixed()) {
                         poseVec.emplace_back(keyframes[i]->pose_fixed);
                     }
-                } else {
+                } else {//不需要是优化过的，只要keyframe是初始化过的，就可以插入
                     if (keyframes[i]->is_init()) {
                         poseVec.emplace_back(keyframes[i]->pose_odom);
                     }
@@ -254,12 +258,13 @@ namespace tools {
 
         // read pose that is inited, not require fixed
         gtsam::Pose3 read_pose(size_t index, Type type) const {
+            //边界异常处理，返回默认值
             if (index > keyframes.size()) {
                 std::cerr << "read_pose invalid range: " << index << ", but size is " <<
                 keyframes.size() << std::endl;
                 return gtsam::Pose3();
             }
-
+            //Type为Odom即未优化，只要该帧是init后的即返回pose_odom，否则提示错误并返回默认初值
             if (type == Type::Odom) {
                 if (keyframes[index]->is_init()) {
                     std::shared_lock<std::shared_mutex> sl(pose_mtx);
@@ -268,6 +273,7 @@ namespace tools {
                     std::cerr << "read pose_odom fail, pose not init!" << std::endl;
                     return gtsam::Pose3();
                 }
+                //Type为Optimized，判断位姿是否修正过（fixed），如果没有则报错返回默认值
             } else if (type == Type::Opti) {
                 if (keyframes[index]->is_fixed()) {
                     std::shared_lock<std::shared_mutex> sl(pose_mtx);
@@ -278,18 +284,21 @@ namespace tools {
                 }
             } else {
                 std::shared_lock<std::shared_mutex> sl(pose_mtx);
-                return keyframes[index]->pose_last_curr;
+                return keyframes[index]->pose_last_curr; //返回相对上一帧的位姿变化量（即变换矩阵）
             }
         }
 
         // read pose that is inited, not require fixed
+        // 读取初始化后但是否优化可选择的位姿
         gtsam::Pose3 read_pose(size_t index, bool need_fixed = false) const {
+            //输入非法检测
             if (index > keyframes.size()) {
                 std::cerr << "read_pose invalid range" << std::endl;
                 return gtsam::Pose3();
             }
-
+            //需要优化
             if (need_fixed) {
+                //判断是否优化
                 if (keyframes[index]->is_fixed()) {
                     std::shared_lock<std::shared_mutex> sl(pose_mtx);
                     return keyframes[index]->pose_fixed;
@@ -297,7 +306,9 @@ namespace tools {
                     std::cerr << "pose not fixed!" << std::endl;
                     return gtsam::Pose3();
                 }
+                //不需要优化
             } else {
+                //是否初始化
                 if (keyframes[index]->is_init()) {
                     std::shared_lock<std::shared_mutex> sl(pose_mtx);
                     return keyframes[index]->pose_odom;

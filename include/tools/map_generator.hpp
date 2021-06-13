@@ -15,52 +15,57 @@
 
 namespace tools
 {
+    //生成地图
     class MapGenerator {
     private:
-        mutable std::mutex mtx;
-        pcl::PointCloud<PointT>::Ptr map;
-        pcl::VoxelGrid<PointT> v;
+        mutable std::mutex mtx; //锁
+        pcl::PointCloud<PointT>::Ptr map; //点云指针
+        pcl::VoxelGrid<PointT> v; //体素下采样过滤器
     public:
         MapGenerator() : map(new pcl::PointCloud<PointT>())
         {
 
         }
-
+        //加锁然后调用点云指针的clear函数
         void clear() {
             std::lock_guard<std::mutex> lg(mtx);
             map->clear();
         }
-
+        //插入
         void insert(KeyframeVec::Ptr keyframeVec, size_t begin, size_t end) {
             std::lock_guard<std::mutex> lg(mtx);
             if (begin >= end) {
                 return;
             }
-
+            //map为空指针，则先扩充map的空间
             if (map->empty()) {
                 map->reserve(keyframeVec->keyframes[begin]->raw->size() * (end - begin));
             }
 
-            // read lock
+            // read lock，带锁将给定范围内的位姿读取到vector中
             std::vector<gtsam::Pose3> poseVec = keyframeVec->read_poses(begin, end, true);
-
+            //遍历所有帧
             for (size_t i = 0; i < poseVec.size(); i++) {
+                //读取关键帧
                 Keyframe::Ptr keyframe = keyframeVec->keyframes[i + begin];
+                //转换成位姿
                 Eigen::Affine3f pose(Eigen::Matrix4f(poseVec[i].matrix().cast<float>()));
-
+                //对所有的点
                 for(const auto& src_pt : keyframe->raw->points) {
+                    //插入到map中
                     map->push_back(pcl::transformPoint(src_pt, pose));
                 }
             }
         }
 
+        //
         pcl::PointCloud<PointT>::Ptr get(float resolution = 0.0f) {
             std::lock_guard<std::mutex> lg(mtx);
             pcl::PointCloud<PointT>::Ptr map_out;
             map_out = map->makeShared();
 
             v.setInputCloud(map_out);
-            v.filter(*map_out);
+            v.filter(*map_out); //降采样?
 //            down_sampling_voxel(*map_out, resolution);
             return map_out;
         }

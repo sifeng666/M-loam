@@ -108,7 +108,7 @@ namespace tools
         }
         return result;
     }
-
+    //获取图优化中的信息矩阵
     static Eigen::Matrix6d GetInformationMatrixFromPointClouds(
             pcl::PointCloud<PointT>::Ptr source,
             pcl::PointCloud<PointT>::Ptr target,
