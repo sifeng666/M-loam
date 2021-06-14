@@ -574,6 +574,7 @@ void LidarSensor::initParam() {
     frameChannel = std::make_shared<Channel<Frame::Ptr>>(); //原始数据下odom
     BAKeyframeChannel = std::make_shared<Channel<Keyframe::Ptr>>();//加了BA的odom
     MargiKeyframeChannel = std::make_shared<Channel<Keyframe::Ptr>>();//BALM to loopfactor & gtsam 加了回环检测？
+    //using FactorPtr = gtsam::NonlinearFactor::shared_ptr;//非线性优化因子的智能指针
     factorsChannel = std::make_shared<Channel<FactorPtr>>();//loopfactor to gtsam
 
     //边和平面的高斯模型
@@ -656,7 +657,7 @@ void LidarSensor::update_keyframe(const ros::Time &cloud_in_time,
     keyframeVec->keyframes.emplace_back(current_keyframe);
     is_keyframe_next = false;
 }
-//往BA的图优化中插入odom的因子？
+//在给定的两个index的frame之间插入Odom factor，同时更新BAGrpah和BAEstimate
 void LidarSensor::addOdomFactor(int last_index, int curr_index) {
 
     using namespace gtsam;
@@ -701,7 +702,7 @@ void LidarSensor::addOdomFactor(int last_index, int curr_index) {
 
 }
 
-//BALM的后端，应该是将keyframes_buf中的所有帧都优化，并输入到fixedKeyframes_buf中去
+//BALM的后端，应该是将keyframes_buf中的所有帧都优化，并输出为fixedKeyframes_buf中去
 void LidarSensor::BALM_backend(const std::vector<Keyframe::Ptr> &keyframes_buf,
                                std::vector<Keyframe::Ptr> &fixedKeyframes_buf) {
     //遍历所有帧并处理
@@ -838,12 +839,16 @@ void LidarSensor::loop_detect_thread() {
         std::vector<Keyframe::Ptr> fixedKeyframes_buf = MargiKeyframeChannel->get_all();
 
         std::vector<FactorPtr> factors;
+        //遍历所有帧找当前帧的回环
         for (const auto &keyframe: fixedKeyframes_buf) {
+            //loopdetector找到回环则返回true,factors可能包含大于一个符合回环的，因此要遍历
             if (loopDetector.loop_detector(keyframeVec, keyframe, factors,
                                            last_loop_found_index)) {
+                //遍历插入所有找到的回环因子到factorsChannel中
                 for (const auto &factor: factors) {
                     factorsChannel->push(factor);
                 }
+                //更新status中的全局变量，上一次找到回环的index
                 status->last_loop_found_index = max(status->last_loop_found_index, last_loop_found_index);
             }
         }
@@ -860,28 +865,31 @@ void LidarSensor::BA_optimization() {
     int last_index = -1;
 
     while (ros::ok()) {
-
+        //提取所有的关键帧，keyframes_buf类型为vector；提取后Channel内的queue清空
         auto keyframes_buf = BAKeyframeChannel->get_all();
-
+        //keyframe的vector不为空 或者 回环因子的channel不为空， 则继续处理
         if (!keyframes_buf.empty() || !factorsChannel->empty()) {
             std::vector<Keyframe::Ptr> margiKeyframes;
             // from balm backend
+            //调用balm后端，将keyframes_buf中的所有帧都优化，并输出为margiKeyframes
             BALM_backend(keyframes_buf, margiKeyframes);
 
             // deal with fixed keyframes with factorGraph
+            //BALM后的关键帧vector不为空，则遍历
             if (!margiKeyframes.empty()) {
                 for (const auto &keyframe: margiKeyframes) {
                     int curr_index = keyframe->index;
-                    addOdomFactor(last_index, curr_index);
+                    addOdomFactor(last_index, curr_index); //将关键帧遍历插入到待优化的因子图中
                     last_index = curr_index;
-                    if (need_loop) {
-                        MargiKeyframeChannel->push(keyframe);
+                    if (need_loop) { //默认为true
+                        MargiKeyframeChannel->push(keyframe); //将当前帧插入到经过baLM+gtsam因子图优化后的channel里面
                     }
                 }
             }
             bool has_loop = false;
-            if (!factorsChannel->empty()) {
-                auto vec = factorsChannel->get_all();
+            if (!factorsChannel->empty()) { //回环因子图不为空
+                auto vec = factorsChannel->get_all(); //提取所有factors，此时factorsChannel中的buff提取后为空
+                //遍历插入到BAGraph中
                 for (const auto &factor : vec) {
                     BAGraph.add(factor);
                 }
@@ -891,11 +899,14 @@ void LidarSensor::BA_optimization() {
             // isam update
             isam->update(BAGraph, BAEstimate);
             isam->update();
+            //isamOptimize类型为gtsam::Values，初始值容器
             isamOptimize = isam->calculateEstimate();
 
+            //重制BAGraph和BAEstimate
             BAGraph.resize(0);
             BAEstimate.clear();
 
+            //上面通过factorsChannels来判断是否具有回环
             if (has_loop) {
                 status->status_change = true;
             }
@@ -903,13 +914,15 @@ void LidarSensor::BA_optimization() {
             {   // write lock
                 std::unique_lock<std::shared_mutex> ul(keyframeVec->pose_mtx);
                 for (size_t i = 0; i < isamOptimize.size(); i++) {
+                    //将isamOptimize的结果赋值给keyframeVec对应序号的keyframe的位姿（同时会设置为fixed）
                     keyframeVec->at(i)->set_fixed(isamOptimize.at<gtsam::Pose3>(X(i)));
                 }
             }
+            //提取优化前后的位姿
             auto T_opti = keyframeVec->read_pose(isamOptimize.size() - 1, true);
             auto T_before = keyframeVec->read_pose(isamOptimize.size() - 1, false);
             T_lock0.lock();
-            T_w_wmap = pose_normalize(T_opti * T_before.inverse());
+            T_w_wmap = pose_normalize(T_opti * T_before.inverse()); //？？
             T_lock0.unlock();
             // debug
 //            auto poseVec = keyframeVec->read_poses(0, keyframeVec->size(), true);

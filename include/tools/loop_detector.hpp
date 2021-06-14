@@ -24,7 +24,7 @@ namespace tools
         int last_loop_found_index = 0;
 
         // loop hyper parameter
-        double fitness_thres_;
+        double fitness_thres_; //判断是否配准成功的阈值，越小越好
         int loop_detect_distance_; //回环检测距离，小于这个值则有可能产生回环
         int loop_found_sleep_; //距离上次回环检测的间隔，比如10和2中找到了回环，10后面的10帧都跳过回环检测
         int loop_submap_length_;//规定子图的大小，用于跳过靠近的帧之间的回环检测
@@ -61,7 +61,7 @@ namespace tools
 
         bool loop_detector(KeyframeVec::Ptr keyframeVec, //关键帧的vector
                            Keyframe::Ptr curr_keyframe, //当前关键帧
-                           vector<FactorPtr>& loopFactors, //回环因子？
+                           vector<FactorPtr>& loopFactors, //输出，找到的回环因子（可能不止一个）
                            int& last_found_index) //最后找到回环的index
         {
             int curr_index = curr_keyframe->index;  //当前的index
@@ -102,18 +102,20 @@ namespace tools
             int success_loop_count = 0;
             //min的作用是当candidates矩阵为空时跳过for循环?否则也是只遍历一次，即只取最前面（距离最小）的帧
             for (int i = 0; i < min(1, int(candidates.size())); i++) {
-                int closestKeyIdx = candidates[i].first;
+                int closestKeyIdx = candidates[i].first; //候选帧的序号
                 cout << "####################################" << endl;
                 cout << "[loop] detecting: " << curr_index << " and " << closestKeyIdx << ", distance is " << candidates[i].second << endl;
                 cout << "####################################" << endl;
-                int submap_start = max(0, closestKeyIdx - loop_submap_length_);
-                int submap_end   = min(closestKeyIdx + loop_submap_length_, curr_index - loop_skip_last_);
-
+                int submap_start = max(0, closestKeyIdx - loop_submap_length_); //跳过过于靠近当前帧的帧再开始匹配
+                int submap_end   = min(closestKeyIdx + loop_submap_length_, curr_index - loop_skip_last_); //跳过过于靠近当前帧的帧或者是刚找到回环的再开始匹配
+                //生成给定区间内所有原始点云集合成的submap
                 auto submap_pcd = MapGenerator::generate_cloud(keyframeVec, submap_start, submap_end + 1, FeatureType::Full);
+                //基于候选帧的位姿的刚体变换，将submap_pcd点云进行旋转+平移的刚体变换；三个参数分别为（输入点云，输出点云，变换矩阵）
                 pcl::transformPointCloud(*submap_pcd, *submap_pcd, poseVec[closestKeyIdx].inverse().matrix());
+                //当前帧的点云
                 auto curr_pcd = keyframeVec->keyframes[curr_index]->raw->makeShared();
 
-
+                //对两帧用于比较的点云降采样
                 pcl::VoxelGrid<PointT> f;
                 f.setLeafSize(0.2, 0.2, 0.2);
                 f.setInputCloud(submap_pcd);
@@ -121,10 +123,12 @@ namespace tools
                 f.setInputCloud(curr_pcd);
                 f.filter(*curr_pcd);
 
+                //求解候选帧id对应的位姿和当前位姿之间的变换矩阵？
                 Eigen::Matrix4d pose_closest_curr(poseVec[closestKeyIdx].between(curr_pose).matrix());
                 pose_closest_curr(14) = 0.0; // planar assumption
                 Eigen::Matrix4d pose_closest_curr_final;
                 // fast gicp, refer to "Voxelized GICP for fast and accurate 3D point cloud registration, ICRA2021", this version is faster by using multiple CPU, but result is not as good as normal one
+                //fast GICP配准，参数分别为（点云1，点云2，变换矩阵，Identity()?，对应点对的最大距离，配准成功阈值）；配准成功返回true
                 bool ok = tools::FastGeneralizedRegistration(curr_pcd, submap_pcd, pose_closest_curr_final, pose_closest_curr, 2.0, fitness_thres_);
                 // // gicp from PCL standard library, using one CPU, not that slow but resulting better
                 // bool ok = tools::GeneralizedRegistration(curr_pcd, submap_pcd, pose_closest_curr_final, pose_closest_curr, 2.0, fitness_thres_);
@@ -154,10 +158,10 @@ namespace tools
                 //     debug_count++;
                 // }
 
-                 if (!ok) {
+                 if (!ok) { //没有配准成功，即没有找到回环
                      continue;
                  }
-
+                //信息矩阵
                 auto information = tools::GetInformationMatrixFromPointClouds(curr_pcd, submap_pcd, 2.0, pose_closest_curr_final);
                 // auto loop_model = gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(6) << 1e-3, 1e-3, 1e-3, 1e-2, 1e-2, 1e-1).finished());
                 // cout << "loop information:\n" << information << endl;
@@ -165,7 +169,7 @@ namespace tools
                 // f_loop << closestKeyIdx << " " << curr_index << endl;
                 // f_loop << pose_closest_curr_final << endl;
                 // f_loop << information << endl;
-
+                //找到回环，则插入到回环vector loopFactors中
                 loopFactors.emplace_back(new gtsam::BetweenFactor<gtsam::Pose3>(
                         X(closestKeyIdx),
                         X(curr_index),
@@ -176,7 +180,7 @@ namespace tools
                 printf("add loop factor: [%d] and [%d]\n", curr_index, closestKeyIdx);
                 success_loop_count++;
             }
-
+            //找到回环，更新回环相关的全局参数
             if (success_loop_count > 0) {
                 last_loop_found_index = curr_index;
                 last_found_index = last_loop_found_index;

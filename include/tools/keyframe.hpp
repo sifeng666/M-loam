@@ -83,29 +83,30 @@ namespace tools {
                 surf_features(surf), raw(raw_), pose_w_curr(pose) {}
     };
 
+    //带锁地执行T类型的buf序列的插入提取等操作
     template<class T>
     class Channel {
     public:
-        using Ptr = std::shared_ptr<Channel>;
+        using Ptr = std::shared_ptr<Channel>; //数据结构的指针
     private:
-        std::mutex mtx;
-        std::queue<T> buf;
+        std::mutex mtx; //加锁
+        std::queue<T> buf; //T类型的队列
     public:
-        inline void lock() {
+        inline void lock() { //加锁
             mtx.lock();
         }
 
-        inline void unlock() {
+        inline void unlock() { //解锁
             mtx.unlock();
         }
 
-        inline void push(T frame) {
+        inline void push(T frame) { //带锁地将帧插入到buf中
             lock();
             buf.push(frame);
             unlock();
         }
 
-        inline void clear() {
+        inline void clear() { //带锁地清空帧
             lock();
             while (!buf.empty()) {
                 buf.pop();
@@ -113,7 +114,7 @@ namespace tools {
             unlock();
         }
 
-        inline T get_front() {
+        inline T get_front() { //带锁拿到该channel的buff中的头帧
             T t = nullptr;
             lock();
             if (!buf.empty()) {
@@ -124,7 +125,7 @@ namespace tools {
             return t;
         }
 
-        inline std::vector<T> get_all() {
+        inline std::vector<T> get_all() { //将buf中的所有帧提取，而且清空buf
             std::vector<T> vec;
             lock();
             while (!buf.empty()) {
@@ -135,7 +136,7 @@ namespace tools {
             return vec;
         }
 
-        inline bool empty() {
+        inline bool empty() { //判断该帧是否为空
             std::lock_guard lg(mtx);
             return buf.empty();
         }

@@ -169,12 +169,12 @@ namespace tools
     //快速通用配准，应该是应用于两个点云进行配准
     //
     static bool FastGeneralizedRegistration(
-            pcl::PointCloud<PointT>::Ptr source,
-            pcl::PointCloud<PointT>::Ptr target,
-            Eigen::Matrix4d& final,
+            pcl::PointCloud<PointT>::Ptr source, //对齐点云1
+            pcl::PointCloud<PointT>::Ptr target, //对齐点云2
+            Eigen::Matrix4d& final, //变换矩阵（输出）
             const Eigen::Matrix4d& init_guess = Eigen::Matrix4d::Identity(),
-            double max_correspondence_distance = 0.5,
-            double fitness_thres = 0.8) {
+            double max_correspondence_distance = 0.5, //对应点对之间的最大距离
+            double fitness_thres = 0.8) { //判断是否配准成功的阈值，越小越好
 
         fast_gicp::FastGICP<PointT, PointT> gicp; //快速精确的体素三维点云配准算法fast_gicp
         gicp.setNumThreads(0); //线程数量
@@ -187,7 +187,8 @@ namespace tools
         gicp.setInputSource(source);
         gicp.setInputTarget(target);
 
-        pcl::PointCloud<PointT>::Ptr unused_result(new pcl::PointCloud<PointT>());
+        // 计算需要的刚体变换以便将输入的源点云匹配到目标点云
+        pcl::PointCloud<PointT>::Ptr unused_result(new pcl::PointCloud<PointT>()); //新点云指针
         gicp.align(*unused_result, init_guess.cast<float>());
 
         if (!gicp.hasConverged()) { //获取GICP匹配得到的变换矩阵T
@@ -195,7 +196,7 @@ namespace tools
         }
         printf("fitness score: %f\n", gicp.getFitnessScore());
 
-        if (gicp.getFitnessScore() > fitness_thres) { //阈值，设置成0.8
+        if (gicp.getFitnessScore() > fitness_thres) { //阈值，设置成0.8；数值越小越好
             return false;
         }
 
