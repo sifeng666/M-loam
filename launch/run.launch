@@ -1,24 +1,29 @@
 <launch>
-    
+
+    <!--self-record bag launch-->
+
     <param name="/use_sim_time" value="ture"/>
-    <node pkg="rosbag" type="play" name="playbag" args="--clock /home/ziv/sunshine_dateset/loop.bag
+    <!--modify rosbag path and filename-->
+    <node pkg="rosbag" type="play" name="playbag" args="--clock /home/ziv/sunshine_dateset/loop250.bag
          /ns1/rslidar_points:=/velodyne_points
          /rslidar_points:=/velodyne_points
          /points_raw:=/velodyne_points
     "/>
 
-    <param name="file_save_path" type="string" value="/home/ziv/mloam/5g/" />
+    <!--some temporary files and important log will save here-->
+    <param name="file_save_path" type="string" value="/home/ziv/mloam/5g/250/0.3/" />
 
-    <param name="scan_line" type="int" value=" 16" />
+    <!--some parameters-->
+    <param name="scan_line" type="int" value=" 16" />                       <!--important-->
     <param name="min_dis" type="double" value="0.1" />
     <param name="max_dis" type="double" value="100.0" />
-    <param name="surf_filter_length" type="double" value="0.3"/>
-    <param name="corn_filter_length" type="double" value="0.1"/>
-    <param name="keyframe_distance_threshold" type="double" value="1.2" />
-    <param name="keyframe_angle_threshold" type="double" value="0.1" />
+    <param name="surf_filter_length" type="double" value="0.3"/>            <!--usually 0.4, 0.6, 0.8-->
+    <param name="corn_filter_length" type="double" value="0.1"/>            <!--usually 0.1, 0.2-->
+    <param name="keyframe_distance_threshold" type="double" value="1" />    <!--usually 1, 2, 3-->
+    <param name="keyframe_angle_threshold" type="double" value="0.1" />     <!--usually 0.1, 0.15, 0.3-->
     <param name="save_map_resolution" type="double" value="0.05" />
     <param name="show_map_resolution" type="double" value="0.25" />
-    <param name="gicp_fitness_socre" type="double" value="0.8" />
+    <param name="gicp_fitness_socre" type="double" value="0.8" />           <!--usually 0.5, 0.8, 1.2, depends on loop quality-->
     <!--loop-->
     <param name="need_loop" type="bool" value="false" />
     <param name="loop_submap_length" type="int" value="10" />
@@ -26,9 +31,12 @@
     <param name="loop_found_sleep" type="int" value="20" />
     <param name="loop_skip_last" type="int" value="50" />
 
-    <param name="mapping_method" type="int" value="0" />
+    <param name="mapping_method" type="int" value="0" />                    <!--0 or 1, 0 is feature-based, 1 is GICP-->
     <param name="submap_len" type="int" value="10" />
-    <param name="n_scans" type="int" value="3" />
+    <param name="n_scans" type="int" value="5" />
+
+    <param name="interval" type="int" value="20" />
+    <param name="sustain" type="int" value="5" />
 
     <param name="set_latency" type="bool" value="true" />
 
@@ -38,7 +46,7 @@
 
     <node pkg="mloam" type="latencyMaker" name="latencyMaker" output="screen" />
 
-    <arg name="rviz" default="true" />
+    <arg name="rviz" default="false" />
     <group if="$(arg rviz)">
         <node launch-prefix="nice" pkg="rviz" type="rviz" name="rviz" args="-d $(find mloam)/rviz/show.rviz" />
     </group>

@@ -108,6 +108,12 @@ public:
         apose_raw.pose.position.z = lidarInfo->odom_raw.translation().z();
         parray_path_raw.poses.push_back(apose_raw);
 
+        // write to file
+        f_odom_raw << setprecision(20) << double(lidarInfo->ros_time.toNSec())/1e9 << " "
+               << lidarInfo->odom_raw.translation().x() << " " << lidarInfo->odom_raw.translation().y()
+               << " " << lidarInfo->odom_raw.translation().z() << " " << q_raw.x()
+               << " " << q_raw.y() << " " << q_raw.z() << " " << q_raw.w() << endl;
+
         lidarInfo->pub_odom.publish(parray_path_odom);
         lidarInfo->pub_odom_raw.publish(parray_path_raw);
     }
@@ -182,24 +188,24 @@ public:
     }
 
     void save_map_handler(const std_msgs::StringConstPtr& str) {
-        TicToc t_save;
-        string data = str->data;
-        cout << "std_msgs string: " << data << endl;
-        if (data.size() - data.find(".pcd") == 4) {
-            data = str->data;
-        } else {
-            data += ".pcd";
-        }
-        cout << "save path: " << file_save_path + data << endl;
-        _mkdir(file_save_path + data);
-        auto map = MapGenerator::generate_cloud(lidarInfo->keyframeVec, 0, lidarInfo->keyframeVec->size(), FeatureType::Full, true);
-        if (map) {
-            pcl::io::savePCDFileASCII(file_save_path + data, *map);
-            printf("global map save! cost: %.3f ms\n", t_save.toc());
-        }
+//        TicToc t_save;
+//        string data = str->data;
+//        cout << "std_msgs string: " << data << endl;
+//        if (data.size() - data.find(".pcd") == 4) {
+//            data = str->data;
+//        } else {
+//            data += ".pcd";
+//        }
+//        cout << "save path: " << file_save_path + data << endl;
+//        _mkdir(file_save_path + data);
+//        auto map = MapGenerator::generate_cloud(lidarInfo->keyframeVec, 0, lidarInfo->keyframeVec->size(), FeatureType::Full, true);
+//        if (map) {
+//            pcl::io::savePCDFileASCII(file_save_path + data, *map);
+//            printf("global map save! cost: %.3f ms\n", t_save.toc());
+//        }
 
-        _mkdir(file_save_path + "compare/opti_pose.txt");
-        std::ofstream f_mapping_pose(file_save_path + "compare/opti_pose.txt");
+        _mkdir(file_save_path + "opti_pose.txt");
+        std::ofstream f_mapping_pose(file_save_path + "opti_pose.txt");
         for (int i = 0; i < lidarInfo->keyframeVec->size(); i++) {
 //            f_mapping_pose << 1 << ": " << lidarInfo->keyframeVec->at(i)->cloud_in_time.toNSec() << endl << lidarInfo->keyframeVec->at(i)->pose_fixed.matrix() << endl;
             Eigen::Quaterniond q(lidarInfo->keyframeVec->at(i)->pose_fixed.rotation().matrix());
@@ -262,6 +268,7 @@ public:
                 lidarInfo->reader.unlock();
 
                 lidarInfo->odom = lidarSensor.update_odom(lidarInfo->ros_time, cloud_in_less_edge, cloud_in_less_surf, cloud_raw, lidarInfo->odom_raw);
+                f_odom_time << tic.toc() << endl;
                 pubOdomAndRawOdom(lidarInfo);
                 printf("[Odometry]: %.3f ms\n", tic.toc());
 
@@ -279,11 +286,12 @@ public:
 
             auto frame = frameChannel->get_front();
             if (!frame) continue;
-            frameChannel->clear();
+//            frameChannel->clear();
 
             TicToc t_mapping;
 
             auto odom = lidarSensor.update_mapping(frame);
+            f_mapping_time << t_mapping.toc() << endl;
             pubOptiOdom(lidarInfo);
             pubRawPointCloud(lidarInfo, odom, frame->raw);
 
@@ -314,6 +322,9 @@ public:
         file_save_path = nh.param<std::string>("file_save_path", "");
         set_latency = nh.param<bool>("set_latency", false);
 
+        f_mapping_time.open(file_save_path + "time_ours.txt");
+        f_odom_time.open(file_save_path + "time_odom_ours.txt");
+
         global_map = pcl::PointCloud<PointT>::Ptr(new pcl::PointCloud<PointT>);
 
         // lidar 0 init
@@ -337,8 +348,15 @@ public:
         lidarInfo->sub_save_map = nh.subscribe<std_msgs::String>("/save_map", 1, &LaserOdometry::save_map_handler, this);
         lidarInfo->sub_latency = nh.subscribe<std_msgs::Int32>  ("/latency", 1, &LaserOdometry::latency_handler, this);
 
-        _mkdir(file_save_path + "compare/odom.txt");
-        f_odom.open(file_save_path + "compare/odom.txt");
+
+        int interval, sustain;
+        interval = nh.param<int>("interval", 5);
+        sustain = nh.param<int>("sustain", 2);
+
+        string file_name = file_save_path + to_string(interval) + "-" + to_string(sustain) + ".txt";
+        _mkdir(file_name);
+        f_odom.open(file_name);
+        f_odom_raw.open(file_save_path + "raw.txt");
 
     }
 
@@ -359,7 +377,10 @@ private:
     std::string file_save_path;
     bool set_latency;
     LatencyBuf latencyBuf;
-    std::ofstream f_odom;
+    std::ofstream f_odom, f_odom_raw;
+
+    std::ofstream f_mapping_time;
+    std::ofstream f_odom_time;
 
 };
 

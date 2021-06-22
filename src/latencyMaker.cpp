@@ -20,20 +20,20 @@ int main(int argc, char **argv) {
     ros::Publisher publisher;
     publisher = nh.advertise<std_msgs::Int32>("/latency", 1);
 
-    int good_time = 20;
-    int bad_time = 3;
+    int interval, sustain;
+    interval = nh.param<int>("interval", 5);
+    sustain = nh.param<int>("sustain", 2);
 
-
-    int first_good_time =  30;
+    int first_good_time =  20;
     ros::Duration(first_good_time).sleep();
     while (ros::ok()) {
 
         std_msgs::Int32 data;
-        data.data = bad_time * 1000;
+        data.data = sustain * 1000;
         publisher.publish(data);
 
         ros::spinOnce();
-        ros::Duration(good_time).sleep();
+        ros::Duration(interval).sleep();
     }
 
     return 0;

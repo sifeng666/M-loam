@@ -1,33 +1,38 @@
 <launch>
-    
+
+    <!--kiiti bag launch-->
+
     <param name="/use_sim_time" value="ture"/>
-    <node pkg="rosbag" type="play" name="playbag" args="--clock /home/ziv/sunshine_dateset/kitti/seq07.bag
+    <!--modify rosbag path and filename-->
+    <node pkg="rosbag" type="play" name="playbag" args="--clock /home/ziv/sunshine_dateset/kitti/seq05.bag
          /ns1/rslidar_points:=/velodyne_points
          /rslidar_points:=/velodyne_points
          /points_raw:=/velodyne_points
          /kitti/velo/pointcloud:=/velodyne_points
     "/>
 
-    <param name="file_save_path" type="string" value="/home/ziv/mloam/5g/kitti/" />
+    <!--some temporary files and important log will save here-->
+    <param name="file_save_path" type="string" value="/home/ziv/mloam/5g/kitti/seq05/" />
 
-    <param name="scan_line" type="int" value="64" />
+    <!--some parameters-->
+    <param name="scan_line" type="int" value="64" />                        <!--important-->
     <param name="min_dis" type="double" value="0.2" />
     <param name="max_dis" type="double" value="120.0" />
-    <param name="surf_filter_length" type="double" value="0.4"/>
-    <param name="corn_filter_length" type="double" value="0.2"/>
-    <param name="keyframe_distance_threshold" type="double" value="2" />
-    <param name="keyframe_angle_threshold" type="double" value="0.1" />
+    <param name="surf_filter_length" type="double" value="0.4"/>            <!--usually 0.3, 0.4, 0.6, 0.8-->
+    <param name="corn_filter_length" type="double" value="0.1"/>            <!--usually 0.1, 0.2-->
+    <param name="keyframe_distance_threshold" type="double" value="2" />    <!--usually 1, 2, 3-->
+    <param name="keyframe_angle_threshold" type="double" value="0.1" />     <!--usually 0.1, 0.15, 0.3-->
     <param name="save_map_resolution" type="double" value="0.05" />
     <param name="show_map_resolution" type="double" value="0.3" />
-    <param name="gicp_fitness_socre" type="double" value="1.2" />
+    <param name="gicp_fitness_socre" type="double" value="1.2" />           <!--usually 0.5, 0.8, 1.2, depends on loop quality-->
     <!--loop-->
     <param name="need_loop" type="bool" value="true" />
-    <param name="loop_submap_length" type="int" value="6" />
+    <param name="loop_submap_length" type="int" value="5" />
     <param name="loop_detect_distance" type="int" value="15" />
     <param name="loop_found_sleep" type="int" value="10" />
     <param name="loop_skip_last" type="int" value="50" />
 
-    <param name="mapping_method" type="int" value="0" />
+    <param name="mapping_method" type="int" value="0" />                    <!--0 or 1, 0 is feature-based, 1 is GICP-->
     <param name="submap_len" type="int" value="10" />
     <param name="n_scans" type="int" value="3" />
 
