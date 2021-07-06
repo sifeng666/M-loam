@@ -286,7 +286,7 @@ public:
 
             auto frame = frameChannel->get_front();
             if (!frame) continue;
-//            frameChannel->clear();
+            frameChannel->clear();
 
             TicToc t_mapping;
 

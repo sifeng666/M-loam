@@ -17,9 +17,9 @@
     <param name="scan_line" type="int" value=" 16" />                       <!--important-->
     <param name="min_dis" type="double" value="0.1" />
     <param name="max_dis" type="double" value="100.0" />
-    <param name="surf_filter_length" type="double" value="0.3"/>            <!--usually 0.4, 0.6, 0.8-->
+    <param name="surf_filter_length" type="double" value="0.2"/>            <!--usually 0.4, 0.6, 0.8-->
     <param name="corn_filter_length" type="double" value="0.1"/>            <!--usually 0.1, 0.2-->
-    <param name="keyframe_distance_threshold" type="double" value="1" />    <!--usually 1, 2, 3-->
+    <param name="keyframe_distance_threshold" type="double" value="0.8" />    <!--usually 1, 2, 3-->
     <param name="keyframe_angle_threshold" type="double" value="0.1" />     <!--usually 0.1, 0.15, 0.3-->
     <param name="save_map_resolution" type="double" value="0.05" />
     <param name="show_map_resolution" type="double" value="0.25" />
@@ -35,8 +35,8 @@
     <param name="submap_len" type="int" value="10" />
     <param name="n_scans" type="int" value="5" />
 
-    <param name="interval" type="int" value="20" />
-    <param name="sustain" type="int" value="5" />
+    <param name="interval" type="int" value="5" />
+    <param name="sustain" type="int" value="2" />
 
     <param name="set_latency" type="bool" value="true" />
 
