@@ -2,7 +2,7 @@
 
     <!--self-record bag launch-->
 
-    <param name="/use_sim_time" value="ture"/>
+    <param name="/use_sim_time" value="true"/>
     <!--modify rosbag path and filename-->
     <node pkg="rosbag" type="play" name="playbag" args="--clock /home/ziv/sunshine_dateset/loop250.bag
          /ns1/rslidar_points:=/velodyne_points

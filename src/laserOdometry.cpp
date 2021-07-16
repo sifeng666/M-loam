@@ -188,21 +188,21 @@ public:
     }
 
     void save_map_handler(const std_msgs::StringConstPtr& str) {
-//        TicToc t_save;
-//        string data = str->data;
-//        cout << "std_msgs string: " << data << endl;
-//        if (data.size() - data.find(".pcd") == 4) {
-//            data = str->data;
-//        } else {
-//            data += ".pcd";
-//        }
-//        cout << "save path: " << file_save_path + data << endl;
-//        _mkdir(file_save_path + data);
-//        auto map = MapGenerator::generate_cloud(lidarInfo->keyframeVec, 0, lidarInfo->keyframeVec->size(), FeatureType::Full, true);
-//        if (map) {
-//            pcl::io::savePCDFileASCII(file_save_path + data, *map);
-//            printf("global map save! cost: %.3f ms\n", t_save.toc());
-//        }
+        TicToc t_save;
+        string data = str->data;
+        cout << "std_msgs string: " << data << endl;
+        if (data.size() - data.find(".pcd") == 4) {
+            data = str->data;
+        } else {
+            data += ".pcd";
+        }
+        cout << "save path: " << file_save_path + data << endl;
+        _mkdir(file_save_path + data);
+        auto map = MapGenerator::generate_cloud(lidarInfo->keyframeVec, 0, lidarInfo->keyframeVec->size(), FeatureType::Full, true);
+        if (map) {
+            pcl::io::savePCDFileASCII(file_save_path + data, *map);
+            printf("global map save! cost: %.3f ms\n", t_save.toc());
+        }
 
         _mkdir(file_save_path + "opti_pose.txt");
         std::ofstream f_mapping_pose(file_save_path + "opti_pose.txt");
